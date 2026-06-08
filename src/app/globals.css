@@ -132,7 +132,6 @@
   }
   body {
     @apply bg-background text-foreground;
-    -webkit-overflow-scrolling: touch;
     overflow-x: hidden;
   }
 }
@@ -1454,40 +1453,53 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   MOBILE GPU SCROLL GLITCH FIX
+   MOBILE GPU SCROLL GLITCH FIX — ULTRA AGGRESSIVE
    ═══════════════════════════════════════════════════════════
    MUST be at END of file so CSS cascade properly overrides
-   all desktop styles above (especially .glass backdrop-filter
-   and .card-hover/.match-card effects).
+   all desktop styles above.
 
-   ROOT CAUSE of upward-scroll glitch:
-   Mobile GPUs (Mali/Adreno) have limited VRAM. When scrolling
-   DOWN, new content enters from bottom and is composited fresh.
-   When scrolling UP, elements that left the viewport top need
-   to be re-composited rapidly — if they were in separate GPU
-   layers (from contain/will-change/backdrop-filter/transform),
-   the GPU runs out of texture memory and produces visual
-   corruption (red/blue noise, pixelation, color artifacts).
+   ROOT CAUSE (confirmed from user screenshots):
+   Mobile GPUs (Mali/Adreno) produce multicolored static/noise
+   artifacts when scrolling UP. This happens because:
+   1. Elements scrolled off-screen have their GPU textures freed
+   2. Scrolling up requires rapid re-compositing of many elements
+   3. GPU VRAM overflows, producing corrupted visual output
 
-   FIX STRATEGY:
-   1. NO `contain` — forces compositor layers that corrupt on re-entry
-   2. NO `content-visibility: auto` — skips rendering off-screen, causes flash on re-entry
-   3. NO `will-change` — promotes to GPU layer, overflows on scroll up
-   4. NO `backface-visibility: hidden` — creates separate layers
-   5. NO `backdrop-filter` — #1 GPU texture overflow cause
-   6. NO infinite animations — constant repaints compete with scroll compositing
-   7. NO `box-shadow` with large spread — expensive repaint during scroll
-   8. NO `transform` transitions on scrollable items — triggers layer promotion
+   This is a KNOWN issue on Android Chrome/WebView with:
+   - border-radius (creates clip paths → GPU layers)
+   - box-shadow (expensive repaint during scroll)
+   - backdrop-filter (GPU texture overflow #1 cause)
+   - transition/transform (layer promotion)
+   - overflow: hidden (clip layers)
+   - position: sticky (separate compositor layer)
+   - will-change / contain / content-visibility (layer hints)
+
+   FIX: Strip ALL GPU-triggering CSS on mobile. Use simple
+   borders for depth. Remove all animations. No transitions.
    ═══════════════════════════════════════════════════════════ */
 @media (max-width: 767px) {
-  /* ── Top Nav: disable backdrop-filter (was .glass) ── */
+  /* ── BODY & SCROLL: prevent GPU scroll issues ── */
+  body {
+    -webkit-overflow-scrolling: auto !important;
+  }
+  main {
+    overflow-anchor: none !important;
+    will-change: scroll-position !important;
+  }
+
+  /* ── GLASS/BACKDROP: completely disable on mobile ── */
   .glass {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
     background: var(--background) !important;
   }
+  [class*="backdrop-blur"],
+  [style*="backdrop-filter"] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
 
-  /* ── Channel Cards: flatten to simple boxes ── */
+  /* ── CHANNEL CARDS: flatten completely ── */
   .channel-card {
     will-change: auto !important;
     transform: none !important;
@@ -1501,6 +1513,8 @@ input[type="number"]::-webkit-outer-spin-button {
     -webkit-backface-visibility: visible !important;
     contain: none !important;
     content-visibility: visible !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
   }
   .channel-card:hover,
   .channel-card:active {
@@ -1515,12 +1529,11 @@ input[type="number"]::-webkit-outer-spin-button {
   .channel-card img {
     transform: none !important;
     -webkit-transform: none !important;
-    image-rendering: -webkit-optimize-contrast !important;
     backface-visibility: visible !important;
     -webkit-backface-visibility: visible !important;
   }
 
-  /* ── Card Hover: remove all GPU effects ── */
+  /* ── CARD HOVER: remove all GPU effects ── */
   .card-hover {
     will-change: auto !important;
     transform: none !important;
@@ -1530,23 +1543,25 @@ input[type="number"]::-webkit-outer-spin-button {
   }
   .card-hover:hover {
     transform: none !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
+    box-shadow: none !important;
   }
 
-  /* ── Grid containers: prevent GPU layer creation ── */
+  /* ── GRID CONTAINERS: no GPU hints ── */
   [class*="grid-cols"] {
     will-change: auto !important;
     transform: none !important;
   }
 
-  /* ── Match Cards: disable animations, contain, and GPU effects ── */
+  /* ── MATCH CARDS: disable all GPU effects ── */
   .match-card {
     will-change: auto !important;
     animation: none !important;
     transition: none !important;
     contain: none !important;
     content-visibility: visible !important;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
   }
   .match-card:hover,
   .match-card:active {
@@ -1575,7 +1590,7 @@ input[type="number"]::-webkit-outer-spin-button {
     animation: none !important;
   }
 
-  /* ── Hero animations: disable all for scroll perf ── */
+  /* ── HERO: disable all animations ── */
   .hero-new-circle,
   .hero-new-phone-image,
   .hero-new-title-brand,
@@ -1599,28 +1614,20 @@ input[type="number"]::-webkit-outer-spin-button {
     animation: none !important;
   }
 
-  /* ── Global: disable ALL backdrop-filter on mobile ── */
-  .glass,
-  [class*="backdrop-blur"],
-  [style*="backdrop-filter"] {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-
-  /* ── Buttons: prevent GPU layer creation ── */
+  /* ── BUTTONS: no GPU layer creation ── */
   button {
     backface-visibility: visible !important;
     -webkit-backface-visibility: visible !important;
   }
 
-  /* ── Scroll container: prevent scroll anchoring adjustments ── */
-  main {
-    overflow-anchor: none !important;
-  }
-
-  /* ── All images: prevent GPU promotion ── */
+  /* ── IMAGES: prevent GPU promotion ── */
   img {
     backface-visibility: visible !important;
     -webkit-backface-visibility: visible !important;
+  }
+
+  /* ── ANIMATE-PULSE: disable (skeleton loading) ── */
+  .animate-pulse {
+    animation: none !important;
   }
 }
