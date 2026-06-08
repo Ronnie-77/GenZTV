@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '@/lib/store'
 import { useMatches, useChannels } from '@/lib/hooks'
+import { fetchSettings } from '@/lib/api'
 import { MatchCard } from '@/components/matches/match-card'
 import { Play, Trophy, Globe, Antenna, ChevronRight, Tv, Zap, Download, Smartphone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,6 +11,12 @@ import Image from 'next/image'
 
 export function HomePage() {
   const { setCurrentPage } = useAppStore()
+
+  // Fetch APK URL from settings
+  const [apkUrl, setApkUrl] = useState('')
+  useEffect(() => {
+    fetchSettings().then(s => setApkUrl(s.apkUrl || '')).catch(() => {})
+  }, [])
 
   // Fetch real data from API
   const { matches: liveMatches, loading: loadingLive } = useMatches({ status: 'live' })
@@ -64,37 +71,6 @@ export function HomePage() {
         <div className="hero-new-content">
           {/* Left: Text Content */}
           <div className="hero-new-text">
-            {/* Classic TV Icon */}
-            <div className="hero-new-tv-icon">
-              <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-                {/* Antenna */}
-                <line className="tv-antenna-l" x1="18" y1="4" x2="24" y2="12" stroke="#E11D48" strokeWidth="2.2" strokeLinecap="round" />
-                <line className="tv-antenna-r" x1="30" y1="4" x2="24" y2="12" stroke="#14B8A6" strokeWidth="2.2" strokeLinecap="round" />
-                <circle className="tv-antenna-dot-l" cx="18" cy="3.5" r="1.5" fill="#E11D48" />
-                <circle className="tv-antenna-dot-r" cx="30" cy="3.5" r="1.5" fill="#14B8A6" />
-                {/* TV Body */}
-                <rect x="4" y="12" width="40" height="28" rx="4" stroke="#1E293B" strokeWidth="2.5" fill="none" />
-                {/* Screen */}
-                <rect className="tv-screen" x="8" y="16" width="24" height="18" rx="2" fill="url(#tvScreenGradIcon)" />
-                {/* Play button */}
-                <path className="tv-play" d="M16 20V30L24 25Z" fill="white" opacity="0.9" />
-                {/* Channel knob */}
-                <circle className="tv-knob-1" cx="37" cy="22" r="2" fill="#F97316" opacity="0.7" />
-                <circle className="tv-knob-2" cx="37" cy="30" r="2" fill="#EAB308" opacity="0.7" />
-                {/* Stand */}
-                <line x1="18" y1="40" x2="16" y2="45" stroke="#334155" strokeWidth="2" strokeLinecap="round" />
-                <line x1="30" y1="40" x2="32" y2="45" stroke="#334155" strokeWidth="2" strokeLinecap="round" />
-                {/* Gradient defs */}
-                <defs>
-                  <linearGradient id="tvScreenGradIcon" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#E11D48" />
-                    <stop offset="50%" stopColor="#F97316" />
-                    <stop offset="100%" stopColor="#EAB308" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
-
             {/* Title */}
             <h1 className="hero-new-title">
               <span className="hero-new-title-brand">GenZ</span>{' '}
@@ -171,19 +147,31 @@ export function HomePage() {
                 </p>
                 <button
                   className="hero-new-download-btn"
-                  onClick={() => window.open('https://play.google.com/store', '_blank')}
+                  onClick={() => {
+                    if (apkUrl) {
+                      const a = document.createElement('a')
+                      a.href = apkUrl
+                      a.download = ''
+                      a.click()
+                    }
+                  }}
                 >
                   <svg className="hero-new-android-icon" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M17.523 2.232l1.368-2.637c.14-.27-.065-.522-.307-.39l-1.395 2.69C15.852 1.198 14.478.75 13 .75s-2.852.448-4.189 1.145L7.416-.795c-.143-.133-.447.12-.307.39l1.368 2.637C5.731 3.746 4 6.303 4 9.25h18c0-2.947-1.731-5.504-4.477-7.018zM9.5 7.5a1 1 0 110-2 1 1 0 010 2zm7 0a1 1 0 110-2 1 1 0 010 2zM4 10.25h18v1H4v-1zm0 2h18c0 5.523-4.029 10-9 10s-9-4.477-9-10z"/>
                   </svg>
-                  <span>Download for Android</span>
-                  <Download className="h-4 w-4" />
+                  <span>{apkUrl ? 'Download APK' : 'Coming Soon'}</span>
+                  {apkUrl && <Download className="h-4 w-4" />}
                 </button>
               </div>
             </div>
           </div>
         </div>
       </section>
+
+      {/* ── Adsterra Ad Banner ── */}
+      <div className="px-4 md:px-6 lg:px-8 py-3 flex justify-center">
+        <AdsterraBanner />
+      </div>
 
       {/* ── Content Sections ── */}
       <div className="space-y-8 px-4 md:px-6 lg:px-8 py-6">
@@ -295,4 +283,23 @@ export function HomePage() {
       </div>
     </div>
   )
+}
+
+/* ── Adsterra Banner Component ── */
+function AdsterraBanner() {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!containerRef.current) return
+    // Avoid duplicate script injection on re-renders
+    if (containerRef.current.querySelector('script[data-adsterra]')) return
+
+    const script = document.createElement('script')
+    script.src = 'https://pl29635948.effectivecpmnetwork.com/89/67/a1/8967a1e3709cfc58a5e29ab94ca202a2.js'
+    script.async = true
+    script.setAttribute('data-adsterra', 'hero-banner')
+    containerRef.current.appendChild(script)
+  }, [])
+
+  return <div ref={containerRef} className="w-full max-w-4xl" />
 }

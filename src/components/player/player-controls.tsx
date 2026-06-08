@@ -29,6 +29,7 @@ interface PlayerControlsProps {
   isFullscreen: boolean
   onToggleFullscreen: () => void
   onTogglePiP?: () => void
+  onToggleControlsVisibility?: () => void
   title?: string
   isLive?: boolean
   isBehindLive?: boolean
@@ -61,6 +62,7 @@ export function PlayerControls({
   isFullscreen,
   onToggleFullscreen,
   onTogglePiP,
+  onToggleControlsVisibility,
   title,
   isLive,
   isBehindLive,
@@ -92,12 +94,19 @@ export function PlayerControls({
   }, [settingsOpen, onControlsBusy])
 
   const handleContainerClick = () => {
+    // Single click toggles controls visibility
+    // Double click toggles fullscreen
     clickCountRef.current += 1
 
     if (clickCountRef.current === 1) {
       clickTimerRef.current = setTimeout(() => {
         if (clickCountRef.current === 1) {
-          onTogglePlay()
+          // Single click — toggle controls visibility
+          if (visible) {
+            onControlsBusy?.(false)
+          }
+          // Parent will handle showing controls
+          onToggleControlsVisibility?.()
         }
         clickCountRef.current = 0
       }, 250)
