@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Channel {
+  id           String   @id @default(cuid())
+  name         String
+  logo         String   @default("")
+  category     String   @default("entertainment") // news, sports, cricket, football, entertainment, international
+  streamType   String   @default("m3u") // m3u, iframe, github_m3u
+  streamUrl    String   @default("")
+  githubM3uPath String  @default("")
+  language     String   @default("")
+  country      String   @default("")
+  tags         String   @default("") // comma-separated
+  isFeatured   Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  viewCount    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Match {
+  id          String   @id @default(cuid())
+  title       String
+  sport       String   @default("football") // football, cricket, other
+  teamA       String
+  teamALogo   String   @default("")
+  teamB       String
+  teamBLogo   String   @default("")
+  league      String   @default("")
+  thumbnail   String   @default("")
+  startTime   DateTime
+  endTime     DateTime?
+  status      String   @default("upcoming") // upcoming, live, ended
+  isFeatured  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  streams     MatchStream[]
+}
+
+model MatchStream {
+  id         String @id @default(cuid())
+  matchId    String
+  name       String @default("Stream 1")
+  channel    String @default("")
+  type       String @default("iframe") // iframe, direct, redirect
+  url        String @default("")
+  match      Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+}
+
+model Category {
+  id           String   @id @default(cuid())
+  name         String
+  icon         String   @default("")
+  color        String   @default("")
+  order        Int      @default(0)
+  channelCount Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AppSetting {
+  id               String @id @default("app")
+  appName          String @default("GenZ TV")
+  logoUrl          String @default("")
+  maintenanceMode  Boolean @default(false)
+  featuredChannelId String @default("")
+  heroBannerText   String @default("")
+  defaultQuality   String @default("auto")
+  // Ad settings
+  bannerAdScript   String @default("")
+  socialBarAdScript String @default("")
+}
+
+model PushSubscription {
+  id          String @id @default(cuid())
+  endpoint    String @unique
+  p256dh      String
+  auth        String
+  createdAt   DateTime @default(now())
+}

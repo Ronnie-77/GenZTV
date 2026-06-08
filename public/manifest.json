@@ -1,0 +1,20 @@
+{
+  "name": "GenZ TV",
+  "short_name": "GenZ TV",
+  "description": "Premium Live Streaming Platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A0A0F",
+  "theme_color": "#E05555",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["entertainment", "sports"],
+  "gcm_sender_id": "103953800507"
+}

@@ -1,0 +1,8 @@
+[phases.install]
+cmd = "npm install"
+
+[phases.build]
+cmd = "next build"
+
+[start]
+cmd = "bash start.sh"
