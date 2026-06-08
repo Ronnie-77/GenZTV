@@ -43,7 +43,7 @@ export function ChannelCard({ channel, compact }: ChannelCardProps) {
     return (
       <div
         onClick={handleClick}
-        className="flex items-center gap-3 bg-card rounded-xl border border-border p-3 card-hover cursor-pointer group shadow-sm hover:shadow-md"
+        className="flex items-center gap-3 bg-card rounded-xl border border-border p-3 card-hover cursor-pointer group"
       >
         <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center shrink-0 overflow-hidden group-hover:border-primary/50 transition-colors">
           {channel.logo ? (

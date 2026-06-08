@@ -138,142 +138,8 @@
 }
 
 /* ===== Mobile GPU Scroll Glitch Fix ===== */
-@media (max-width: 767px) {
-  /*
-   * ROOT CAUSE: Mobile GPUs (especially Mali/Adreno) corrupt visual output
-   * when too many compositor layers exist during scroll. The fix is to
-   * MINIMIZE compositor layers, not create more with contain/will-change.
-   *
-   * Key principles:
-   * 1. NO `contain` — it forces new compositor layers that corrupt
-   * 2. NO `will-change` — same problem
-   * 3. NO `backface-visibility: hidden` — creates separate layers
-   * 4. NO `translate3d` hacks — forces GPU compositing
-   * 5. NO `backdrop-filter` — major GPU overflow cause
-   * 6. NO infinite animations — constant repaints during scroll
-   * 7. NO `box-shadow` — expensive repaint on scroll
-   * 8. Use simple `border` instead of `shadow` for depth
-   */
-
-  /* Channel cards — flatten to simple boxes, no GPU effects */
-  .channel-card {
-    will-change: auto !important;
-    transform: none !important;
-    box-shadow: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    -webkit-mask-image: none !important;
-    mask-image: none !important;
-    backface-visibility: visible !important;
-    -webkit-backface-visibility: visible !important;
-  }
-  .channel-card:hover,
-  .channel-card:active {
-    transform: none !important;
-    box-shadow: none !important;
-  }
-  .channel-card * {
-    will-change: auto !important;
-    backface-visibility: visible !important;
-    -webkit-backface-visibility: visible !important;
-  }
-  /* Channel card images — keep simple, NO translate3d/backface tricks */
-  .channel-card img {
-    transform: none !important;
-    -webkit-transform: none !important;
-    image-rendering: -webkit-optimize-contrast !important;
-    backface-visibility: visible !important;
-    -webkit-backface-visibility: visible !important;
-  }
-  /* Grid containers — do NOT use contain, it worsens GPU glitches */
-  [class*="grid-cols"] {
-    will-change: auto !important;
-    transform: none !important;
-  }
-
-  /* Glass morphism — disable on mobile, causes GPU texture overflow */
-  .glass {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-
-  /* Card hover — no GPU effects on mobile */
-  .card-hover {
-    will-change: auto !important;
-    transform: none !important;
-  }
-  .card-hover:hover {
-    transform: none !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
-  }
-
-  /* Match cards — disable animations and GPU effects */
-  .match-card {
-    will-change: auto !important;
-    animation: none !important;
-  }
-  .match-card:hover,
-  .match-card:active {
-    transform: none !important;
-  }
-  .match-card.is-live,
-  .match-card.is-upcoming {
-    animation: none !important;
-  }
-  .match-status.live {
-    animation: none !important;
-  }
-  .match-status.live::before {
-    animation: none !important;
-    opacity: 1;
-  }
-  .animate-live-pulse {
-    animation: none !important;
-    opacity: 1 !important;
-  }
-  .match-card-circle-outer,
-  .match-card-circle-inner {
-    animation: none !important;
-  }
-
-  /* Hero animations — disable all on mobile for scroll perf */
-  .hero-new-circle,
-  .hero-new-phone-image,
-  .hero-new-title-brand,
-  .hero-new-title-tv,
-  .hero-new-download-text,
-  .hero-new-btn-primary,
-  .hero-new-download-btn {
-    animation: none !important;
-  }
-  .hero-new-tv-icon svg {
-    animation: none !important;
-  }
-  .hero-new-tv-icon .tv-screen,
-  .hero-new-tv-icon .tv-play,
-  .hero-new-tv-icon .tv-antenna-l,
-  .hero-new-tv-icon .tv-antenna-r,
-  .hero-new-tv-icon .tv-antenna-dot-l,
-  .hero-new-tv-icon .tv-antenna-dot-r,
-  .hero-new-tv-icon .tv-knob-1,
-  .hero-new-tv-icon .tv-knob-2 {
-    animation: none !important;
-  }
-
-  /* Disable ALL backdrop-filter on mobile — #1 GPU artifact cause */
-  .glass,
-  [class*="backdrop-blur"],
-  [style*="backdrop-filter"] {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-
-  /* Category tabs — prevent GPU layer creation on scroll */
-  button {
-    backface-visibility: visible !important;
-    -webkit-backface-visibility: visible !important;
-  }
-}
+/* MOVED TO END OF FILE — must come after all desktop style definitions
+   so CSS cascade doesn't override the mobile fixes. */
 
 /* ===== Custom Scrollbar ===== */
 ::-webkit-scrollbar {
@@ -307,9 +173,9 @@
 .card-hover {
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  contain: layout style paint;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 100px;
+  /* NOTE: contain and content-visibility removed — they cause mobile GPU
+     texture overflow during upward scroll (elements re-entering viewport
+     trigger rapid re-compositing that overwhelms mobile GPU) */
 }
 .card-hover:hover {
   transform: scale(1.02);
@@ -1100,9 +966,8 @@ input[type="number"]::-webkit-outer-spin-button {
   position: relative;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  contain: layout style paint;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 200px;
+  /* NOTE: contain and content-visibility removed — they cause mobile GPU
+     texture overflow during upward scroll */
 }
 .dark .match-card {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -1586,4 +1451,176 @@ input[type="number"]::-webkit-outer-spin-button {
 :fullscreen .show-cursor,
 :fullscreen .group:hover {
   cursor: default !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MOBILE GPU SCROLL GLITCH FIX
+   ═══════════════════════════════════════════════════════════
+   MUST be at END of file so CSS cascade properly overrides
+   all desktop styles above (especially .glass backdrop-filter
+   and .card-hover/.match-card effects).
+
+   ROOT CAUSE of upward-scroll glitch:
+   Mobile GPUs (Mali/Adreno) have limited VRAM. When scrolling
+   DOWN, new content enters from bottom and is composited fresh.
+   When scrolling UP, elements that left the viewport top need
+   to be re-composited rapidly — if they were in separate GPU
+   layers (from contain/will-change/backdrop-filter/transform),
+   the GPU runs out of texture memory and produces visual
+   corruption (red/blue noise, pixelation, color artifacts).
+
+   FIX STRATEGY:
+   1. NO `contain` — forces compositor layers that corrupt on re-entry
+   2. NO `content-visibility: auto` — skips rendering off-screen, causes flash on re-entry
+   3. NO `will-change` — promotes to GPU layer, overflows on scroll up
+   4. NO `backface-visibility: hidden` — creates separate layers
+   5. NO `backdrop-filter` — #1 GPU texture overflow cause
+   6. NO infinite animations — constant repaints compete with scroll compositing
+   7. NO `box-shadow` with large spread — expensive repaint during scroll
+   8. NO `transform` transitions on scrollable items — triggers layer promotion
+   ═══════════════════════════════════════════════════════════ */
+@media (max-width: 767px) {
+  /* ── Top Nav: disable backdrop-filter (was .glass) ── */
+  .glass {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: var(--background) !important;
+  }
+
+  /* ── Channel Cards: flatten to simple boxes ── */
+  .channel-card {
+    will-change: auto !important;
+    transform: none !important;
+    transition: none !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
+    contain: none !important;
+    content-visibility: visible !important;
+  }
+  .channel-card:hover,
+  .channel-card:active {
+    transform: none !important;
+    box-shadow: none !important;
+  }
+  .channel-card * {
+    will-change: auto !important;
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
+  }
+  .channel-card img {
+    transform: none !important;
+    -webkit-transform: none !important;
+    image-rendering: -webkit-optimize-contrast !important;
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
+  }
+
+  /* ── Card Hover: remove all GPU effects ── */
+  .card-hover {
+    will-change: auto !important;
+    transform: none !important;
+    transition: none !important;
+    contain: none !important;
+    content-visibility: visible !important;
+  }
+  .card-hover:hover {
+    transform: none !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
+  }
+
+  /* ── Grid containers: prevent GPU layer creation ── */
+  [class*="grid-cols"] {
+    will-change: auto !important;
+    transform: none !important;
+  }
+
+  /* ── Match Cards: disable animations, contain, and GPU effects ── */
+  .match-card {
+    will-change: auto !important;
+    animation: none !important;
+    transition: none !important;
+    contain: none !important;
+    content-visibility: visible !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+  }
+  .match-card:hover,
+  .match-card:active {
+    transform: none !important;
+  }
+  .match-card.is-live,
+  .match-card.is-upcoming {
+    animation: none !important;
+  }
+  .match-card::after {
+    display: none !important;
+  }
+  .match-status.live {
+    animation: none !important;
+  }
+  .match-status.live::before {
+    animation: none !important;
+    opacity: 1;
+  }
+  .animate-live-pulse {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+  .match-card-circle-outer,
+  .match-card-circle-inner {
+    animation: none !important;
+  }
+
+  /* ── Hero animations: disable all for scroll perf ── */
+  .hero-new-circle,
+  .hero-new-phone-image,
+  .hero-new-title-brand,
+  .hero-new-title-tv,
+  .hero-new-download-text,
+  .hero-new-btn-primary,
+  .hero-new-download-btn {
+    animation: none !important;
+  }
+  .hero-new-tv-icon svg {
+    animation: none !important;
+  }
+  .hero-new-tv-icon .tv-screen,
+  .hero-new-tv-icon .tv-play,
+  .hero-new-tv-icon .tv-antenna-l,
+  .hero-new-tv-icon .tv-antenna-r,
+  .hero-new-tv-icon .tv-antenna-dot-l,
+  .hero-new-tv-icon .tv-antenna-dot-r,
+  .hero-new-tv-icon .tv-knob-1,
+  .hero-new-tv-icon .tv-knob-2 {
+    animation: none !important;
+  }
+
+  /* ── Global: disable ALL backdrop-filter on mobile ── */
+  .glass,
+  [class*="backdrop-blur"],
+  [style*="backdrop-filter"] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* ── Buttons: prevent GPU layer creation ── */
+  button {
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
+  }
+
+  /* ── Scroll container: prevent scroll anchoring adjustments ── */
+  main {
+    overflow-anchor: none !important;
+  }
+
+  /* ── All images: prevent GPU promotion ── */
+  img {
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
+  }
 }

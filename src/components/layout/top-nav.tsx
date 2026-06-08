@@ -12,7 +12,7 @@ export function TopNav() {
   const [searchExpanded, setSearchExpanded] = useState(false)
 
   return (
-    <header className="sticky top-0 z-50 glass bg-background/95 md:bg-background/80">
+    <header className="sticky top-0 z-50 glass bg-background md:bg-background/80">
       <div className="flex items-center justify-between h-14 px-4 gap-3">
         {/* Left: Menu + Logo */}
         <div className="flex items-center gap-2 min-w-0">
