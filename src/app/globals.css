@@ -129,6 +129,7 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    -webkit-font-smoothing: antialiased;
   }
   body {
     @apply bg-background text-foreground;
@@ -1453,41 +1454,26 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   MOBILE GPU SCROLL GLITCH FIX — ULTRA AGGRESSIVE
+   MOBILE GPU SCROLL GLITCH FIX — v2
    ═══════════════════════════════════════════════════════════
-   MUST be at END of file so CSS cascade properly overrides
-   all desktop styles above.
+   Strategy: Proper GPU layer promotion + solid backgrounds.
+   Instead of stripping visual effects (which made cards ugly
+   and didn't fix the glitch), we now properly promote
+   scrollable items to their own GPU compositing layers
+   and use solid backgrounds instead of backdrop-filter.
 
-   ROOT CAUSE (confirmed from user screenshots):
-   Mobile GPUs (Mali/Adreno) produce multicolored static/noise
-   artifacts when scrolling UP. This happens because:
-   1. Elements scrolled off-screen have their GPU textures freed
-   2. Scrolling up requires rapid re-compositing of many elements
-   3. GPU VRAM overflows, producing corrupted visual output
-
-   This is a KNOWN issue on Android Chrome/WebView with:
-   - border-radius (creates clip paths → GPU layers)
-   - box-shadow (expensive repaint during scroll)
-   - backdrop-filter (GPU texture overflow #1 cause)
-   - transition/transform (layer promotion)
-   - overflow: hidden (clip layers)
-   - position: sticky (separate compositor layer)
-   - will-change / contain / content-visibility (layer hints)
-
-   FIX: Strip ALL GPU-triggering CSS on mobile. Use simple
-   borders for depth. Remove all animations. No transitions.
+   1. Remove backdrop-filter → solid semi-transparent bg
+   2. GPU layer promotion (translateZ(0), backface-visibility)
+   3. -webkit-overflow-scrolling: touch on scroll containers
+   4. Fixed topbar instead of sticky (handled in component)
+   5. Replace box-shadow with border on cards (keep border-radius!)
+   6. -webkit-font-smoothing: antialiased (in * selector above)
+   7. Remove will-change from hover on touch devices
+   8. isolation: isolate on overflow:hidden + transform elements
    ═══════════════════════════════════════════════════════════ */
-@media (max-width: 767px) {
-  /* ── BODY & SCROLL: prevent GPU scroll issues ── */
-  body {
-    -webkit-overflow-scrolling: auto !important;
-  }
-  main {
-    overflow-anchor: none !important;
-    will-change: scroll-position !important;
-  }
 
-  /* ── GLASS/BACKDROP: completely disable on mobile ── */
+/* ── Fix 1: Remove all backdrop-filter on mobile ── */
+@media (max-width: 768px) {
   .glass {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -1499,135 +1485,95 @@ input[type="number"]::-webkit-outer-spin-button {
     -webkit-backdrop-filter: none !important;
   }
 
-  /* ── CHANNEL CARDS: flatten completely ── */
-  .channel-card {
-    will-change: auto !important;
-    transform: none !important;
-    transition: none !important;
-    box-shadow: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    -webkit-mask-image: none !important;
-    mask-image: none !important;
-    backface-visibility: visible !important;
-    -webkit-backface-visibility: visible !important;
-    contain: none !important;
-    content-visibility: visible !important;
-    border-radius: 0 !important;
-    overflow: visible !important;
-  }
-  .channel-card:hover,
-  .channel-card:active {
-    transform: none !important;
-    box-shadow: none !important;
-  }
-  .channel-card * {
-    will-change: auto !important;
-    backface-visibility: visible !important;
-    -webkit-backface-visibility: visible !important;
-  }
-  .channel-card img {
-    transform: none !important;
-    -webkit-transform: none !important;
-    backface-visibility: visible !important;
-    -webkit-backface-visibility: visible !important;
+  /* ── Fix 2: GPU layer promotion for animated/transformed elements ── */
+  .channel-card,
+  .match-card,
+  .card-hover,
+  .hero-new-tv-icon,
+  .hero-new-tv-icon svg,
+  .hero-new-phone-image,
+  .hero-new-btn-primary,
+  .hero-new-download-btn,
+  .hero-new-circle-1,
+  .hero-new-circle-2,
+  .hero-new-circle-3,
+  .match-card-circle-outer,
+  .match-card-circle-inner,
+  .team-logo {
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    will-change: transform;
   }
 
-  /* ── CARD HOVER: remove all GPU effects ── */
-  .card-hover {
-    will-change: auto !important;
-    transform: none !important;
-    transition: none !important;
-    contain: none !important;
-    content-visibility: visible !important;
+  /* ── Fix 3: Smooth scroll on mobile ── */
+  body {
+    -webkit-overflow-scrolling: touch !important;
+    overflow-scrolling: touch !important;
+  }
+  main {
+    -webkit-overflow-scrolling: touch !important;
+    overflow-scrolling: touch !important;
+  }
+
+  /* ── Fix 5: Replace box-shadow with border on cards, keep border-radius ── */
+  .channel-card {
+    box-shadow: none !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+  }
+  .match-card {
+    box-shadow: none !important;
+    border: 1px solid var(--border) !important;
+  }
+  .match-card.is-live {
+    box-shadow: none !important;
+    border: 1px solid rgba(225, 29, 72, 0.2) !important;
+  }
+  .match-card.is-upcoming {
+    box-shadow: none !important;
+    border: 1px solid rgba(249, 115, 22, 0.2) !important;
+  }
+  /* Channel card hover — no transform on mobile */
+  .channel-card:hover {
+    transform: translateZ(0) !important;
+    box-shadow: none !important;
   }
   .card-hover:hover {
-    transform: none !important;
+    transform: translateZ(0) !important;
+    box-shadow: none !important;
+  }
+  .match-card:hover {
+    transform: translateZ(0) !important;
     box-shadow: none !important;
   }
 
-  /* ── GRID CONTAINERS: no GPU hints ── */
-  [class*="grid-cols"] {
-    will-change: auto !important;
-    transform: none !important;
+  /* ── Fix 7: Remove will-change from hover effects on touch devices ── */
+  @media (hover: none) {
+    .card-hover:hover {
+      will-change: auto !important;
+      transform: none !important;
+    }
+    .match-card:hover {
+      will-change: auto !important;
+      transform: none !important;
+    }
+    .channel-card:hover {
+      will-change: auto !important;
+      transform: none !important;
+    }
   }
 
-  /* ── MATCH CARDS: disable all GPU effects ── */
+  /* ── Fix 8: isolation: isolate on overflow:hidden + transform elements ── */
   .match-card {
-    will-change: auto !important;
-    animation: none !important;
-    transition: none !important;
-    contain: none !important;
-    content-visibility: visible !important;
-    box-shadow: none !important;
-    border-radius: 0 !important;
-    overflow: visible !important;
+    isolation: isolate;
   }
-  .match-card:hover,
-  .match-card:active {
-    transform: none !important;
+  .channel-card {
+    isolation: isolate;
   }
-  .match-card.is-live,
-  .match-card.is-upcoming {
-    animation: none !important;
-  }
-  .match-card::after {
-    display: none !important;
-  }
-  .match-status.live {
-    animation: none !important;
-  }
-  .match-status.live::before {
-    animation: none !important;
-    opacity: 1;
-  }
-  .animate-live-pulse {
-    animation: none !important;
-    opacity: 1 !important;
-  }
-  .match-card-circle-outer,
-  .match-card-circle-inner {
-    animation: none !important;
-  }
-
-  /* ── HERO: disable all animations ── */
-  .hero-new-circle,
-  .hero-new-phone-image,
-  .hero-new-title-brand,
-  .hero-new-title-tv,
-  .hero-new-download-text,
-  .hero-new-btn-primary,
-  .hero-new-download-btn {
-    animation: none !important;
-  }
-  .hero-new-tv-icon svg {
-    animation: none !important;
-  }
-  .hero-new-tv-icon .tv-screen,
-  .hero-new-tv-icon .tv-play,
-  .hero-new-tv-icon .tv-antenna-l,
-  .hero-new-tv-icon .tv-antenna-r,
-  .hero-new-tv-icon .tv-antenna-dot-l,
-  .hero-new-tv-icon .tv-antenna-dot-r,
-  .hero-new-tv-icon .tv-knob-1,
-  .hero-new-tv-icon .tv-knob-2 {
-    animation: none !important;
-  }
-
-  /* ── BUTTONS: no GPU layer creation ── */
-  button {
-    backface-visibility: visible !important;
-    -webkit-backface-visibility: visible !important;
-  }
-
-  /* ── IMAGES: prevent GPU promotion ── */
-  img {
-    backface-visibility: visible !important;
-    -webkit-backface-visibility: visible !important;
-  }
-
-  /* ── ANIMATE-PULSE: disable (skeleton loading) ── */
-  .animate-pulse {
-    animation: none !important;
+  .hero-new {
+    isolation: isolate;
   }
 }

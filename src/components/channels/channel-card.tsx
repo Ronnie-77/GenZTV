@@ -43,9 +43,9 @@ export function ChannelCard({ channel, compact }: ChannelCardProps) {
     return (
       <div
         onClick={handleClick}
-        className="channel-card flex items-center gap-3 bg-card border border-border p-3 cursor-pointer group"
+        className="channel-card flex items-center gap-3 bg-card border border-border p-3 cursor-pointer group rounded-xl shadow-sm"
       >
-        <div className="w-10 h-10 bg-secondary flex items-center justify-center shrink-0 overflow-hidden">
+        <div className="w-10 h-10 bg-secondary flex items-center justify-center shrink-0 overflow-hidden rounded-lg">
           {channel.logo ? (
             <img src={channel.logo} alt={channel.name} className="w-full h-full object-cover" loading="lazy" decoding="async" />
           ) : (
@@ -73,7 +73,7 @@ export function ChannelCard({ channel, compact }: ChannelCardProps) {
   return (
     <div
       onClick={handleClick}
-      className="channel-card bg-card border border-border p-4 flex flex-col items-center gap-3 cursor-pointer group relative"
+      className="channel-card bg-card border border-border p-4 flex flex-col items-center gap-3 cursor-pointer group relative rounded-2xl shadow-sm"
     >
       {/* Favorite Button */}
       <button
@@ -88,7 +88,7 @@ export function ChannelCard({ channel, compact }: ChannelCardProps) {
       </button>
 
       {/* Channel Logo */}
-      <div className="w-14 h-14 bg-secondary flex items-center justify-center overflow-hidden">
+      <div className="w-14 h-14 bg-secondary flex items-center justify-center overflow-hidden rounded-xl">
         {channel.logo ? (
           <img src={channel.logo} alt={channel.name} className="w-full h-full object-cover" loading="lazy" decoding="async" />
         ) : (

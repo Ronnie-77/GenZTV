@@ -148,7 +148,7 @@ export function AppShell() {
   return (
     <div className="min-h-screen flex flex-col">
       <div className="lg:hidden"><TopNav /></div>
-      <div className="flex flex-1">
+      <div className="flex flex-1 pt-14 lg:pt-0">
         <Sidebar />
         <main ref={mainRef} className="flex-1 min-w-0 flex flex-col pb-16 lg:pb-0 overflow-y-auto">
           <div className="flex-1">
