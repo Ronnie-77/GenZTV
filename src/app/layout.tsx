@@ -36,7 +36,10 @@ export const metadata: Metadata = {
   authors: [{ name: "GenZ TV" }],
   creator: "GenZ TV",
   icons: {
-    icon: "/logo.svg",
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/logo.svg", type: "image/svg+xml" },
+    ],
   },
   manifest: "/manifest.json",
   openGraph: {

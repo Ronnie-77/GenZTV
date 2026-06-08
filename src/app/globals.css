@@ -139,57 +139,77 @@
 
 /* ===== Mobile GPU Scroll Glitch Fix ===== */
 @media (max-width: 767px) {
-  /* Channel cards — eliminate ALL GPU-heavy effects that cause visual artifacts */
+  /*
+   * ROOT CAUSE: Mobile GPUs (especially Mali/Adreno) corrupt visual output
+   * when too many compositor layers exist during scroll. The fix is to
+   * MINIMIZE compositor layers, not create more with contain/will-change.
+   *
+   * Key principles:
+   * 1. NO `contain` — it forces new compositor layers that corrupt
+   * 2. NO `will-change` — same problem
+   * 3. NO `backface-visibility: hidden` — creates separate layers
+   * 4. NO `translate3d` hacks — forces GPU compositing
+   * 5. NO `backdrop-filter` — major GPU overflow cause
+   * 6. NO infinite animations — constant repaints during scroll
+   * 7. NO `box-shadow` — expensive repaint on scroll
+   * 8. Use simple `border` instead of `shadow` for depth
+   */
+
+  /* Channel cards — flatten to simple boxes, no GPU effects */
   .channel-card {
-    contain: layout style paint !important;
     will-change: auto !important;
     transform: none !important;
     box-shadow: none !important;
-    border: 1px solid var(--border) !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
     -webkit-mask-image: none !important;
     mask-image: none !important;
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
   }
   .channel-card:hover,
   .channel-card:active {
     transform: none !important;
     box-shadow: none !important;
   }
-  /* Eliminate all will-change from channel card children */
   .channel-card * {
     will-change: auto !important;
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
   }
-  /* Image rendering fix — prevent GPU texture corruption */
+  /* Channel card images — keep simple, NO translate3d/backface tricks */
   .channel-card img {
-    -webkit-transform: translate3d(0,0,0) !important;
-    transform: translate3d(0,0,0) !important;
+    transform: none !important;
+    -webkit-transform: none !important;
     image-rendering: -webkit-optimize-contrast !important;
-    backface-visibility: hidden !important;
-    -webkit-backface-visibility: hidden !important;
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
   }
-  /* Grid container — contain layout to prevent repaint cascades */
+  /* Grid containers — do NOT use contain, it worsens GPU glitches */
   [class*="grid-cols"] {
-    contain: layout style !important;
+    will-change: auto !important;
+    transform: none !important;
   }
 
+  /* Glass morphism — disable on mobile, causes GPU texture overflow */
   .glass {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
+
+  /* Card hover — no GPU effects on mobile */
   .card-hover {
-    contain: none !important;
-    content-visibility: visible !important;
-    contain-intrinsic-size: auto none !important;
+    will-change: auto !important;
+    transform: none !important;
   }
   .card-hover:hover {
     transform: none !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
   }
+
+  /* Match cards — disable animations and GPU effects */
   .match-card {
-    contain: none !important;
-    content-visibility: visible !important;
-    contain-intrinsic-size: auto none !important;
+    will-change: auto !important;
     animation: none !important;
   }
   .match-card:hover,
@@ -211,25 +231,18 @@
     animation: none !important;
     opacity: 1 !important;
   }
-  /* Disable infinite animations on mobile for smooth scrolling */
-  .hero-new-circle {
+  .match-card-circle-outer,
+  .match-card-circle-inner {
     animation: none !important;
   }
-  .hero-new-phone-image {
-    animation: none !important;
-  }
-  .hero-new-title-brand {
-    animation: none !important;
-  }
-  .hero-new-title-tv {
-    animation: none !important;
-  }
-  .hero-new-download-text {
-    animation: none !important;
-  }
-  .hero-new-btn-primary {
-    animation: none !important;
-  }
+
+  /* Hero animations — disable all on mobile for scroll perf */
+  .hero-new-circle,
+  .hero-new-phone-image,
+  .hero-new-title-brand,
+  .hero-new-title-tv,
+  .hero-new-download-text,
+  .hero-new-btn-primary,
   .hero-new-download-btn {
     animation: none !important;
   }
@@ -246,16 +259,19 @@
   .hero-new-tv-icon .tv-knob-2 {
     animation: none !important;
   }
-  .match-card-circle-outer,
-  .match-card-circle-inner {
-    animation: none !important;
-  }
-  /* Disable all backdrop-filter on mobile — major GPU artifact cause */
+
+  /* Disable ALL backdrop-filter on mobile — #1 GPU artifact cause */
   .glass,
   [class*="backdrop-blur"],
   [style*="backdrop-filter"] {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
+  }
+
+  /* Category tabs — prevent GPU layer creation on scroll */
+  button {
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
   }
 }
 

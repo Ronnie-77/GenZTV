@@ -88,7 +88,7 @@ export function ChannelCard({ channel, compact }: ChannelCardProps) {
       </button>
 
       {/* Channel Logo */}
-      <div className="w-14 h-14 rounded-xl bg-secondary flex items-center justify-center overflow-hidden group-hover:ring-2 group-hover:ring-primary/30 transition-colors">
+      <div className="w-14 h-14 rounded-xl bg-secondary flex items-center justify-center overflow-hidden">
         {channel.logo ? (
           <img src={channel.logo} alt={channel.name} className="w-full h-full object-cover" />
         ) : (
