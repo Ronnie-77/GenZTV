@@ -129,95 +129,75 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   body {
     @apply bg-background text-foreground;
     -webkit-overflow-scrolling: touch;
+    overflow-scrolling: touch;
     overflow-x: hidden;
   }
 }
 
-/* ===== Mobile GPU Scroll Glitch Fix ===== */
-@media (max-width: 767px) {
+/* ===== Mobile GPU Scroll Glitch Fix (v15 — Zero Compositor Layer) ===== */
+@media (max-width: 768px) {
   /*
-   * ROOT CAUSE: Mobile GPUs (especially Mali/Adreno) corrupt visual output
-   * when too many compositor layers exist during scroll. The fix is to
-   * MINIMIZE compositor layers, not create more with contain/will-change.
+   * v15 FIX STRATEGY: ZERO compositor layers on scrollable content.
    *
-   * Key principles:
-   * 1. NO `contain` — it forces new compositor layers that corrupt
-   * 2. NO `will-change` — same problem
-   * 3. NO `backface-visibility: hidden` — creates separate layers
-   * 4. NO `translate3d` hacks — forces GPU compositing
-   * 5. NO `backdrop-filter` — major GPU overflow cause
-   * 6. NO infinite animations — constant repaints during scroll
-   * 7. NO `box-shadow` — expensive repaint on scroll
-   * 8. Use simple `border` instead of `shadow` for depth
+   * Root cause: Android Chrome GPU compositor creates separate layers for
+   * elements with transform, will-change, isolation, contain, overflow:hidden
+   * + border-radius. When many layers exist during scroll, the GPU runs out
+   * of tile memory → horizontal scan lines + color distortion.
+   *
+   * Solution: Strip ALL compositor hints from scrollable content.
+   * Only the fixed nav bars and hero phone get GPU layers.
    */
 
-  /* Channel cards — flatten to simple boxes, no GPU effects */
-  .channel-card {
-    will-change: auto !important;
-    transform: none !important;
-    box-shadow: none !important;
+  /* 1. Remove ALL backdrop-filter — #1 GPU artifact cause */
+  *,
+  .glass,
+  [class*="backdrop-blur"],
+  [style*="backdrop-filter"] {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
-    -webkit-mask-image: none !important;
-    mask-image: none !important;
-    backface-visibility: visible !important;
-    -webkit-backface-visibility: visible !important;
+  }
+
+  /* 2. Nav bars — solid background, no transparency */
+  .glass,
+  header,
+  nav {
+    background: var(--background) !important;
+  }
+
+  /* 3. Channel cards — flat on mobile (no GPU layers, base styles already stripped) */
+  .channel-card {
+    box-shadow: none !important;
+    border: 1px solid var(--border) !important;
+    transition: none !important;
   }
   .channel-card:hover,
   .channel-card:active {
-    transform: none !important;
     box-shadow: none !important;
-  }
-  .channel-card * {
-    will-change: auto !important;
-    backface-visibility: visible !important;
-    -webkit-backface-visibility: visible !important;
-  }
-  /* Channel card images — keep simple, NO translate3d/backface tricks */
-  .channel-card img {
-    transform: none !important;
-    -webkit-transform: none !important;
-    image-rendering: -webkit-optimize-contrast !important;
-    backface-visibility: visible !important;
-    -webkit-backface-visibility: visible !important;
-  }
-  /* Grid containers — do NOT use contain, it worsens GPU glitches */
-  [class*="grid-cols"] {
-    will-change: auto !important;
-    transform: none !important;
+    border-color: var(--border) !important;
   }
 
-  /* Glass morphism — disable on mobile, causes GPU texture overflow */
-  .glass {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-
-  /* Card hover — no GPU effects on mobile */
-  .card-hover {
-    will-change: auto !important;
-    transform: none !important;
-  }
-  .card-hover:hover {
-    transform: none !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
-  }
-
-  /* Match cards — disable animations and GPU effects */
+  /* 4. Match cards — flat on mobile (no GPU layers, base styles already stripped) */
   .match-card {
-    will-change: auto !important;
-    animation: none !important;
+    box-shadow: none !important;
+    border: 1px solid var(--border) !important;
+    transition: none !important;
   }
   .match-card:hover,
   .match-card:active {
-    transform: none !important;
+    box-shadow: none !important;
   }
   .match-card.is-live,
   .match-card.is-upcoming {
+    animation: none !important;
+  }
+  .match-card-circle-outer,
+  .match-card-circle-inner {
     animation: none !important;
   }
   .match-status.live {
@@ -231,24 +211,52 @@
     animation: none !important;
     opacity: 1 !important;
   }
-  .match-card-circle-outer,
-  .match-card-circle-inner {
-    animation: none !important;
+
+  /* 5. Card hover — flat on mobile */
+  .card-hover {
+    box-shadow: none !important;
+    border: 1px solid var(--border) !important;
+    transition: none !important;
+  }
+  .card-hover:hover {
+    box-shadow: none !important;
+    border-color: var(--border) !important;
   }
 
-  /* Hero animations — disable all on mobile for scroll perf */
-  .hero-new-circle,
-  .hero-new-phone-image,
-  .hero-new-title-brand,
-  .hero-new-title-tv,
-  .hero-new-download-text,
+  /* 6. Grid containers — NO isolation (creates compositor layers) */
+  [class*="grid-cols"] {
+    isolation: auto !important;
+    contain: none !important;
+  }
+
+  /* 7. Hero section — allow GPU only for fixed position + phone mockup */
+  .hero-new {
+    contain: none !important;
+    isolation: auto !important;
+  }
+  /* Hero phone float — GPU-accelerated but animation-compatible */
+  .hero-new-phone-image {
+    animation: float-gentle 6s ease-in-out infinite !important;
+    -webkit-backface-visibility: hidden !important;
+    backface-visibility: hidden !important;
+    will-change: transform !important;
+  }
+
+  /* 8. Hero buttons — disable box-shadow glow animation on mobile */
   .hero-new-btn-primary,
   .hero-new-download-btn {
     animation: none !important;
+    box-shadow: none !important;
+    will-change: auto !important;
   }
-  .hero-new-tv-icon svg {
+
+  /* 9. Hero decorative circles — disable to save GPU */
+  .hero-new-circle {
     animation: none !important;
   }
+
+  /* 10. TV icon animations — disable on mobile */
+  .hero-new-tv-icon svg,
   .hero-new-tv-icon .tv-screen,
   .hero-new-tv-icon .tv-play,
   .hero-new-tv-icon .tv-antenna-l,
@@ -260,18 +268,53 @@
     animation: none !important;
   }
 
-  /* Disable ALL backdrop-filter on mobile — #1 GPU artifact cause */
-  .glass,
-  [class*="backdrop-blur"],
-  [style*="backdrop-filter"] {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
+  /* 11. Remove will-change from ALL non-fixed elements on mobile */
+  @media (hover: none) {
+    .card-hover,
+    .match-card,
+    .channel-card,
+    .hero-new-btn-primary,
+    .hero-new-btn-secondary,
+    .hero-new-download-btn,
+    .hero-new-bg,
+    .hero-new-circle,
+    .hero-new-title-brand,
+    .hero-new-title-tv,
+    .hero-new-download-text,
+    .hero-new-tv-icon {
+      will-change: auto !important;
+    }
   }
 
-  /* Category tabs — prevent GPU layer creation on scroll */
-  button {
-    backface-visibility: visible !important;
+  /* 12. btn-press — no transform on mobile */
+  .btn-press:active {
+    transform: none !important;
+  }
+
+  /* 13. Scroll container — force smooth scroll */
+  main,
+  [role="main"] {
+    -webkit-overflow-scrolling: touch;
+    overflow-scrolling: touch;
+  }
+
+  /* 14. Body — prevent horizontal overflow + smooth scroll */
+  body {
+    -webkit-overflow-scrolling: touch;
+    overflow-scrolling: touch;
+    overflow-x: hidden;
+  }
+
+  /* 15. Images inside cards — no GPU hints */
+  .channel-card img,
+  .match-card img,
+  .card-hover img {
+    -webkit-transform: none !important;
+    transform: none !important;
     -webkit-backface-visibility: visible !important;
+    backface-visibility: visible !important;
+    will-change: auto !important;
+    image-rendering: -webkit-optimize-contrast !important;
   }
 }
 
@@ -303,20 +346,56 @@
   -webkit-backdrop-filter: blur(20px);
 }
 
+/* ===== Channel Card — Base Styles ===== */
+/* GPU-heavy properties (contain, isolation, overflow) only on desktop */
+.channel-card {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .channel-card {
+    contain: layout style paint;
+    isolation: isolate;
+    overflow: hidden;
+  }
+}
+.channel-card img {
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+@media (hover: hover) and (pointer: fine) {
+  .channel-card img {
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+  }
+}
+/* Channel card hover — desktop only, lightweight */
+@media (hover: hover) and (pointer: fine) {
+  .channel-card:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    border-color: rgba(124, 140, 248, 0.2);
+  }
+  .dark .channel-card:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  }
+}
+
 /* ===== Card Hover Effect ===== */
+/* GPU-heavy properties only on desktop */
 .card-hover {
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
-              box-shadow 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  contain: layout style paint;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 100px;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .card-hover {
+    contain: layout style paint;
+    isolation: isolate;
+  }
 }
 .card-hover:hover {
-  transform: scale(1.02);
-  box-shadow: 0 8px 30px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  border-color: rgba(124, 140, 248, 0.15);
 }
 .dark .card-hover:hover {
-  box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
 }
 
 /* ===== Button Press Effect ===== */
@@ -598,22 +677,22 @@ input[type="number"]::-webkit-outer-spin-button {
   }
 }
 
-/* Soft gradient background — Apple-style, fades to page background at bottom */
+/* Soft gradient background — Apple-style, smoothly fades to page background */
 .hero-new-bg {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse at 20% 50%, rgba(124, 140, 248, 0.12) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 30%, rgba(224, 99, 106, 0.1) 0%, transparent 50%),
-    radial-gradient(ellipse at 60% 80%, rgba(179, 157, 219, 0.08) 0%, transparent 45%),
-    linear-gradient(180deg, #f0f4ff 0%, #f8f0ff 25%, #fff5f7 45%, #FFFFFF 100%);
+    radial-gradient(ellipse at 20% 50%, rgba(191, 90, 242, 0.10) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 30%, rgba(0, 122, 255, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 90%, rgba(90, 200, 250, 0.06) 0%, transparent 50%),
+    linear-gradient(180deg, #eee8ff 0%, #f0edff 10%, #f5f0ff 20%, #f8f5ff 30%, #faf8ff 40%, #fcfaff 50%, #fefeff 65%, #fffafa 80%, #FFFFFF 100%);
 }
 .dark .hero-new-bg {
   background:
-    radial-gradient(ellipse at 20% 50%, rgba(124, 140, 248, 0.08) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 30%, rgba(224, 99, 106, 0.06) 0%, transparent 50%),
-    radial-gradient(ellipse at 60% 80%, rgba(179, 157, 219, 0.05) 0%, transparent 45%),
-    linear-gradient(180deg, #141420 0%, #111118 25%, #0f0f14 45%, #0D0D12 100%);
+    radial-gradient(ellipse at 20% 50%, rgba(191, 90, 242, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 30%, rgba(0, 122, 255, 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 90%, rgba(90, 200, 250, 0.03) 0%, transparent 50%),
+    linear-gradient(180deg, #16162a 0%, #141424 10%, #121220 20%, #10101c 35%, #0e0e18 50%, #0D0D14 70%, #0D0D12 100%);
 }
 
 /* Decorative floating circles */
@@ -725,8 +804,9 @@ input[type="number"]::-webkit-outer-spin-button {
   letter-spacing: -2px;
   margin-bottom: 10px;
 }
+/* GenZ title — macOS color theme (purple/blue gradient) */
 .hero-new-title-brand {
-  background: linear-gradient(135deg, #1D1D1F 0%, #3C3A4E 25%, #5A5870 50%, #3C3A4E 75%, #1D1D1F 100%);
+  background: linear-gradient(135deg, #BF5AF2 0%, #7B68EE 15%, #5856D6 30%, #007AFF 50%, #5AC8FA 70%, #7B68EE 85%, #BF5AF2 100%);
   background-size: 300% 300%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -734,7 +814,7 @@ input[type="number"]::-webkit-outer-spin-button {
   animation: gradient-shift 5s ease infinite;
 }
 .dark .hero-new-title-brand {
-  background: linear-gradient(135deg, #BF5AF2 0%, #7B68EE 20%, #007AFF 40%, #5AC8FA 60%, #BF5AF2 100%);
+  background: linear-gradient(135deg, #BF5AF2 0%, #7B68EE 15%, #5856D6 30%, #007AFF 50%, #5AC8FA 70%, #7B68EE 85%, #BF5AF2 100%);
   background-size: 300% 300%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -1100,9 +1180,14 @@ input[type="number"]::-webkit-outer-spin-button {
   position: relative;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  contain: layout style paint;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 200px;
+}
+/* GPU containment only on desktop — avoids mobile GPU layer glitches */
+@media (hover: hover) and (pointer: fine) {
+  .match-card {
+    contain: layout style paint;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 200px;
+  }
 }
 .dark .match-card {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -1370,8 +1455,8 @@ input[type="number"]::-webkit-outer-spin-button {
   height: 320px;
   border-radius: 50%;
   border: 2.5px solid currentColor;
-  opacity: 0.06;
-  animation: card-circle-pulse 4s ease-in-out infinite;
+  opacity: 0.04;
+  animation: card-circle-pulse 7s ease-in-out infinite;
 }
 .match-card-circle-inner {
   position: absolute;
@@ -1379,36 +1464,73 @@ input[type="number"]::-webkit-outer-spin-button {
   height: 220px;
   border-radius: 50%;
   border: 2.5px solid currentColor;
-  opacity: 0.08;
-  animation: card-circle-pulse 4s ease-in-out 1s infinite;
+  opacity: 0.05;
+  animation: card-circle-breathe-inner 7s ease-in-out 2s infinite;
 }
 .is-live .match-card-circle-outer {
   border-color: #FB7185;
-  opacity: 0.09;
+  opacity: 0.06;
 }
 .is-live .match-card-circle-inner {
   border-color: #FB7185;
-  opacity: 0.11;
+  opacity: 0.07;
 }
 .is-upcoming .match-card-circle-outer {
   border-color: #F97316;
-  opacity: 0.1;
+  opacity: 0.06;
 }
 .is-upcoming .match-card-circle-inner {
   border-color: #F97316;
-  opacity: 0.12;
+  opacity: 0.07;
 }
+/* Ring breathe animation — subtle and gentle */
 @keyframes card-circle-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.06; }
-  50% { transform: scale(1.04); opacity: 0.12; }
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.04;
+  }
+  50% {
+    transform: scale(0.96);
+    opacity: 0.07;
+  }
 }
 @keyframes card-circle-pulse-live {
-  0%, 100% { transform: scale(1); opacity: 0.08; }
-  50% { transform: scale(1.04); opacity: 0.14; }
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.06;
+  }
+  50% {
+    transform: scale(0.96);
+    opacity: 0.09;
+  }
+}
+/* Inner ring breathe — very subtle */
+@keyframes card-circle-breathe-inner {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.05;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 0.08;
+  }
+}
+@keyframes card-circle-breathe-inner-live {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.07;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 0.10;
+  }
 }
 .is-live .match-card-circle-outer,
 .is-live .match-card-circle-inner {
   animation-name: card-circle-pulse-live;
+}
+.is-live .match-card-circle-inner {
+  animation-name: card-circle-breathe-inner-live;
 }
 
 /* ─── Match Center (VS / Score) ─── */

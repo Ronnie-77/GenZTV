@@ -147,10 +147,10 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <div className="lg:hidden"><TopNav /></div>
+      <div className="lg:hidden"><TopNav /><div className="h-14 shrink-0" /></div>
       <div className="flex flex-1">
         <Sidebar />
-        <main ref={mainRef} className="flex-1 min-w-0 flex flex-col pb-16 lg:pb-0 overflow-y-auto">
+        <main ref={mainRef} className="flex-1 min-w-0 flex flex-col pb-16 lg:pb-0 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', overflowScrolling: 'touch' }}>
           <div className="flex-1">
             {/* Simple key-based re-render instead of AnimatePresence for better mobile scroll performance */}
             <div key={currentPage}>

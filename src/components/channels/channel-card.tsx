@@ -43,11 +43,11 @@ export function ChannelCard({ channel, compact }: ChannelCardProps) {
     return (
       <div
         onClick={handleClick}
-        className="flex items-center gap-3 bg-card rounded-xl border border-border p-3 card-hover cursor-pointer group shadow-sm hover:shadow-md"
+        className="flex items-center gap-3 bg-card rounded-xl border border-border p-3 card-hover cursor-pointer group"
       >
-        <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center shrink-0 overflow-hidden group-hover:border-primary/50 transition-colors">
+        <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center shrink-0 overflow-hidden">
           {channel.logo ? (
-            <img src={channel.logo} alt={channel.name} className="w-full h-full object-cover" />
+            <img src={channel.logo} alt={channel.name} className="w-full h-full object-cover" loading="lazy" />
           ) : (
             <Tv className="h-4 w-4 text-foreground/50" />
           )}
@@ -88,9 +88,9 @@ export function ChannelCard({ channel, compact }: ChannelCardProps) {
       </button>
 
       {/* Channel Logo */}
-      <div className="w-14 h-14 rounded-xl bg-secondary flex items-center justify-center overflow-hidden">
+      <div className="w-14 h-14 rounded-xl bg-secondary flex items-center justify-center overflow-hidden shrink-0">
         {channel.logo ? (
-          <img src={channel.logo} alt={channel.name} className="w-full h-full object-cover" />
+          <img src={channel.logo} alt={channel.name} className="w-full h-full object-cover" loading="lazy" />
         ) : (
           <Tv className="h-6 w-6 text-foreground/50" />
         )}
