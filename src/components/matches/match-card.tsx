@@ -1,3 +1,4 @@
+// v15 — Removed 'Ends in' timer from live match cards
 'use client'
 
 import { useAppStore } from '@/lib/store'
@@ -179,10 +180,6 @@ export function MatchCard({ match, variant }: MatchCardProps) {
 
         {baseStatus === 'upcoming' && hasStarted && match.endTime && hasEnded && (
           <span className="text-[11px] text-muted-foreground">Match ended</span>
-        )}
-
-        {status === 'live' && match.endTime && !hasEnded && (
-          <CountdownDisplay targetDate={new Date(match.endTime)} label="Ends in" />
         )}
 
         {status === 'ended' && (
