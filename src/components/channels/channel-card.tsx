@@ -43,11 +43,11 @@ export function ChannelCard({ channel, compact }: ChannelCardProps) {
     return (
       <div
         onClick={handleClick}
-        className="flex items-center gap-3 bg-card rounded-xl border border-border p-3 card-hover cursor-pointer group"
+        className="channel-card flex items-center gap-3 bg-card border border-border p-3 cursor-pointer group rounded-xl shadow-sm"
       >
-        <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center shrink-0 overflow-hidden">
+        <div className="w-10 h-10 bg-secondary flex items-center justify-center shrink-0 overflow-hidden rounded-lg">
           {channel.logo ? (
-            <img src={channel.logo} alt={channel.name} className="w-full h-full object-cover" loading="lazy" />
+            <img src={channel.logo} alt={channel.name} className="w-full h-full object-cover" loading="lazy" decoding="async" />
           ) : (
             <Tv className="h-4 w-4 text-foreground/50" />
           )}
@@ -58,11 +58,11 @@ export function ChannelCard({ channel, compact }: ChannelCardProps) {
         </div>
         <button
           onClick={handleFavToggle}
-          className="shrink-0 p-1 rounded-full hover:bg-secondary transition-colors"
+          className="shrink-0 p-1 rounded-full hover:bg-secondary"
         >
           <Heart
-            className={`h-4 w-4 transition-all ${
-              isFav ? 'text-red-500 fill-red-500 scale-110' : 'text-muted-foreground'
+            className={`h-4 w-4 ${
+              isFav ? 'text-red-500 fill-red-500' : 'text-muted-foreground'
             }`}
           />
         </button>
@@ -73,24 +73,24 @@ export function ChannelCard({ channel, compact }: ChannelCardProps) {
   return (
     <div
       onClick={handleClick}
-      className="channel-card bg-card rounded-2xl border border-border p-4 flex flex-col items-center gap-3 cursor-pointer group relative"
+      className="channel-card bg-card border border-border p-4 flex flex-col items-center gap-3 cursor-pointer group relative rounded-2xl shadow-sm"
     >
       {/* Favorite Button */}
       <button
         onClick={handleFavToggle}
-        className="absolute top-2 right-2 p-1.5 rounded-full bg-background/50 hover:bg-background/80 transition-colors z-10"
+        className="absolute top-2 right-2 p-1.5 rounded-full bg-background/50 hover:bg-background/80 z-10"
       >
         <Heart
-          className={`h-3.5 w-3.5 transition-all ${
-            isFav ? 'text-red-500 fill-red-500 scale-110' : 'text-muted-foreground'
+          className={`h-3.5 w-3.5 ${
+            isFav ? 'text-red-500 fill-red-500' : 'text-muted-foreground'
           }`}
         />
       </button>
 
       {/* Channel Logo */}
-      <div className="w-14 h-14 rounded-xl bg-secondary flex items-center justify-center overflow-hidden shrink-0">
+      <div className="w-14 h-14 bg-secondary flex items-center justify-center overflow-hidden rounded-xl">
         {channel.logo ? (
-          <img src={channel.logo} alt={channel.name} className="w-full h-full object-cover" loading="lazy" />
+          <img src={channel.logo} alt={channel.name} className="w-full h-full object-cover" loading="lazy" decoding="async" />
         ) : (
           <Tv className="h-6 w-6 text-foreground/50" />
         )}
