@@ -111,11 +111,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 }))
 
-// Initialize from URL hash on load
+// Initialize from URL hash on load + auto-unlock admin
 if (typeof window !== 'undefined') {
   function initFromUrl() {
     const hash = window.location.hash.replace('#/', '').replace('#', '')
     const hashPage = hash.split('/')[0]
+
+    // Auto-unlock admin if URL hash contains admin
+    if (hashPage === 'admin') {
+      useAppStore.setState({ isAdminAuth: true })
+    }
 
     if (hash) {
       const validPages: PageName[] = ['home', 'live', 'watch', 'news', 'sports', 'cricket', 'football', 'entertainment', 'favorites', 'search', 'admin', 'more']

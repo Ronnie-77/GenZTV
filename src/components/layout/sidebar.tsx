@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTheme } from 'next-themes'
 import { useAppStore, type PageName } from '@/lib/store'
 import { cn } from '@/lib/utils'
@@ -41,10 +41,41 @@ const navItems: { icon: React.ElementType; label: string; page: PageName; badge?
 ]
 
 export function Sidebar() {
-  const { currentPage, setCurrentPage, sidebarOpen, setSidebarOpen, isAdminAuth } = useAppStore()
+  const { currentPage, setCurrentPage, sidebarOpen, setSidebarOpen, isAdminAuth, setIsAdminAuth } = useAppStore()
   const { theme, setTheme } = useTheme()
   const mounted = useMounted()
   const [themeOpen, setThemeOpen] = useState(false)
+
+  // Secret admin unlock: 5 taps on version text
+  const tapCountRef = useRef(0)
+  const tapTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  const handleSecretTap = () => {
+    tapCountRef.current += 1
+
+    if (tapTimerRef.current) clearTimeout(tapTimerRef.current)
+    tapTimerRef.current = setTimeout(() => {
+      tapCountRef.current = 0
+    }, 2000) // Reset after 2s of no taps
+
+    if (tapCountRef.current >= 5) {
+      tapCountRef.current = 0
+      if (tapTimerRef.current) clearTimeout(tapTimerRef.current)
+      setIsAdminAuth(true)
+    }
+  }
+
+  // Keyboard shortcut: Ctrl+Shift+A
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.ctrlKey && e.shiftKey && e.key === 'A') {
+        e.preventDefault()
+        setIsAdminAuth(true)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [setIsAdminAuth])
 
   const handleNav = (page: PageName) => {
     setCurrentPage(page)
@@ -199,9 +230,12 @@ export function Sidebar() {
 
           <Separator className="my-4 bg-sidebar-border" />
 
-          {/* Bottom info */}
+          {/* Bottom info — tap 5 times to unlock admin */}
           <div className="mt-6 px-3">
-            <div className="bg-secondary/50 rounded-xl p-3 text-xs text-muted-foreground select-none">
+            <div
+              className="bg-secondary/50 rounded-xl p-3 text-xs text-muted-foreground cursor-pointer select-none"
+              onClick={handleSecretTap}
+            >
               <p className="font-semibold text-foreground mb-1">GenZ TV v1.0</p>
               <p>Premium live streaming platform</p>
             </div>

@@ -69,7 +69,6 @@ export interface AppSettings {
   featuredChannelId: string
   heroBannerText: string
   defaultQuality: string
-  apkUrl: string
   bannerAdScript: string
   socialBarAdScript: string
 }

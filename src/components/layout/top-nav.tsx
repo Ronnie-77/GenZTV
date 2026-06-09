@@ -4,13 +4,15 @@ import { useAppStore } from '@/lib/store'
 import { Search, Menu, Tv } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useState } from 'react'
 import { NotificationBell } from '@/components/notifications/notification-manager'
 
 export function TopNav() {
   const { setCurrentPage, setSearchQuery, setSidebarOpen } = useAppStore()
+  const [searchExpanded, setSearchExpanded] = useState(false)
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 bg-background md:sticky md:glass md:bg-background/80">
+    <header className="fixed top-0 left-0 right-0 z-50 glass bg-background md:bg-background/80">
       <div className="flex items-center justify-between h-14 px-4 gap-3">
         {/* Left: Menu + Logo */}
         <div className="flex items-center gap-2 min-w-0">
@@ -36,21 +38,32 @@ export function TopNav() {
           </button>
         </div>
 
-        {/* Center: Search box */}
-        <div className="flex-1 max-w-md mx-auto">
+        {/* Center: Search (desktop only) */}
+        <div className="flex-1 max-w-md mx-auto hidden sm:block">
           <div className="relative w-full">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search..."
-              className="pl-8 bg-secondary/50 border-0 focus-visible:ring-1 focus-visible:ring-primary h-8 text-xs sm:text-sm sm:h-9 sm:pl-9"
+              placeholder="Search channels..."
+              className="pl-9 bg-secondary/50 border-0 focus-visible:ring-1 focus-visible:ring-primary h-9"
               onFocus={() => setCurrentPage('search')}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
         </div>
 
-        {/* Right: Notification */}
+        {/* Right: Search (mobile) + Notification */}
         <div className="flex items-center gap-1 shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="sm:hidden"
+            onClick={() => {
+              setCurrentPage('search')
+              setSearchExpanded(true)
+            }}
+          >
+            <Search className="h-5 w-5" />
+          </Button>
           <NotificationBell />
         </div>
       </div>

@@ -145,7 +145,7 @@ export function MorePage() {
         </h2>
         <button
           onClick={() => setCurrentPage('admin')}
-          className="hidden md:flex w-full items-center gap-4 p-4 rounded-2xl bg-card border border-border hover:border-foreground/15 transition-all duration-200 group text-left active:scale-[0.98]"
+          className="w-full flex items-center gap-4 p-4 rounded-2xl bg-card border border-border hover:border-foreground/15 transition-all duration-200 group text-left active:scale-[0.98]"
         >
           <div className="w-12 h-12 rounded-2xl bg-secondary flex items-center justify-center shrink-0">
             <Shield className="h-5 w-5 text-foreground" />

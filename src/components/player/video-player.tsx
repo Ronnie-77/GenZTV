@@ -128,15 +128,6 @@ export function VideoPlayer({
     }, 3000)
   }, [playing, controlsBusy])
 
-  const toggleControlsVisibility = useCallback(() => {
-    if (controlsVisible) {
-      setControlsVisible(false)
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-    } else {
-      showControls()
-    }
-  }, [controlsVisible, showControls])
-
   const handleMouseMove = useCallback(() => {
     showControls()
   }, [showControls])
@@ -514,7 +505,6 @@ export function VideoPlayer({
         isFullscreen={fullscreen}
         onToggleFullscreen={toggleFullscreen}
         onTogglePiP={togglePiP}
-        onToggleControlsVisibility={toggleControlsVisibility}
         title={title}
         isLive={isLive}
         isBehindLive={isHls && isBehindLive}

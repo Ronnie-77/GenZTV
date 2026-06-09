@@ -181,6 +181,10 @@ export function MatchCard({ match, variant }: MatchCardProps) {
           <span className="text-[11px] text-muted-foreground">Match ended</span>
         )}
 
+        {status === 'live' && match.endTime && !hasEnded && (
+          <CountdownDisplay targetDate={new Date(match.endTime)} label="Ends in" />
+        )}
+
         {status === 'ended' && (
           <span className="text-[11px] text-muted-foreground">Match ended</span>
         )}

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { Settings, Save, RefreshCw, Globe, Tv, Monitor, Shield, Database, Download, Upload, X, FileArchive, Trash2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Settings, Save, RefreshCw, Globe, Tv, Monitor, Shield, Database } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
@@ -14,9 +14,6 @@ export function AdminSettings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [seeding, setSeeding] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Form state
   const [appName, setAppName] = useState('GenZ TV')
@@ -25,8 +22,6 @@ export function AdminSettings() {
   const [featuredChannelId, setFeaturedChannelId] = useState('')
   const [heroBannerText, setHeroBannerText] = useState('')
   const [defaultQuality, setDefaultQuality] = useState('auto')
-  const [apkUrl, setApkUrl] = useState('')
-  const [apkFileName, setApkFileName] = useState('')
 
   useEffect(() => {
     async function load() {
@@ -44,12 +39,6 @@ export function AdminSettings() {
         setFeaturedChannelId(s.featuredChannelId)
         setHeroBannerText(s.heroBannerText)
         setDefaultQuality(s.defaultQuality)
-        setApkUrl(s.apkUrl || '')
-        // Extract filename from URL
-        if (s.apkUrl) {
-          const parts = s.apkUrl.split('/')
-          setApkFileName(parts[parts.length - 1] || 'app.apk')
-        }
       } catch {
         toast.error('Error', { description: 'Failed to load settings' })
       } finally {
@@ -69,7 +58,6 @@ export function AdminSettings() {
         featuredChannelId,
         heroBannerText,
         defaultQuality,
-        apkUrl,
       })
       setSettings(updated)
       toast.success('Settings Saved', { description: 'App settings have been updated successfully' })
@@ -77,73 +65,6 @@ export function AdminSettings() {
       toast.error('Error', { description: 'Failed to save settings' })
     } finally {
       setSaving(false)
-    }
-  }
-
-  const handleApkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    if (!file.name.endsWith('.apk')) {
-      toast.error('Invalid File', { description: 'Please select an APK file' })
-      return
-    }
-
-    setUploading(true)
-    setUploadProgress(0)
-
-    try {
-      const formData = new FormData()
-      formData.append('apk', file)
-
-      // Use XMLHttpRequest for progress tracking
-      const result = await new Promise<{ success: boolean; apkUrl: string; fileName: string; size: number }>((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-        xhr.open('POST', '/api/upload/apk')
-
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const percent = Math.round((event.loaded / event.total) * 100)
-            setUploadProgress(percent)
-          }
-        }
-
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(JSON.parse(xhr.responseText))
-          } else {
-            reject(new Error(JSON.parse(xhr.responseText).error || 'Upload failed'))
-          }
-        }
-
-        xhr.onerror = () => reject(new Error('Network error'))
-        xhr.send(formData)
-      })
-
-      setApkUrl(result.apkUrl)
-      setApkFileName(file.name)
-      toast.success('APK Uploaded', { description: `${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB) uploaded successfully` })
-    } catch (err) {
-      toast.error('Upload Failed', { description: err instanceof Error ? err.message : 'Failed to upload APK' })
-    } finally {
-      setUploading(false)
-      setUploadProgress(0)
-      // Reset file input
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
-
-  const handleApkDelete = async () => {
-    if (!confirm('Are you sure you want to delete the uploaded APK?')) return
-
-    try {
-      const res = await fetch('/api/upload/apk', { method: 'DELETE' })
-      if (!res.ok) throw new Error('Failed to delete')
-      setApkUrl('')
-      setApkFileName('')
-      toast.success('APK Deleted', { description: 'The APK file has been removed' })
-    } catch {
-      toast.error('Error', { description: 'Failed to delete APK' })
     }
   }
 
@@ -303,85 +224,6 @@ export function AdminSettings() {
             <option value="480p">480p</option>
             <option value="360p">360p</option>
           </select>
-        </div>
-      </div>
-
-      {/* APK Upload */}
-      <div className="bg-card rounded-2xl border border-border p-4 space-y-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Download className="h-4 w-4 text-primary" />
-          <h3 className="font-semibold">APK Download</h3>
-        </div>
-
-        {/* Current APK status */}
-        {apkUrl ? (
-          <div className="flex items-center gap-3 p-3 bg-secondary/50 rounded-xl border border-border">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center shrink-0">
-              <FileArchive className="h-5 w-5 text-green-600" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{apkFileName || 'app.apk'}</p>
-              <p className="text-xs text-muted-foreground">APK uploaded — users can download it</p>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleApkDelete}
-              className="shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-3 p-3 bg-secondary/50 rounded-xl border border-border border-dashed">
-            <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center shrink-0">
-              <Upload className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-muted-foreground">No APK uploaded</p>
-              <p className="text-xs text-muted-foreground">Upload an APK file for users to download</p>
-            </div>
-          </div>
-        )}
-
-        {/* Upload button + progress */}
-        <div className="space-y-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".apk"
-            onChange={handleApkUpload}
-            className="hidden"
-          />
-          <Button
-            variant="outline"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="w-full gap-2 btn-press"
-          >
-            {uploading ? (
-              <>
-                <RefreshCw className="h-4 w-4 animate-spin" />
-                Uploading... {uploadProgress}%
-              </>
-            ) : (
-              <>
-                <Upload className="h-4 w-4" />
-                {apkUrl ? 'Replace APK' : 'Upload APK File'}
-              </>
-            )}
-          </Button>
-          {uploading && (
-            <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
-              <div
-                className="bg-primary h-full rounded-full transition-all duration-300 ease-out"
-                style={{ width: `${uploadProgress}%` }}
-              />
-            </div>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Upload an APK file (max 200MB). The file will be served from the server and users can download it directly.
-          </p>
         </div>
       </div>
 
