@@ -154,11 +154,7 @@ export function PlayerControls({
 
       {/* Center play/pause button — smaller, YouTube-style */}
       <div className="absolute inset-0 flex items-center justify-center">
-        {isLoading ? (
-          <div className="p-2.5 rounded-full bg-black/50 glass">
-            <Loader2 className="h-6 w-6 text-white animate-spin" />
-          </div>
-        ) : hasError ? (
+        {hasError ? (
           <div className="flex flex-col items-center gap-2">
             <AlertCircle className="h-8 w-8 text-red-400" />
             <p className="text-white text-sm">Stream error</p>

@@ -55,6 +55,7 @@ export function VideoPlayer({
   const [muted, setMuted] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [buffering, setBuffering] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [controlsVisible, setControlsVisible] = useState(true)
   const [controlsBusy, setControlsBusy] = useState(false)
@@ -348,6 +349,7 @@ export function VideoPlayer({
   const handleRetry = useCallback(() => {
     setError(null)
     setLoading(true)
+    setBuffering(false)
     setQualityLevels([])
     setHlsStats(null)
     setCurrentQuality(-1)
@@ -356,6 +358,7 @@ export function VideoPlayer({
 
   const handleReady = useCallback(() => {
     setLoading(false)
+    setBuffering(false)
     const video = videoRef.current || containerRef.current?.querySelector('video')
     if (video) {
       video.play().then(() => setPlaying(true)).catch(() => {})
@@ -365,6 +368,7 @@ export function VideoPlayer({
   const handleError = useCallback((err: string) => {
     setError(err)
     setLoading(false)
+    setBuffering(false)
   }, [])
 
   const handleVideoRef = useCallback((video: HTMLVideoElement | null) => {
@@ -385,6 +389,17 @@ export function VideoPlayer({
 
   const handleLiveStatus = useCallback((status: LiveStatus) => {
     setIsBehindLive(status.isLive && status.isBehindLive)
+  }, [])
+
+  const handleBuffering = useCallback((isBuffering: boolean) => {
+    setBuffering(isBuffering)
+    // If buffering stops and video isn't playing, it might have stalled
+    if (!isBuffering) {
+      const video = videoRef.current || containerRef.current?.querySelector('video')
+      if (video && !video.paused) {
+        setPlaying(true)
+      }
+    }
   }, [])
 
   const handleSeekedToLive = useCallback(() => {
@@ -439,6 +454,7 @@ export function VideoPlayer({
             onLiveStatus={handleLiveStatus}
             seekToLive={seekToLive}
             onSeekedToLive={handleSeekedToLive}
+            onBuffering={handleBuffering}
           />
         </div>
       )}
@@ -502,6 +518,8 @@ export function VideoPlayer({
           </div>
         </div>
       )}
+
+      {/* Loading/buffering indicator removed — no spinner animation */}
 
       {/* Controls overlay */}
       <PlayerControls

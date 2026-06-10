@@ -38,6 +38,7 @@ interface HlsPlayerProps {
   onLiveStatus?: (status: LiveStatus) => void
   seekToLive?: boolean // When true, seek to live edge
   onSeekedToLive?: () => void // Called after seeking to live
+  onBuffering?: (isBuffering: boolean) => void // Called when video starts/stops buffering
 }
 
 export function HlsPlayer({
@@ -53,6 +54,7 @@ export function HlsPlayer({
   onLiveStatus,
   seekToLive,
   onSeekedToLive,
+  onBuffering,
 }: HlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
@@ -82,6 +84,14 @@ export function HlsPlayer({
     // Cleanup previous instance
     cleanup()
     retryCountRef.current = 0
+
+    // Buffering detection via video element events (works for both hls.js and native HLS)
+    const handleWaiting = () => onBuffering?.(true)
+    const handlePlaying = () => onBuffering?.(false)
+    const handleCanPlay = () => onBuffering?.(false)
+    video.addEventListener('waiting', handleWaiting)
+    video.addEventListener('playing', handlePlaying)
+    video.addEventListener('canplay', handleCanPlay)
 
     // Check for native HLS support first (Safari, iOS)
     const nativeHls = video.canPlayType('application/vnd.apple.mpegurl')
@@ -262,9 +272,12 @@ export function HlsPlayer({
     }
 
     return () => {
+      video.removeEventListener('waiting', handleWaiting)
+      video.removeEventListener('playing', handlePlaying)
+      video.removeEventListener('canplay', handleCanPlay)
       cleanup()
     }
-  }, [src, cleanup, onReady, onError, onQualityLevels, onStatsUpdate, onVideoRef])
+  }, [src, cleanup, onReady, onError, onQualityLevels, onStatsUpdate, onVideoRef, onBuffering])
 
   // Handle quality level changes from parent
   useEffect(() => {

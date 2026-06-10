@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useEffect } from 'react'
 
 interface IframePlayerProps {
   src: string
@@ -10,7 +10,6 @@ interface IframePlayerProps {
 
 export function IframePlayer({ src, onReady, onError }: IframePlayerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const [loaded, setLoaded] = useState(false)
 
   // Extract URL from iframe HTML if full iframe tag is provided
   const getSrcUrl = (input: string): string => {
@@ -24,22 +23,81 @@ export function IframePlayer({ src, onReady, onError }: IframePlayerProps) {
 
   const url = getSrcUrl(src)
 
+  // ── Popup / Ad Blocker ──
+  // When iframe ads open new tabs, we detect the focus loss and
+  // aggressively close those popups and refocus our window.
+  useEffect(() => {
+    // Store references to windows opened by our overridden window.open
+    const openedWindows: Window[] = []
+
+    // 1. Override window.open to intercept and auto-close popups
+    const originalOpen = window.open
+    window.open = function (...args) {
+      // Open the window but immediately close it
+      const newWin = originalOpen.apply(window, args)
+      if (newWin) {
+        try {
+          newWin.close()
+        } catch {
+          // Cross-origin window, can't close
+        }
+      }
+      // Return a mock window object so the caller doesn't crash
+      return newWin || null
+    }
+
+    // 2. When our window loses focus (popup opened), aggressively refocus
+    const handleBlur = () => {
+      // Small delay to let the popup actually open
+      setTimeout(() => {
+        window.focus()
+        // Try to close any opened windows
+        openedWindows.forEach(w => {
+          try { w.close() } catch { /* cross-origin */ }
+        })
+      }, 50)
+    }
+
+    // 3. When tab becomes hidden (user switched to popup tab), bring back
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        // Try to refocus immediately
+        window.focus()
+      }
+    }
+
+    // 4. Intercept beforeunload to prevent navigation away from our page
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // This will show a browser prompt - we prevent the navigation
+      e.preventDefault()
+      return ''
+    }
+
+    window.addEventListener('blur', handleBlur)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    // Cleanup
+    return () => {
+      window.open = originalOpen
+      window.removeEventListener('blur', handleBlur)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      // Close any remaining popup windows
+      openedWindows.forEach(w => {
+        try { w.close() } catch { /* cross-origin */ }
+      })
+    }
+  }, [])
+
   return (
     <div className="relative w-full h-full bg-black">
-      {!loaded && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-        </div>
-      )}
       <iframe
         ref={iframeRef}
         src={url}
         className="w-full h-full border-0"
         allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
         allowFullScreen
-        sandbox="allow-scripts allow-same-origin allow-presentation allow-forms allow-popups"
+        referrerPolicy="no-referrer"
         onLoad={() => {
-          setLoaded(true)
           onReady?.()
         }}
         onError={() => onError?.('Failed to load iframe')}
