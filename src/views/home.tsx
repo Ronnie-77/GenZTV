@@ -177,51 +177,6 @@ export function HomePage() {
 
       {/* ── Content Sections ── */}
       <div className="space-y-8 px-4 md:px-6 lg:px-8 py-6">
-        {/* 📺 Featured Channels Section */}
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2.5">
-              <div className="flex items-center gap-2">
-                <Tv className="h-5 w-5 text-emerald-500" />
-                <h2 className="text-xl font-bold text-foreground">Popular Channels</h2>
-              </div>
-              {!loadingFeatured && featuredChannels.length > 0 && (
-                <span className="text-xs font-medium text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
-                  {featuredChannels.length}
-                </span>
-              )}
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => setCurrentPage('live')} className="text-primary gap-1 font-medium">
-              View All <ChevronRight className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-
-          {loadingFeatured ? (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="bg-card rounded-2xl border border-border p-4 flex flex-col items-center gap-3 animate-pulse">
-                  <div className="w-14 h-14 bg-secondary rounded-xl" />
-                  <div className="h-3 bg-secondary rounded w-16" />
-                </div>
-              ))}
-            </div>
-          ) : featuredChannels.length === 0 ? (
-            <div className="bg-card rounded-2xl border border-border p-8 text-center">
-              <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center mx-auto mb-3">
-                <Tv className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <p className="text-sm text-muted-foreground font-medium">No channels available yet</p>
-              <p className="text-xs text-muted-foreground mt-1">Channels will appear here when added.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-              {featuredChannels.slice(0, 16).map((channel) => (
-                <ChannelCard key={channel.id} channel={channel} />
-              ))}
-            </div>
-          )}
-        </section>
-
         {/* 🔴 Live Matches Section */}
         <section>
           <div className="flex items-center justify-between mb-4">
@@ -323,6 +278,51 @@ export function HomePage() {
             <div className="matches-grid">
               {stillUpcoming.slice(0, 6).map((match) => (
                 <MatchCard key={match.id} match={match} variant="upcoming" />
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* 📺 Featured Channels Section */}
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
+                <Tv className="h-5 w-5 text-emerald-500" />
+                <h2 className="text-xl font-bold text-foreground">Popular Channels</h2>
+              </div>
+              {!loadingFeatured && featuredChannels.length > 0 && (
+                <span className="text-xs font-medium text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
+                  {featuredChannels.length}
+                </span>
+              )}
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setCurrentPage('live')} className="text-primary gap-1 font-medium">
+              View All <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          {loadingFeatured ? (
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="bg-card rounded-2xl border border-border p-4 flex flex-col items-center gap-3 animate-pulse">
+                  <div className="w-14 h-14 bg-secondary rounded-xl" />
+                  <div className="h-3 bg-secondary rounded w-16" />
+                </div>
+              ))}
+            </div>
+          ) : featuredChannels.length === 0 ? (
+            <div className="bg-card rounded-2xl border border-border p-8 text-center">
+              <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center mx-auto mb-3">
+                <Tv className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm text-muted-foreground font-medium">No channels available yet</p>
+              <p className="text-xs text-muted-foreground mt-1">Channels will appear here when added.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+              {featuredChannels.slice(0, 16).map((channel) => (
+                <ChannelCard key={channel.id} channel={channel} />
               ))}
             </div>
           )}

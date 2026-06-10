@@ -217,23 +217,21 @@ export function WatchPage() {
 
         {/* Stream selector for matches */}
         {viewMode === 'match' && match && match.streams.length > 1 && (
-          <div className="space-y-2 mt-3 ml-12">
-            <h3 className="text-sm font-semibold">Available Streams</h3>
-            <div className="flex gap-2 flex-wrap">
+          <div className="mt-2 ml-12">
+            <div className="flex gap-1.5 flex-wrap">
               {match.streams.map((stream, index) => (
-                <Button
+                <button
                   key={stream.id}
-                  variant={index === activeStreamIndex ? 'default' : 'outline'}
-                  size="sm"
                   onClick={() => setActiveStreamIndex(index)}
-                  className="gap-1 btn-press"
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors btn-press ${
+                    index === activeStreamIndex
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                  }`}
                 >
-                  <ExternalLink className="h-3 w-3" />
+                  <ExternalLink className="h-2.5 w-2.5" />
                   {stream.name || `Stream ${index + 1}`}
-                  <Badge variant="secondary" className="text-[9px] ml-1 px-1">
-                    {stream.type}
-                  </Badge>
-                </Button>
+                </button>
               ))}
             </div>
           </div>
@@ -247,11 +245,8 @@ export function WatchPage() {
           <div className="flex-1 min-w-0 max-w-4xl relative z-10">
             <div className="relative w-full bg-black rounded-xl overflow-hidden z-10">
               {loading ? (
-                <div className="w-full aspect-video flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto mb-3" />
-                    <p className="text-white/60 text-sm">Loading stream...</p>
-                  </div>
+                <div className="w-full aspect-video flex items-center justify-center bg-black">
+                  <p className="text-white/40 text-sm">Loading stream...</p>
                 </div>
               ) : (
                 <VideoPlayer
