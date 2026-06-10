@@ -50,7 +50,7 @@ function BannerAd() {
 }
 
 export function WatchPage() {
-  const { currentChannelId, setCurrentPage, toggleFavorite, favorites } = useAppStore()
+  const { currentChannelId, setCurrentPage, goBack, toggleFavorite, favorites } = useAppStore()
   const [channel, setChannel] = useState<Channel | null>(null)
   const [match, setMatch] = useState<Match | null>(null)
   const [loading, setLoading] = useState(true)
@@ -144,7 +144,7 @@ export function WatchPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setCurrentPage('home')}
+            onClick={() => goBack()}
             className="shrink-0 mt-0.5"
           >
             <ArrowLeft className="h-5 w-5" />

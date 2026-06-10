@@ -48,7 +48,8 @@ export function SearchPage() {
         <h1 className="text-2xl font-bold">Search</h1>
       </div>
 
-      <div className="relative max-w-lg">
+      {/* Search input — hidden on mobile since top nav already has a search bar */}
+      <div className="relative max-w-lg hidden md:block">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
           placeholder="Search channels, categories..."

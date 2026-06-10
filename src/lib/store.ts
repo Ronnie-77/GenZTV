@@ -25,6 +25,8 @@ interface AppState {
   // Navigation
   currentPage: PageName
   setCurrentPage: (page: PageName) => void
+  navigationHistory: PageName[]
+  goBack: () => void
   
   // Watch page
   currentChannelId: string | null
@@ -68,12 +70,40 @@ const saveFavorites = (ids: string[]) => {
 export const useAppStore = create<AppState>((set, get) => ({
   // Navigation
   currentPage: 'home',
+  navigationHistory: [],
   setCurrentPage: (page) => {
-    set({ currentPage: page })
+    const current = get().currentPage
+    // Push current page to history only if we're actually navigating away
+    if (current !== page) {
+      set({
+        currentPage: page,
+        navigationHistory: [...get().navigationHistory, current]
+      })
+    }
     // Update URL hash for browser navigation
     if (typeof window !== 'undefined') {
       const hash = page === 'home' ? '#/' : `#/${page}`
       window.location.hash = hash
+    }
+  },
+  goBack: () => {
+    const { navigationHistory } = get()
+    if (navigationHistory.length > 0) {
+      const previousPage = navigationHistory[navigationHistory.length - 1]
+      set({
+        currentPage: previousPage,
+        navigationHistory: navigationHistory.slice(0, -1)
+      })
+      if (typeof window !== 'undefined') {
+        const hash = previousPage === 'home' ? '#/' : `#/${previousPage}`
+        window.location.hash = hash
+      }
+    } else {
+      // No history, go to home
+      set({ currentPage: 'home' })
+      if (typeof window !== 'undefined') {
+        window.location.hash = '#/'
+      }
     }
   },
   
