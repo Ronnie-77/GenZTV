@@ -61,6 +61,23 @@ export function VideoPlayer({
   const [controlsBusy, setControlsBusy] = useState(false)
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Determine player type early (derived from state, needed by hooks below)
+  const isIframe = resolvedType === 'iframe'
+  const isHls = resolvedType === 'm3u' || resolvedType === 'm3u8'
+
+  // For iframe: auto-hide controls after 2 seconds on initial load
+  useEffect(() => {
+    if (isIframe && controlsVisible && !controlsBusy) {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = setTimeout(() => {
+        setControlsVisible(false)
+      }, 2000)
+    }
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+    }
+  }, [isIframe, controlsVisible, controlsBusy])
+
   // HLS quality & stats state
   const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([])
   const [currentQuality, setCurrentQuality] = useState(-1) // -1 = auto
@@ -120,14 +137,15 @@ export function VideoPlayer({
     resolve()
   }, [streamUrl, streamType, onStreamResolved])
 
-  // Auto-hide controls
+  // Auto-hide controls — faster for iframe mode (2s initial, 3s after interaction)
   const showControls = useCallback(() => {
     setControlsVisible(true)
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+    const hideDelay = isIframe ? 3000 : 3000 // 3s for both after interaction
     hideTimerRef.current = setTimeout(() => {
-      if (playing && !controlsBusy) setControlsVisible(false)
-    }, 3000)
-  }, [playing, controlsBusy])
+      if ((isIframe || playing) && !controlsBusy) setControlsVisible(false)
+    }, hideDelay)
+  }, [playing, controlsBusy, isIframe])
 
   const toggleControlsVisibility = useCallback(() => {
     if (controlsVisible) {
@@ -139,8 +157,9 @@ export function VideoPlayer({
   }, [controlsVisible, showControls])
 
   const handleMouseMove = useCallback(() => {
-    showControls()
-  }, [showControls])
+    // Don't show controls on mouse move for iframe — only bottom-zone click should show
+    if (!isIframe) showControls()
+  }, [showControls, isIframe])
 
   // Touch gesture handlers for volume/brightness
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -411,10 +430,6 @@ export function VideoPlayer({
     setSeekToLive(true)
   }, [])
 
-  // Determine actual player type
-  const isIframe = resolvedType === 'iframe'
-  const isHls = resolvedType === 'm3u' || resolvedType === 'm3u8'
-
   return (
     <div
       ref={containerRef}
@@ -422,8 +437,9 @@ export function VideoPlayer({
         fullscreen ? 'fixed inset-0 z-50 cursor-none' : 'rounded-none md:rounded-2xl'
       }`}
       onMouseMove={handleMouseMove}
-      onMouseLeave={() => playing && setControlsVisible(false)}
+      onMouseLeave={() => !isIframe && playing && setControlsVisible(false)}
       onDoubleClick={(e) => { e.stopPropagation() }}
+      onContextMenu={(e) => { if (isIframe) e.preventDefault() }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -546,6 +562,7 @@ export function VideoPlayer({
         currentQuality={currentQuality}
         onQualityChange={handleQualityChange}
         hlsStats={isHls ? hlsStats : null}
+        isIframe={isIframe}
       />
 
       {/* Fullscreen rotate hint — shows on mobile in portrait mode */}

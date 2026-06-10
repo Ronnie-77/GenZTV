@@ -9,7 +9,6 @@ import {
   Maximize,
   Minimize,
   PictureInPicture2,
-  Loader2,
   AlertCircle,
   RefreshCw,
   Settings,
@@ -44,6 +43,8 @@ interface PlayerControlsProps {
   currentQuality?: number
   onQualityChange?: (level: number) => void
   hlsStats?: HlsStats | null
+  // Iframe mode — simplified controls
+  isIframe?: boolean
 }
 
 function formatBandwidth(bps: number): string {
@@ -76,6 +77,7 @@ export function PlayerControls({
   currentQuality = -1,
   onQualityChange,
   hlsStats,
+  isIframe = false,
 }: PlayerControlsProps) {
   // Single click / double click detection
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -127,6 +129,168 @@ export function PlayerControls({
     ? 'Auto'
     : qualityLevels.find(q => q.index === currentQuality)?.label.split(' · ')[0] || 'Auto'
 
+  // ── Iframe Mode: Minimal Controls ──
+  // For iframe videos, we show a different layout:
+  // - No title/gradient at top (so unmute button is accessible)
+  // - No center play button (so clicks pass through to iframe)
+  // - Only bottom control bar with essential controls
+  // - Top ~60% of player is click-through to iframe
+  // - Bottom ~40% triggers our controls
+  if (isIframe) {
+    return (
+      <>
+        {/* Transparent bottom-zone click area — only this area toggles controls */}
+        <div
+          className={`absolute left-0 right-0 bottom-0 z-10 transition-opacity duration-300 ${
+            visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+          style={{ height: '40%' }}
+          onClick={(e) => {
+            if (effectiveSettingsOpen) {
+              setSettingsOpen(false)
+              setSettingsPage('main')
+              e.stopPropagation()
+              return
+            }
+            e.stopPropagation()
+            handleContainerClick()
+          }}
+        >
+          {/* Top portion of the click zone — just transparent for click detection */}
+          <div className="h-[60%]" />
+
+          {/* Bottom controls bar — YouTube style */}
+          <div
+            className="absolute bottom-0 left-0 right-0 player-controls-bottom"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* YouTube-style settings popup */}
+            {effectiveSettingsOpen && (
+              <div
+                className="absolute bottom-[52px] right-2 w-56 bg-[#121212]/95 backdrop-blur-md rounded-lg overflow-hidden shadow-2xl border border-white/[0.08] animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Stats for nerds sub-page */}
+                {settingsPage === 'stats' && hlsStats && (
+                  <div>
+                    <button
+                      onClick={() => setSettingsPage('main')}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-[13px] text-white/90 hover:bg-white/[0.08] transition-colors border-b border-white/[0.06] cursor-pointer"
+                    >
+                      <ChevronRight className="h-3.5 w-3.5 rotate-180" />
+                      <span className="font-medium">Stats for nerds</span>
+                    </button>
+                    <div className="px-4 py-2.5 text-[11px] text-white/60 space-y-1.5">
+                      <div className="flex justify-between">
+                        <span>Bandwidth</span>
+                        <span className="text-white/90 font-medium">{formatBandwidth(hlsStats.bandwidth)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Buffer Health</span>
+                        <span className={`font-medium ${hlsStats.bufferLength < 2 ? 'text-yellow-400' : 'text-green-400'}`}>
+                          {hlsStats.bufferLength.toFixed(1)}s
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Main settings page */}
+                {settingsPage === 'main' && (
+                  <div className="py-1">
+                    {hlsStats && (
+                      <button
+                        onClick={() => setSettingsPage('stats')}
+                        className="w-full flex items-center justify-between px-4 py-2.5 text-[13px] text-white/90 hover:bg-white/[0.08] transition-colors cursor-pointer"
+                      >
+                        <span>Stats for nerds</span>
+                        <ChevronRight className="h-3.5 w-3.5 text-white/50" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Control bar */}
+            <div className="bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-5">
+              {/* LIVE indicator */}
+              <div className="flex items-center gap-2 mb-1.5">
+                {isLive && (
+                  <span className="flex items-center gap-1.5 text-[11px] bg-red-600 text-white px-1.5 py-0.5 rounded font-bold leading-none">
+                    <span className="w-1.5 h-1.5 bg-white rounded-full animate-live-pulse" />
+                    LIVE
+                  </span>
+                )}
+              </div>
+
+              {/* Main control buttons — simplified for iframe */}
+              <div className="flex items-center gap-1">
+                {/* Spacer */}
+                <div className="flex-1" />
+
+                {/* Settings gear */}
+                {hlsStats && (
+                  <button
+                    onClick={() => {
+                      setSettingsOpen(!settingsOpen)
+                      setSettingsPage('main')
+                    }}
+                    className={`p-1.5 rounded-full hover:bg-white/10 transition-all ${effectiveSettingsOpen ? 'rotate-45' : ''}`}
+                    title="Settings"
+                  >
+                    <Settings className="h-5 w-5 text-white" />
+                  </button>
+                )}
+
+                {/* PiP */}
+                {onTogglePiP && 'pictureInPictureEnabled' in document && (
+                  <button
+                    onClick={onTogglePiP}
+                    className="p-1.5 rounded-full hover:bg-white/10 transition-colors"
+                    title="Picture in Picture"
+                  >
+                    <PictureInPicture2 className="h-5 w-5 text-white" />
+                  </button>
+                )}
+
+                {/* Fullscreen */}
+                <button
+                  onClick={onToggleFullscreen}
+                  className="p-1.5 rounded-full hover:bg-white/10 transition-colors"
+                  title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                >
+                  {isFullscreen ? (
+                    <Minimize className="h-5 w-5 text-white" />
+                  ) : (
+                    <Maximize className="h-5 w-5 text-white" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Error overlay — always visible even when controls are hidden */}
+        {hasError && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60">
+            <div className="flex flex-col items-center gap-2">
+              <AlertCircle className="h-8 w-8 text-red-400" />
+              <p className="text-white text-sm">Stream error</p>
+              {onRetry && (
+                <Button variant="outline" size="sm" onClick={onRetry} className="gap-1">
+                  <RefreshCw className="h-3 w-3" />
+                  Retry
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </>
+    )
+  }
+
+  // ── Normal (HLS) Mode: Full Controls ──
   return (
     <div
       className={`absolute inset-0 z-10 transition-opacity duration-300 ${

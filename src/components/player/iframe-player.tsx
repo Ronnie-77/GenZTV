@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 
 interface IframePlayerProps {
   src: string
@@ -10,6 +10,7 @@ interface IframePlayerProps {
 
 export function IframePlayer({ src, onReady, onError }: IframePlayerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [loaded, setLoaded] = useState(false)
 
   // Extract URL from iframe HTML if full iframe tag is provided
   const getSrcUrl = (input: string): string => {
@@ -23,81 +24,185 @@ export function IframePlayer({ src, onReady, onError }: IframePlayerProps) {
 
   const url = getSrcUrl(src)
 
-  // ── Popup / Ad Blocker ──
-  // When iframe ads open new tabs, we detect the focus loss and
-  // aggressively close those popups and refocus our window.
+  // ── Plan B: Try to auto-unmute iframe video ──
+  // For same-origin iframes, we can access the content and unmute programmatically.
+  // For cross-origin iframes, this will silently fail (which is expected).
   useEffect(() => {
-    // Store references to windows opened by our overridden window.open
-    const openedWindows: Window[] = []
+    if (!loaded || !iframeRef.current) return
 
-    // 1. Override window.open to intercept and auto-close popups
+    const tryAutoUnmute = () => {
+      try {
+        const iframeDoc = iframeRef.current?.contentDocument
+        if (iframeDoc) {
+          // Find all video elements inside iframe and unmute them
+          const videos = iframeDoc.querySelectorAll('video')
+          videos.forEach((v: HTMLVideoElement) => {
+            v.muted = false
+            v.volume = 1
+            // Try to play with sound
+            v.play().catch(() => {
+              // Autoplay with sound blocked by browser — revert to muted autoplay
+              v.muted = true
+              v.play().catch(() => {})
+            })
+          })
+
+          // Also try to find and click any "unmute" buttons inside iframe
+          const unmuteButtons = iframeDoc.querySelectorAll(
+            '[class*="unmute"], [class*="Unmute"], [aria-label*="unmute"], [aria-label*="Unmute"], [title*="unmute"], [title*="Unmute"], button[class*="muted"]'
+          )
+          unmuteButtons.forEach((btn: Element) => {
+            try { (btn as HTMLElement).click() } catch {}
+          })
+        }
+      } catch {
+        // Cross-origin — can't access iframe content, expected
+      }
+    }
+
+    // Try after a short delay to let the iframe content load
+    const timer1 = setTimeout(tryAutoUnmute, 1500)
+    const timer2 = setTimeout(tryAutoUnmute, 3000)
+    const timer3 = setTimeout(tryAutoUnmute, 5000)
+
+    return () => {
+      clearTimeout(timer1)
+      clearTimeout(timer2)
+      clearTimeout(timer3)
+    }
+  }, [loaded, url])
+
+  // ── Aggressive Popup / Ad Blocker (Desktop + Mobile) ──
+  useEffect(() => {
+    // 1. Override window.open — block all popups from opening
     const originalOpen = window.open
     window.open = function (...args) {
-      // Open the window but immediately close it
-      const newWin = originalOpen.apply(window, args)
-      if (newWin) {
-        try {
-          newWin.close()
-        } catch {
-          // Cross-origin window, can't close
-        }
-      }
-      // Return a mock window object so the caller doesn't crash
-      return newWin || null
+      // Completely block — return null, don't even open the window
+      return null
     }
 
-    // 2. When our window loses focus (popup opened), aggressively refocus
+    // 2. Override window.close — try to close any new windows
+    const originalClose = window.close
+
+    // 3. Track opened popup windows reference for cleanup
+    const popupWindows: Window[] = []
+
+    // 4. When our window loses focus (popup/new tab opened), aggressively refocus
     const handleBlur = () => {
-      // Small delay to let the popup actually open
       setTimeout(() => {
         window.focus()
-        // Try to close any opened windows
-        openedWindows.forEach(w => {
-          try { w.close() } catch { /* cross-origin */ }
+        // Close any tracked popup windows
+        popupWindows.forEach(w => {
+          try { w.close() } catch {}
         })
-      }, 50)
+      }, 30)
     }
 
-    // 3. When tab becomes hidden (user switched to popup tab), bring back
+    // 5. When tab becomes hidden (mobile: new tab opened), bring back
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        // Try to refocus immediately
         window.focus()
       }
     }
 
-    // 4. Intercept beforeunload to prevent navigation away from our page
+    // 6. Block beforeunload — prevent navigation away from our page
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      // This will show a browser prompt - we prevent the navigation
+      // This shows a browser confirmation — prevents silent navigation
       e.preventDefault()
-      return ''
+    }
+
+    // 7. Mobile-specific: Handle pagehide event (when page is hidden on mobile)
+    const handlePageHide = (e: PageTransitionEvent) => {
+      // Try to prevent the page from being hidden
+      e.preventDefault()
+    }
+
+    // 8. Intercept click events on the document to prevent target="_blank" links
+    const handleDocumentClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      const anchor = target.closest('a')
+      if (anchor) {
+        const targetAttr = anchor.getAttribute('target')
+        if (targetAttr === '_blank') {
+          e.preventDefault()
+          e.stopPropagation()
+          // Don't open the link in a new tab
+          return false
+        }
+      }
     }
 
     window.addEventListener('blur', handleBlur)
     document.addEventListener('visibilitychange', handleVisibilityChange)
+    document.addEventListener('beforeunload', handleBeforeUnload)
+    document.addEventListener('click', handleDocumentClick, true) // capture phase
+
+    // Mobile events
+    window.addEventListener('pagehide', handlePageHide as EventListener)
 
     // Cleanup
     return () => {
       window.open = originalOpen
+      window.close = originalClose
       window.removeEventListener('blur', handleBlur)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      document.removeEventListener('beforeunload', handleBeforeUnload)
+      document.removeEventListener('click', handleDocumentClick, true)
+      window.removeEventListener('pagehide', handlePageHide as EventListener)
       // Close any remaining popup windows
-      openedWindows.forEach(w => {
-        try { w.close() } catch { /* cross-origin */ }
+      popupWindows.forEach(w => {
+        try { w.close() } catch {}
       })
     }
   }, [])
 
+  // Periodic focus check — ensures our window stays focused even if popup steals it
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!document.hasFocus()) {
+        window.focus()
+      }
+    }, 300)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  // Close any new tabs/windows that were opened — aggressive periodic check
+  useEffect(() => {
+    // Store the initial number of windows
+    let windowCount = 0
+
+    const checkForNewWindows = () => {
+      // If window lost focus, try to regain it
+      if (!document.hasFocus()) {
+        window.focus()
+      }
+    }
+
+    const interval = setInterval(checkForNewWindows, 200)
+    return () => clearInterval(interval)
+  }, [])
+
   return (
-    <div className="relative w-full h-full bg-black">
+    <div className="relative w-full h-full bg-black overflow-hidden">
       <iframe
         ref={iframeRef}
         src={url}
         className="w-full h-full border-0"
+        style={{ overflow: 'hidden' }}
+        scrolling="no"
+        // sandbox: blocks popups, top-navigation, and downloads
+        // allow-same-origin: needed for video playback + our auto-unmute attempt
+        // allow-scripts: needed for player JS
+        // allow-forms: needed for form interactions
+        // allow-presentation: needed for casting/presentation API
+        // NOT included: allow-popups, allow-top-navigation, allow-downloads, allow-popups-to-escape-sandbox
+        sandbox="allow-same-origin allow-scripts allow-forms allow-presentation"
         allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
         allowFullScreen
         referrerPolicy="no-referrer"
         onLoad={() => {
+          setLoaded(true)
           onReady?.()
         }}
         onError={() => onError?.('Failed to load iframe')}
