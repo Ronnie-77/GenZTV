@@ -5,6 +5,38 @@ import { HlsPlayer } from './hls-player'
 import type { QualityLevel, HlsStats, LiveStatus } from './hls-player'
 import { IframePlayer } from './iframe-player'
 import { PlayerControls } from './player-controls'
+import { RotateCw, Lock, Unlock } from 'lucide-react'
+
+// Iframe reload hint — small floating button to reload iframe if video doesn't play
+function IframeReloadHint() {
+  const [visible, setVisible] = useState(true)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(false), 8000)
+    return () => clearTimeout(timer)
+  }, [])
+
+  if (!visible) return null
+
+  const handleReload = () => {
+    const iframe = document.querySelector('iframe')
+    if (iframe) {
+      const src = iframe.src
+      iframe.src = ''
+      setTimeout(() => { iframe.src = src }, 100)
+    }
+  }
+
+  return (
+    <button
+      className="absolute top-2 right-2 z-20 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/60 backdrop-blur-sm hover:bg-black/80 transition-colors text-white/80 text-xs pointer-events-auto"
+      onClick={handleReload}
+    >
+      <RotateCw className="h-3 w-3" />
+      Tap if video doesn&apos;t load
+    </button>
+  )
+}
 
 interface VideoPlayerProps {
   streamUrl: string
@@ -57,21 +89,39 @@ export function VideoPlayer({
   const [loading, setLoading] = useState(true)
   const [buffering, setBuffering] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [controlsVisible, setControlsVisible] = useState(true)
+  const [controlsVisible, setControlsVisible] = useState(streamType === 'iframe' ? false : true)
   const [controlsBusy, setControlsBusy] = useState(false)
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Iframe touch overlay state — on mobile, a transparent overlay blocks ad clicks
+  const [iframeTouchLocked, setIframeTouchLocked] = useState(true)
+  const iframeUnlockTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   // Determine player type early (derived from state, needed by hooks below)
   const isIframe = resolvedType === 'iframe'
   const isHls = resolvedType === 'm3u' || resolvedType === 'm3u8'
 
-  // For iframe: auto-hide controls after 2 seconds on initial load
+  // Auto-relock iframe after 10 seconds of being unlocked (prevents ongoing ad issues)
+  useEffect(() => {
+    if (isIframe && !iframeTouchLocked) {
+      if (iframeUnlockTimerRef.current) clearTimeout(iframeUnlockTimerRef.current)
+      iframeUnlockTimerRef.current = setTimeout(() => {
+        setIframeTouchLocked(true)
+      }, 10000)
+    }
+    return () => {
+      if (iframeUnlockTimerRef.current) clearTimeout(iframeUnlockTimerRef.current)
+    }
+  }, [isIframe, iframeTouchLocked])
+
+  // For iframe: auto-hide controls after 3s desktop / 2.5s mobile if shown
   useEffect(() => {
     if (isIframe && controlsVisible && !controlsBusy) {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+      const isMobile = typeof window !== 'undefined' && 'ontouchstart' in window
       hideTimerRef.current = setTimeout(() => {
         setControlsVisible(false)
-      }, 2000)
+      }, isMobile ? 2500 : 3000)
     }
     return () => {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
@@ -96,6 +146,14 @@ export function VideoPlayer({
   const gestureRef = useRef<TouchGesture | null>(null)
   const gestureIndicatorTimer = useRef<NodeJS.Timeout | null>(null)
   const brightnessRef = useRef(1) // Track brightness in ref to avoid re-renders
+
+  // ── Refs for gesture handlers (to avoid stale closures in native event listeners) ──
+  const volumeRef = useRef(volume)
+  volumeRef.current = volume
+  const mutedRef = useRef(muted)
+  mutedRef.current = muted
+  const isIframeRef = useRef(isIframe)
+  isIframeRef.current = isIframe
 
   // Resolve GitHub M3U URLs
   useEffect(() => {
@@ -137,11 +195,12 @@ export function VideoPlayer({
     resolve()
   }, [streamUrl, streamType, onStreamResolved])
 
-  // Auto-hide controls — faster for iframe mode (2s initial, 3s after interaction)
+  // Show controls with auto-hide timer
   const showControls = useCallback(() => {
     setControlsVisible(true)
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-    const hideDelay = isIframe ? 3000 : 3000 // 3s for both after interaction
+    const isMobile = typeof window !== 'undefined' && 'ontouchstart' in window
+    const hideDelay = isIframe ? (isMobile ? 2500 : 3000) : 3000
     hideTimerRef.current = setTimeout(() => {
       if ((isIframe || playing) && !controlsBusy) setControlsVisible(false)
     }, hideDelay)
@@ -157,91 +216,103 @@ export function VideoPlayer({
   }, [controlsVisible, showControls])
 
   const handleMouseMove = useCallback(() => {
-    // Don't show controls on mouse move for iframe — only bottom-zone click should show
-    if (!isIframe) showControls()
-  }, [showControls, isIframe])
+    showControls()
+  }, [showControls])
 
-  // Touch gesture handlers for volume/brightness
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    const touch = e.touches[0]
-    const rect = containerRef.current?.getBoundingClientRect()
-    if (!rect) return
+  // ── Native touch event listeners for HLS swipe gestures (passive: false to prevent scroll) ──
+  // React's synthetic onTouchMove is passive by default — e.preventDefault() doesn't work.
+  // We must use native DOM listeners with { passive: false }.
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el || isIframe) return
 
-    const x = touch.clientX - rect.left
-    const halfWidth = rect.width / 2
-    const side = x < halfWidth ? 'left' : 'right'
+    const handleTouchStart = (e: TouchEvent) => {
+      const touch = e.touches[0]
+      const rect = el.getBoundingClientRect()
+      if (!rect) return
 
-    gestureRef.current = {
-      startX: touch.clientX,
-      startY: touch.clientY,
-      startTime: Date.now(),
-      isSwiping: false,
-      side,
-      currentBrightness: brightnessRef.current,
-      startVolume: volume,
-    }
-  }, [volume])
+      const x = touch.clientX - rect.left
+      const halfWidth = rect.width / 2
+      const side = x < halfWidth ? 'left' : 'right'
 
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!gestureRef.current) return
-    const touch = e.touches[0]
-    const deltaY = gestureRef.current.startY - touch.clientY // Positive = swipe up
-    const deltaX = Math.abs(touch.clientX - gestureRef.current.startX)
-
-    // Only activate swipe if vertical movement is dominant
-    if (!gestureRef.current.isSwiping) {
-      if (Math.abs(deltaY) > 20 && Math.abs(deltaY) > deltaX) {
-        gestureRef.current.isSwiping = true
-      } else {
-        return
+      gestureRef.current = {
+        startX: touch.clientX,
+        startY: touch.clientY,
+        startTime: Date.now(),
+        isSwiping: false,
+        side,
+        currentBrightness: brightnessRef.current,
+        startVolume: volumeRef.current,
       }
     }
 
-    // Prevent page scroll while swiping
-    e.preventDefault()
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!gestureRef.current) return
+      const touch = e.touches[0]
+      const deltaY = gestureRef.current.startY - touch.clientY // Positive = swipe up
+      const deltaX = Math.abs(touch.clientX - gestureRef.current.startX)
 
-    const containerHeight = containerRef.current?.getBoundingClientRect().height || 400
-
-    if (gestureRef.current.side === 'right') {
-      // Right side = volume control
-      const volumeChange = deltaY / containerHeight
-      const finalVolume = Math.max(0, Math.min(1, gestureRef.current.startVolume + volumeChange * 1.5))
-
-      setVolume(finalVolume)
-      if (muted && finalVolume > 0) setMuted(false)
-
-      // Show indicator
-      if (gestureIndicatorTimer.current) clearTimeout(gestureIndicatorTimer.current)
-      setGestureIndicator({ type: 'volume', value: finalVolume, visible: true })
-      gestureIndicatorTimer.current = setTimeout(() => {
-        setGestureIndicator(null)
-      }, 800)
-    } else {
-      // Left side = brightness control
-      const brightnessChange = deltaY / containerHeight
-      const newBrightness = Math.max(0.1, Math.min(1.5, gestureRef.current.currentBrightness + brightnessChange * 1.5))
-      brightnessRef.current = newBrightness
-
-      // Apply brightness via CSS filter on the video element
-      if (containerRef.current) {
-        const videoEl = containerRef.current.querySelector('video')
-        if (videoEl) {
-          videoEl.style.filter = `brightness(${newBrightness})`
+      // Only activate swipe if vertical movement is dominant
+      if (!gestureRef.current.isSwiping) {
+        if (Math.abs(deltaY) > 20 && Math.abs(deltaY) > deltaX) {
+          gestureRef.current.isSwiping = true
+        } else {
+          return
         }
       }
 
-      // Show indicator
-      if (gestureIndicatorTimer.current) clearTimeout(gestureIndicatorTimer.current)
-      setGestureIndicator({ type: 'brightness', value: newBrightness, visible: true })
-      gestureIndicatorTimer.current = setTimeout(() => {
-        setGestureIndicator(null)
-      }, 800)
-    }
-  }, [muted])
+      // ★ CRITICAL: Prevent page scroll while swiping — only works with passive:false
+      e.preventDefault()
 
-  const handleTouchEnd = useCallback(() => {
-    gestureRef.current = null
-  }, [])
+      const containerHeight = el.getBoundingClientRect().height || 400
+
+      if (gestureRef.current.side === 'right') {
+        // Right side = volume control
+        const volumeChange = deltaY / containerHeight
+        const finalVolume = Math.max(0, Math.min(1, gestureRef.current.startVolume + volumeChange * 1.5))
+
+        setVolume(finalVolume)
+        if (mutedRef.current && finalVolume > 0) setMuted(false)
+
+        if (gestureIndicatorTimer.current) clearTimeout(gestureIndicatorTimer.current)
+        setGestureIndicator({ type: 'volume', value: finalVolume, visible: true })
+        gestureIndicatorTimer.current = setTimeout(() => {
+          setGestureIndicator(null)
+        }, 800)
+      } else {
+        // Left side = brightness control
+        const brightnessChange = deltaY / containerHeight
+        const newBrightness = Math.max(0.1, Math.min(1.5, gestureRef.current.currentBrightness + brightnessChange * 1.5))
+        brightnessRef.current = newBrightness
+
+        const videoEl = el.querySelector('video')
+        if (videoEl) {
+          videoEl.style.filter = `brightness(${newBrightness})`
+        }
+
+        if (gestureIndicatorTimer.current) clearTimeout(gestureIndicatorTimer.current)
+        setGestureIndicator({ type: 'brightness', value: newBrightness, visible: true })
+        gestureIndicatorTimer.current = setTimeout(() => {
+          setGestureIndicator(null)
+        }, 800)
+      }
+    }
+
+    const handleTouchEnd = () => {
+      gestureRef.current = null
+    }
+
+    // Register with passive:false so preventDefault() works
+    el.addEventListener('touchstart', handleTouchStart, { passive: true })
+    el.addEventListener('touchmove', handleTouchMove, { passive: false })
+    el.addEventListener('touchend', handleTouchEnd, { passive: true })
+
+    return () => {
+      el.removeEventListener('touchstart', handleTouchStart)
+      el.removeEventListener('touchmove', handleTouchMove)
+      el.removeEventListener('touchend', handleTouchEnd)
+    }
+  }, [isIframe]) // Re-attach when player type changes
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -412,7 +483,6 @@ export function VideoPlayer({
 
   const handleBuffering = useCallback((isBuffering: boolean) => {
     setBuffering(isBuffering)
-    // If buffering stops and video isn't playing, it might have stalled
     if (!isBuffering) {
       const video = videoRef.current || containerRef.current?.querySelector('video')
       if (video && !video.paused) {
@@ -430,6 +500,9 @@ export function VideoPlayer({
     setSeekToLive(true)
   }, [])
 
+  // Check if device is mobile/touch
+  const isMobileDevice = typeof window !== 'undefined' && 'ontouchstart' in window
+
   return (
     <div
       ref={containerRef}
@@ -437,12 +510,21 @@ export function VideoPlayer({
         fullscreen ? 'fixed inset-0 z-50 cursor-none' : 'rounded-none md:rounded-2xl'
       }`}
       onMouseMove={handleMouseMove}
-      onMouseLeave={() => !isIframe && playing && setControlsVisible(false)}
+      onMouseLeave={() => {
+        if (isIframe) {
+          if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+          setControlsVisible(false)
+        } else if (playing) {
+          setControlsVisible(false)
+        }
+      }}
+      onClick={() => {
+        if (isIframe) {
+          showControls()
+        }
+      }}
       onDoubleClick={(e) => { e.stopPropagation() }}
       onContextMenu={(e) => { if (isIframe) e.preventDefault() }}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
       style={fullscreen ? {} : { aspectRatio: '16/9' }}
     >
       {/* Poster / placeholder */}
@@ -456,7 +538,7 @@ export function VideoPlayer({
 
       {/* HLS Player — Native with hls.js + ABR */}
       {isHls && resolvedUrl && (
-        <div className="w-full h-full">
+        <div className="absolute inset-0">
           <HlsPlayer
             src={resolvedUrl}
             onReady={handleReady}
@@ -481,6 +563,23 @@ export function VideoPlayer({
           src={resolvedUrl}
           onReady={handleReady}
           onError={handleError}
+        />
+      )}
+
+      {/* ── Mobile Iframe Touch Overlay ── */}
+      {/* On mobile, a transparent overlay sits on top of the iframe to block ad clicks. */}
+      {/* The user must tap the "Unlock" button to temporarily interact with the iframe. */}
+      {isIframe && isMobileDevice && iframeTouchLocked && (
+        <div
+          className="absolute inset-0 z-[5] cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation()
+            showControls()
+          }}
+          onTouchStart={(e) => {
+            // Block touch from reaching iframe
+            e.stopPropagation()
+          }}
         />
       )}
 
@@ -537,6 +636,11 @@ export function VideoPlayer({
 
       {/* Loading/buffering indicator removed — no spinner animation */}
 
+      {/* Iframe reload hint — shows briefly for iframe mode */}
+      {isIframe && !loading && !error && (
+        <IframeReloadHint />
+      )}
+
       {/* Controls overlay */}
       <PlayerControls
         isPlaying={playing}
@@ -563,6 +667,8 @@ export function VideoPlayer({
         onQualityChange={handleQualityChange}
         hlsStats={isHls ? hlsStats : null}
         isIframe={isIframe}
+        iframeTouchLocked={isIframe && isMobileDevice && iframeTouchLocked}
+        onToggleIframeTouchLock={() => setIframeTouchLocked(prev => !prev)}
       />
 
       {/* Fullscreen rotate hint — shows on mobile in portrait mode */}
