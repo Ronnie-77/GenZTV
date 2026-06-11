@@ -1,10 +1,10 @@
-// v15 — Removed 'Ends in' timer from live match cards
+// v16 — Timezone-aware match times
 'use client'
 
 import { useAppStore } from '@/lib/store'
 import { type Match } from '@/lib/api'
 import { useCountdown } from '@/lib/hooks'
-import { Clock, Play, Eye, Share2, ChevronRight } from 'lucide-react'
+import { Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface MatchCardProps {
@@ -39,21 +39,35 @@ function CountdownDisplay({ targetDate, label }: { targetDate: Date; label?: str
   )
 }
 
-function formatMatchTime(dateStr: string) {
+function formatMatchTime(dateStr: string, timezone: string) {
   const date = new Date(dateStr)
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-  const month = months[date.getMonth()]
-  const day = date.getDate()
-  const hours = date.getHours()
-  const minutes = date.getMinutes()
-  const ampm = hours >= 12 ? 'PM' : 'AM'
-  const h = hours % 12 || 12
-  const m = minutes < 10 ? `0${minutes}` : minutes
-  return `${month} ${day}, ${h}:${m} ${ampm}`
+  try {
+    // Use Intl.DateTimeFormat to format in the target timezone
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    })
+    return formatter.format(date)
+  } catch {
+    // Fallback to local time
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    const month = months[date.getMonth()]
+    const day = date.getDate()
+    const hours = date.getHours()
+    const minutes = date.getMinutes()
+    const ampm = hours >= 12 ? 'PM' : 'AM'
+    const h = hours % 12 || 12
+    const m = minutes < 10 ? `0${minutes}` : minutes
+    return `${month} ${day}, ${h}:${m} ${ampm}`
+  }
 }
 
 export function MatchCard({ match, variant }: MatchCardProps) {
-  const { setCurrentPage, setCurrentChannelId } = useAppStore()
+  const { setCurrentPage, setCurrentChannelId, timezone } = useAppStore()
 
   // Check if an upcoming match has started (auto-transition to live)
   // Check if a live match has ended (auto-transition to ended)
@@ -167,7 +181,7 @@ export function MatchCard({ match, variant }: MatchCardProps) {
       <div className="match-footer">
         <div className="match-time inline-flex items-center gap-1.5">
           <Clock className="h-3 w-3 text-primary shrink-0" />
-          <span>{formatMatchTime(match.startTime)}</span>
+          <span>{formatMatchTime(match.startTime, timezone)}</span>
         </div>
 
         {baseStatus === 'upcoming' && !hasStarted && (

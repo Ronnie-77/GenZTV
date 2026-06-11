@@ -1,4 +1,4 @@
-// v15 — Mobile search box moved to center of topbar
+// v16 — Timezone selector in topbar
 'use client'
 
 import { useAppStore } from '@/lib/store'
@@ -6,6 +6,7 @@ import { Search, Menu, Tv } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { NotificationBell } from '@/components/notifications/notification-manager'
+import { TimezoneSelector } from '@/components/timezone/timezone-selector'
 
 export function TopNav() {
   const { setCurrentPage, setSearchQuery, setSidebarOpen } = useAppStore()
@@ -50,8 +51,9 @@ export function TopNav() {
           </div>
         </div>
 
-        {/* Right: Notification */}
-        <div className="flex items-center gap-1 shrink-0">
+        {/* Right: Timezone + Notification */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          <TimezoneSelector />
           <NotificationBell />
         </div>
       </div>

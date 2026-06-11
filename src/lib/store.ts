@@ -50,6 +50,12 @@ interface AppState {
   favorites: string[]
   toggleFavorite: (channelId: string) => void
   setFavorites: (ids: string[]) => void
+  
+  // Timezone
+  timezone: string
+  timezoneSource: 'auto' | 'manual'
+  setTimezone: (tz: string, source?: 'auto' | 'manual') => void
+  detectTimezone: () => void
 }
 
 const loadFavorites = (): string[] => {
@@ -65,6 +71,31 @@ const loadFavorites = (): string[] => {
 const saveFavorites = (ids: string[]) => {
   if (typeof window === 'undefined') return
   localStorage.setItem('zeng-favorites', JSON.stringify(ids))
+}
+
+const loadTimezone = (): { tz: string; source: 'auto' | 'manual' } => {
+  if (typeof window === 'undefined') return { tz: 'UTC', source: 'auto' }
+  try {
+    const stored = localStorage.getItem('zeng-timezone')
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      return { tz: parsed.tz || 'UTC', source: parsed.source || 'auto' }
+    }
+  } catch {
+    // ignore
+  }
+  // Auto-detect from browser
+  try {
+    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone
+    return { tz: detected || 'UTC', source: 'auto' }
+  } catch {
+    return { tz: 'UTC', source: 'auto' }
+  }
+}
+
+const saveTimezone = (tz: string, source: 'auto' | 'manual') => {
+  if (typeof window === 'undefined') return
+  localStorage.setItem('zeng-timezone', JSON.stringify({ tz, source }))
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -138,6 +169,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   setFavorites: (ids) => {
     set({ favorites: ids })
     saveFavorites(ids)
+  },
+  
+  // Timezone
+  timezone: loadTimezone().tz,
+  timezoneSource: loadTimezone().source,
+  setTimezone: (tz, source) => {
+    const src = source || 'manual'
+    set({ timezone: tz, timezoneSource: src })
+    saveTimezone(tz, src)
+  },
+  detectTimezone: () => {
+    try {
+      const detected = Intl.DateTimeFormat().resolvedOptions().timeZone
+      set({ timezone: detected || 'UTC', timezoneSource: 'auto' })
+      saveTimezone(detected || 'UTC', 'auto')
+    } catch {
+      set({ timezone: 'UTC', timezoneSource: 'auto' })
+      saveTimezone('UTC', 'auto')
+    }
   },
 }))
 
