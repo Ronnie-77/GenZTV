@@ -76,6 +76,12 @@ model AppSetting {
   // Ad settings
   bannerAdScript   String @default("")
   socialBarAdScript String @default("")
+  // Ad controls (on/off toggles)
+  adsEnabled       Boolean @default(true)   // Master switch for all ads
+  homeAdsEnabled   Boolean @default(true)   // Home page ads
+  videoAdsEnabled  Boolean @default(true)   // Video page ads (below player)
+  // APK download
+  apkUrl           String  @default("")
 }
 
 model PushSubscription {

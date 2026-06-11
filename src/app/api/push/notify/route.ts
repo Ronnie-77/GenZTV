@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sendPushToAll, sendNewMatchNotification } from '@/lib/push'
+import { requireAdminAuth } from '@/lib/auth'
 
-// POST /api/push/notify — Send push notification to all subscribers
-// Used internally by admin when creating matches
+// POST /api/push/notify — Send push notification to all subscribers (admin only)
 export async function POST(req: NextRequest) {
+  return requireAdminAuth(req, async () => {
   try {
     const body = await req.json()
     const { type, match, title, body: notifBody, url, tag } = body
@@ -30,4 +31,5 @@ export async function POST(req: NextRequest) {
     console.error('Error sending push notification:', error)
     return NextResponse.json({ error: 'Failed to send notification' }, { status: 500 })
   }
+  })
 }

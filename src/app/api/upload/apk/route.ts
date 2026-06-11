@@ -3,10 +3,20 @@ import { writeFile, unlink, mkdir } from 'fs/promises'
 import path from 'path'
 import { existsSync } from 'fs'
 import { db } from '@/lib/db'
+import { requireAdminAuth } from '@/lib/auth'
 
+// POST /api/upload/apk (admin only)
 export async function POST(req: NextRequest) {
+  return requireAdminAuth(req, async () => {
   try {
-    const formData = await req.formData()
+    // Parse form data with error handling
+    let formData: FormData
+    try {
+      formData = await req.formData()
+    } catch {
+      return NextResponse.json({ error: 'Failed to parse upload data' }, { status: 400 })
+    }
+
     const file = formData.get('apk') as File | null
 
     if (!file) {
@@ -66,9 +76,12 @@ export async function POST(req: NextRequest) {
     console.error('Error uploading APK:', error)
     return NextResponse.json({ error: 'Failed to upload APK' }, { status: 500 })
   }
+  })
 }
 
+// DELETE /api/upload/apk (admin only)
 export async function DELETE(req: NextRequest) {
+  return requireAdminAuth(req, async () => {
   try {
     // Remove APK from settings and delete file
     const uploadsDir = path.join(process.cwd(), 'public', 'uploads')
@@ -96,4 +109,5 @@ export async function DELETE(req: NextRequest) {
     console.error('Error deleting APK:', error)
     return NextResponse.json({ error: 'Failed to delete APK' }, { status: 500 })
   }
+  })
 }

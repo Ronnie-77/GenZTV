@@ -1,11 +1,11 @@
-// v17 — Removed timezone selector (moved to home page hero)
 'use client'
 
 import { useAppStore } from '@/lib/store'
-import { Search, Menu, Tv } from 'lucide-react'
+import { Search, Menu, Tv, Globe } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { NotificationBell } from '@/components/notifications/notification-manager'
+import { TimezoneSelector } from '@/components/timezone/timezone-selector'
 
 export function TopNav() {
   const { setCurrentPage, setSearchQuery, setSidebarOpen } = useAppStore()
@@ -38,7 +38,7 @@ export function TopNav() {
         </div>
 
         {/* Center: Search box */}
-        <div className="flex-1 max-w-md mx-auto">
+        <div className="flex-1 max-w-md mx-auto min-w-0">
           <div className="relative w-full">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
@@ -50,8 +50,12 @@ export function TopNav() {
           </div>
         </div>
 
-        {/* Right: Notification */}
-        <div className="flex items-center gap-0.5 shrink-0">
+        {/* Right: Timezone (mobile) + Notification */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Timezone selector - mobile only (desktop uses home page) */}
+          <div className="lg:hidden flex items-center [&_button]:px-2 [&_button]:py-2 [&_button]:rounded-lg [&_button]:bg-secondary/60 [&_button]:min-h-[36px] [&_button]:min-w-[44px]">
+            <TimezoneSelector />
+          </div>
           <NotificationBell />
         </div>
       </div>

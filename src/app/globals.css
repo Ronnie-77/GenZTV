@@ -1577,3 +1577,56 @@ input[type="number"]::-webkit-outer-spin-button {
     isolation: isolate;
   }
 }
+
+/* ===== Maintenance Mode Animations ===== */
+@keyframes maintenanceWrench {
+  0%, 100% {
+    transform: rotate(0deg) scale(1);
+  }
+  15% {
+    transform: rotate(-20deg) scale(1.05);
+  }
+  30% {
+    transform: rotate(15deg) scale(1);
+  }
+  45% {
+    transform: rotate(-10deg) scale(1.02);
+  }
+  60% {
+    transform: rotate(5deg) scale(1);
+  }
+  75% {
+    transform: rotate(-3deg) scale(1.01);
+  }
+  90% {
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+@keyframes maintenanceFloat {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+    opacity: 0.15;
+  }
+  25% {
+    transform: translateY(-20px) scale(1.2);
+    opacity: 0.3;
+  }
+  50% {
+    transform: translateY(-10px) scale(1.1);
+    opacity: 0.2;
+  }
+  75% {
+    transform: translateY(-25px) scale(1.3);
+    opacity: 0.25;
+  }
+}
+
+@keyframes maintenanceSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

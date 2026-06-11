@@ -2,6 +2,22 @@
 
 const BASE = '/api'
 
+/** Wrapper for admin API calls — auto-handles 401 (session expired) by dispatching event */
+function adminFetch(url: string, options?: RequestInit): Promise<Response> {
+  return fetch(url, {
+    credentials: 'same-origin',
+    ...options,
+  }).then(res => {
+    if (res.status === 401) {
+      // Session expired — notify admin view to logout
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('admin:unauthorized', { detail: { status: 401 } }))
+      }
+    }
+    return res
+  })
+}
+
 // ============ Types ============
 
 export interface Channel {
@@ -74,6 +90,7 @@ export interface AppSettings {
   adsEnabled: boolean
   homeAdsEnabled: boolean
   videoAdsEnabled: boolean
+  apkUrl: string
 }
 
 // ============ Channels ============
@@ -96,7 +113,7 @@ export async function fetchChannel(id: string): Promise<Channel> {
 }
 
 export async function createChannel(data: Partial<Channel>): Promise<Channel> {
-  const res = await fetch(`${BASE}/channels`, {
+  const res = await adminFetch(`${BASE}/channels`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -106,7 +123,7 @@ export async function createChannel(data: Partial<Channel>): Promise<Channel> {
 }
 
 export async function updateChannel(id: string, data: Partial<Channel>): Promise<Channel> {
-  const res = await fetch(`${BASE}/channels/${id}`, {
+  const res = await adminFetch(`${BASE}/channels/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -116,7 +133,7 @@ export async function updateChannel(id: string, data: Partial<Channel>): Promise
 }
 
 export async function deleteChannel(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/channels/${id}`, { method: 'DELETE' })
+  const res = await adminFetch(`${BASE}/channels/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Failed to delete channel')
 }
 
@@ -152,7 +169,7 @@ export async function createMatch(data: {
   isFeatured?: boolean
   streams?: { name?: string; channel?: string; type?: string; url?: string }[]
 }): Promise<Match> {
-  const res = await fetch(`${BASE}/matches`, {
+  const res = await adminFetch(`${BASE}/matches`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -162,7 +179,7 @@ export async function createMatch(data: {
 }
 
 export async function updateMatch(id: string, data: Record<string, unknown>): Promise<Match> {
-  const res = await fetch(`${BASE}/matches/${id}`, {
+  const res = await adminFetch(`${BASE}/matches/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -172,7 +189,7 @@ export async function updateMatch(id: string, data: Record<string, unknown>): Pr
 }
 
 export async function deleteMatch(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/matches/${id}`, { method: 'DELETE' })
+  const res = await adminFetch(`${BASE}/matches/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Failed to delete match')
 }
 
@@ -185,7 +202,7 @@ export async function fetchCategories(): Promise<Category[]> {
 }
 
 export async function createCategory(data: Partial<Category>): Promise<Category> {
-  const res = await fetch(`${BASE}/categories`, {
+  const res = await adminFetch(`${BASE}/categories`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -195,7 +212,7 @@ export async function createCategory(data: Partial<Category>): Promise<Category>
 }
 
 export async function updateCategory(id: string, data: Partial<Category>): Promise<Category> {
-  const res = await fetch(`${BASE}/categories/${id}`, {
+  const res = await adminFetch(`${BASE}/categories/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -205,7 +222,7 @@ export async function updateCategory(id: string, data: Partial<Category>): Promi
 }
 
 export async function deleteCategory(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/categories/${id}`, { method: 'DELETE' })
+  const res = await adminFetch(`${BASE}/categories/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Failed to delete category')
 }
 
@@ -218,7 +235,7 @@ export async function fetchSettings(): Promise<AppSettings> {
 }
 
 export async function updateSettings(data: Partial<AppSettings>): Promise<AppSettings> {
-  const res = await fetch(`${BASE}/settings`, {
+  const res = await adminFetch(`${BASE}/settings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -230,7 +247,7 @@ export async function updateSettings(data: Partial<AppSettings>): Promise<AppSet
 // ============ M3U Parser ============
 
 export async function parseM3U(url: string): Promise<{ channels: { name: string; logo: string; group: string; url: string }[]; total: number }> {
-  const res = await fetch(`${BASE}/m3u-parse`, {
+  const res = await adminFetch(`${BASE}/m3u-parse`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),
@@ -242,7 +259,7 @@ export async function parseM3U(url: string): Promise<{ channels: { name: string;
 // ============ Seed ============
 
 export async function seedDatabase(): Promise<Record<string, unknown>> {
-  const res = await fetch(`${BASE}/seed`, { method: 'POST' })
+  const res = await adminFetch(`${BASE}/seed`, { method: 'POST' })
   if (!res.ok) throw new Error('Failed to seed database')
   return res.json()
 }
@@ -284,7 +301,7 @@ export async function sendPushNotification(payload: {
   url?: string
   tag?: string
 }): Promise<{ sent: number; failed: number }> {
-  const res = await fetch(`${BASE}/push/notify`, {
+  const res = await adminFetch(`${BASE}/push/notify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

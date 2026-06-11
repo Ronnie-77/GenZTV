@@ -110,6 +110,7 @@ export function AdminSettings() {
       const result = await new Promise<{ success: boolean; apkUrl: string; fileName: string; size: number }>((resolve, reject) => {
         const xhr = new XMLHttpRequest()
         xhr.open('POST', '/api/upload/apk')
+        xhr.withCredentials = true
 
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) {
@@ -120,13 +121,25 @@ export function AdminSettings() {
 
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(JSON.parse(xhr.responseText))
+            try {
+              resolve(JSON.parse(xhr.responseText))
+            } catch {
+              reject(new Error('Invalid server response'))
+            }
           } else {
-            reject(new Error(JSON.parse(xhr.responseText).error || 'Upload failed'))
+            // Try to parse error from server
+            try {
+              const data = JSON.parse(xhr.responseText)
+              reject(new Error(data.error || `Upload failed (HTTP ${xhr.status})`))
+            } catch {
+              reject(new Error(`Upload failed (HTTP ${xhr.status})`))
+            }
           }
         }
 
-        xhr.onerror = () => reject(new Error('Network error'))
+        xhr.onerror = () => reject(new Error('Network error — please check your connection'))
+        xhr.onabort = () => reject(new Error('Upload was cancelled'))
+        xhr.ontimeout = () => reject(new Error('Upload timed out — please try again'))
         xhr.send(formData)
       })
 
@@ -147,7 +160,7 @@ export function AdminSettings() {
     if (!confirm('Are you sure you want to delete the uploaded APK?')) return
 
     try {
-      const res = await fetch('/api/upload/apk', { method: 'DELETE' })
+      const res = await fetch('/api/upload/apk', { method: 'DELETE', credentials: 'same-origin' })
       if (!res.ok) throw new Error('Failed to delete')
       setApkUrl('')
       setApkFileName('')

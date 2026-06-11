@@ -35,12 +35,13 @@ export async function PUT(req: NextRequest) {
         ...(body.adsEnabled !== undefined && { adsEnabled: body.adsEnabled }),
         ...(body.homeAdsEnabled !== undefined && { homeAdsEnabled: body.homeAdsEnabled }),
         ...(body.videoAdsEnabled !== undefined && { videoAdsEnabled: body.videoAdsEnabled }),
+        ...(body.apkUrl !== undefined && { apkUrl: body.apkUrl }),
       },
       create: {
         id: 'app',
         appName: body.appName || 'GenZ TV',
         logoUrl: body.logoUrl || '',
-        maintenanceMode: body.maintenanceMode || false,
+        maintenanceMode: body.maintenanceMode !== undefined ? body.maintenanceMode : false,
         featuredChannelId: body.featuredChannelId || '',
         heroBannerText: body.heroBannerText || '',
         defaultQuality: body.defaultQuality || 'auto',
@@ -49,6 +50,7 @@ export async function PUT(req: NextRequest) {
         adsEnabled: body.adsEnabled !== undefined ? body.adsEnabled : true,
         homeAdsEnabled: body.homeAdsEnabled !== undefined ? body.homeAdsEnabled : true,
         videoAdsEnabled: body.videoAdsEnabled !== undefined ? body.videoAdsEnabled : true,
+        apkUrl: body.apkUrl || '',
       },
     })
     return NextResponse.json(settings)

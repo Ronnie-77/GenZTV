@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAdminAuth } from '@/lib/auth'
 
 // GET /api/categories/[id]
 export async function GET(
@@ -19,11 +20,12 @@ export async function GET(
   }
 }
 
-// PUT /api/categories/[id]
+// PUT /api/categories/[id] (admin only)
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  return requireAdminAuth(req, async () => {
   try {
     const { id } = await params
     const body = await req.json()
@@ -42,13 +44,15 @@ export async function PUT(
     console.error('Error updating category:', error)
     return NextResponse.json({ error: 'Failed to update category' }, { status: 500 })
   }
+  })
 }
 
-// DELETE /api/categories/[id]
+// DELETE /api/categories/[id] (admin only)
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  return requireAdminAuth(_req, async () => {
   try {
     const { id } = await params
     await db.category.delete({ where: { id } })
@@ -57,4 +61,5 @@ export async function DELETE(
     console.error('Error deleting category:', error)
     return NextResponse.json({ error: 'Failed to delete category' }, { status: 500 })
   }
+  })
 }
