@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAdminAuth } from '@/lib/auth'
 import { execSync } from 'child_process'
 import path from 'path'
 
@@ -49,8 +50,9 @@ export async function GET() {
   }
 }
 
-// POST /api/setup — Force initialize database with seed data
-export async function POST() {
+// POST /api/setup — Force initialize database with seed data (admin only)
+export async function POST(req: NextRequest) {
+  return requireAdminAuth(req, async () => {
   try {
     // Test if tables exist - if not, try to create them
     let tableExists = false
@@ -111,4 +113,5 @@ export async function POST() {
       error: errorMessage,
     }, { status: 500 })
   }
+  })
 }

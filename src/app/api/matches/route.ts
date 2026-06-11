@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { sendNewMatchNotification } from '@/lib/push'
+import { requireAdminAuth } from '@/lib/auth'
 
 // GET /api/matches — list all matches
 export async function GET(req: NextRequest) {
@@ -31,8 +32,9 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/matches — create a new match
+// POST /api/matches — create a new match (admin only)
 export async function POST(req: NextRequest) {
+  return requireAdminAuth(req, async () => {
   try {
     const body = await req.json()
     const match = await db.match.create({
@@ -80,4 +82,5 @@ export async function POST(req: NextRequest) {
     console.error('Error creating match:', error)
     return NextResponse.json({ error: 'Failed to create match' }, { status: 500 })
   }
+  })
 }

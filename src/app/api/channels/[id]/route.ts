@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAdminAuth } from '@/lib/auth'
 
 // GET /api/channels/[id]
 export async function GET(
@@ -21,11 +22,12 @@ export async function GET(
   }
 }
 
-// PUT /api/channels/[id] — update channel
+// PUT /api/channels/[id] — update channel (admin only)
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  return requireAdminAuth(req, async () => {
   try {
     const { id } = await params
     const body = await req.json()
@@ -50,13 +52,15 @@ export async function PUT(
     console.error('Error updating channel:', error)
     return NextResponse.json({ error: 'Failed to update channel' }, { status: 500 })
   }
+  })
 }
 
-// DELETE /api/channels/[id]
+// DELETE /api/channels/[id] (admin only)
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  return requireAdminAuth(_req, async () => {
   try {
     const { id } = await params
     await db.channel.delete({ where: { id } })
@@ -65,4 +69,5 @@ export async function DELETE(
     console.error('Error deleting channel:', error)
     return NextResponse.json({ error: 'Failed to delete channel' }, { status: 500 })
   }
+  })
 }

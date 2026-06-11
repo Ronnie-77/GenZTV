@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAdminAuth } from '@/lib/auth'
 
 // GET /api/settings
 export async function GET() {
@@ -15,8 +16,9 @@ export async function GET() {
   }
 }
 
-// PUT /api/settings — update settings
+// PUT /api/settings — update settings (admin only)
 export async function PUT(req: NextRequest) {
+  return requireAdminAuth(req, async () => {
   try {
     const body = await req.json()
     const settings = await db.appSetting.upsert({
@@ -54,4 +56,5 @@ export async function PUT(req: NextRequest) {
     console.error('Error updating settings:', error)
     return NextResponse.json({ error: 'Failed to update settings' }, { status: 500 })
   }
+  })
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAdminAuth } from '@/lib/auth'
 
 // GET /api/matches/[id]
 export async function GET(
@@ -22,11 +23,12 @@ export async function GET(
   }
 }
 
-// PUT /api/matches/[id] — update match
+// PUT /api/matches/[id] — update match (admin only)
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  return requireAdminAuth(req, async () => {
   try {
     const { id } = await params
     const body = await req.json()
@@ -69,13 +71,15 @@ export async function PUT(
     console.error('Error updating match:', error)
     return NextResponse.json({ error: 'Failed to update match' }, { status: 500 })
   }
+  })
 }
 
-// DELETE /api/matches/[id]
+// DELETE /api/matches/[id] (admin only)
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  return requireAdminAuth(_req, async () => {
   try {
     const { id } = await params
     await db.match.delete({ where: { id } })
@@ -84,4 +88,5 @@ export async function DELETE(
     console.error('Error deleting match:', error)
     return NextResponse.json({ error: 'Failed to delete match' }, { status: 500 })
   }
+  })
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAdminAuth } from '@/lib/auth'
 
 // GET /api/categories
 export async function GET() {
@@ -14,8 +15,9 @@ export async function GET() {
   }
 }
 
-// POST /api/categories
+// POST /api/categories (admin only)
 export async function POST(req: NextRequest) {
+  return requireAdminAuth(req, async () => {
   try {
     const body = await req.json()
     const category = await db.category.create({
@@ -32,4 +34,5 @@ export async function POST(req: NextRequest) {
     console.error('Error creating category:', error)
     return NextResponse.json({ error: 'Failed to create category' }, { status: 500 })
   }
+  })
 }

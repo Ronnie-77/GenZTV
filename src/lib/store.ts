@@ -191,16 +191,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 }))
 
-// Initialize from URL hash on load + auto-unlock admin + timezone hydration
+// Initialize from URL hash on load + timezone hydration
 if (typeof window !== 'undefined') {
   function initFromUrl() {
     const hash = window.location.hash.replace('#/', '').replace('#', '')
     const hashPage = hash.split('/')[0]
 
-    // Auto-unlock admin if URL hash contains admin
-    if (hashPage === 'admin') {
-      useAppStore.setState({ isAdminAuth: true })
-    }
+    // Note: Admin auth is now handled server-side via /api/auth/verify
+    // No auto-unlock from URL hash
 
     if (hash) {
       const validPages: PageName[] = ['home', 'live', 'watch', 'news', 'sports', 'cricket', 'football', 'entertainment', 'favorites', 'search', 'admin', 'more']

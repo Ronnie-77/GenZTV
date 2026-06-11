@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { useTheme } from 'next-themes'
 import { useAppStore, type PageName } from '@/lib/store'
 import { cn } from '@/lib/utils'
@@ -22,7 +22,6 @@ import {
   Monitor,
   ChevronDown,
 } from 'lucide-react'
-import { NotificationBell } from '@/components/notifications/notification-manager'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
@@ -41,41 +40,10 @@ const navItems: { icon: React.ElementType; label: string; page: PageName; badge?
 ]
 
 export function Sidebar() {
-  const { currentPage, setCurrentPage, sidebarOpen, setSidebarOpen, isAdminAuth, setIsAdminAuth } = useAppStore()
+  const { currentPage, setCurrentPage, sidebarOpen, setSidebarOpen, isAdminAuth } = useAppStore()
   const { theme, setTheme } = useTheme()
   const mounted = useMounted()
   const [themeOpen, setThemeOpen] = useState(false)
-
-  // Secret admin unlock: 5 taps on version text
-  const tapCountRef = useRef(0)
-  const tapTimerRef = useRef<NodeJS.Timeout | null>(null)
-
-  const handleSecretTap = () => {
-    tapCountRef.current += 1
-
-    if (tapTimerRef.current) clearTimeout(tapTimerRef.current)
-    tapTimerRef.current = setTimeout(() => {
-      tapCountRef.current = 0
-    }, 2000) // Reset after 2s of no taps
-
-    if (tapCountRef.current >= 5) {
-      tapCountRef.current = 0
-      if (tapTimerRef.current) clearTimeout(tapTimerRef.current)
-      setIsAdminAuth(true)
-    }
-  }
-
-  // Keyboard shortcut: Ctrl+Shift+A
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.ctrlKey && e.shiftKey && e.key === 'A') {
-        e.preventDefault()
-        setIsAdminAuth(true)
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [setIsAdminAuth])
 
   const handleNav = (page: PageName) => {
     setCurrentPage(page)
@@ -117,14 +85,13 @@ export function Sidebar() {
         </div>
 
         {/* Desktop Header */}
-        <div className="hidden lg:flex items-center justify-between h-14 px-4">
+        <div className="hidden lg:flex items-center h-14 px-4">
           <div className="flex items-center gap-2">
             <Zap className="h-6 w-6 text-foreground" />
             <span className="font-bold text-lg">
               <span className="text-foreground">GenZ</span><span className="text-muted-foreground"> TV</span>
             </span>
           </div>
-          <NotificationBell />
         </div>
 
         <ScrollArea className="h-[calc(100%-3.5rem)] lg:h-[calc(100vh-3.5rem)] px-3 py-4">
@@ -204,7 +171,7 @@ export function Sidebar() {
             </div>
           )}
 
-          {/* Admin Section — only visible after secret unlock */}
+          {/* Admin Section — only visible after server-side login */}
           {isAdminAuth && (
             <>
               <Separator className="my-4 bg-sidebar-border" />
@@ -230,16 +197,11 @@ export function Sidebar() {
 
           <Separator className="my-4 bg-sidebar-border" />
 
-          {/* Bottom info — tap 5 times to unlock admin */}
+          {/* Bottom info */}
           <div className="mt-auto px-3 pt-4">
-            <div
-              className="bg-secondary/50 rounded-xl p-3 text-xs text-muted-foreground cursor-pointer select-none"
-              onClick={handleSecretTap}
-            >
-              <div>
-                <p className="font-semibold text-foreground mb-0.5">GenZ TV v1.0</p>
-                <p>Premium live streaming platform</p>
-              </div>
+            <div className="bg-secondary/50 rounded-xl p-3 text-xs text-muted-foreground">
+              <p className="font-semibold text-foreground mb-0.5">GenZ TV v1.0</p>
+              <p>Premium live streaming platform</p>
             </div>
           </div>
         </ScrollArea>

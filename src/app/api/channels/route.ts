@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAdminAuth } from '@/lib/auth'
 
 // GET /api/channels — list all channels (with optional filters)
 export async function GET(req: NextRequest) {
@@ -44,8 +45,9 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/channels — create a new channel
+// POST /api/channels — create a new channel (admin only)
 export async function POST(req: NextRequest) {
+  return requireAdminAuth(req, async () => {
   try {
     const body = await req.json()
     const channel = await db.channel.create({
@@ -68,4 +70,5 @@ export async function POST(req: NextRequest) {
     console.error('Error creating channel:', error)
     return NextResponse.json({ error: 'Failed to create channel' }, { status: 500 })
   }
+  })
 }

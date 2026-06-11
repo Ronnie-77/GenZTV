@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAdminAuth } from '@/lib/auth'
+import { NextRequest } from 'next/server'
 
-// POST /api/seed — seed database with M3U channels
-export async function POST() {
+// POST /api/seed — seed database with M3U channels (admin only)
+export async function POST(req: NextRequest) {
+  return requireAdminAuth(req, async () => {
   try {
     // 1. Delete all existing channels
     await db.channel.deleteMany({})
@@ -133,4 +136,5 @@ export async function POST() {
     console.error('Error seeding database:', error)
     return NextResponse.json({ error: 'Failed to seed database' }, { status: 500 })
   }
+  })
 }
