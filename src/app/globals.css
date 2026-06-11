@@ -1630,3 +1630,59 @@ input[type="number"]::-webkit-outer-spin-button {
     transform: rotate(360deg);
   }
 }
+
+/* ===== Admin Login Page — GenZ Brand Colors ===== */
+.admin-login-bg {
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(225, 29, 72, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 30%, rgba(249, 115, 22, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 80%, rgba(234, 179, 8, 0.04) 0%, transparent 45%),
+    linear-gradient(135deg, var(--background) 0%, var(--background) 100%);
+}
+.dark .admin-login-bg {
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(225, 29, 72, 0.05) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 30%, rgba(249, 115, 22, 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 80%, rgba(234, 179, 8, 0.03) 0%, transparent 45%),
+    linear-gradient(135deg, #0D0D12 0%, #111118 30%, #0e0e16 60%, #0D0D12 100%);
+}
+
+/* GenZ brand text — same gradient animation as hero section */
+.admin-login-brand {
+  background: linear-gradient(135deg, #E11D48 0%, #F97316 30%, #EAB308 60%, #14B8A6 80%, #E11D48 100%);
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradient-shift 5s ease infinite;
+}
+.dark .admin-login-brand {
+  background: linear-gradient(135deg, #FB7185 0%, #FDBA74 30%, #FDE047 60%, #5EEAD4 80%, #FB7185 100%);
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradient-shift 5s ease infinite;
+}
+
+/* Admin login button — gradient themed */
+.admin-login-btn {
+  background: linear-gradient(135deg, #E11D48 0%, #F97316 50%, #EAB308 100%);
+  background-size: 200% 200%;
+  color: #fff;
+  border: none;
+  animation: gradient-shift 5s ease infinite;
+  box-shadow: 0 4px 16px rgba(249, 115, 22, 0.25);
+}
+.admin-login-btn:hover {
+  background-size: 200% 200%;
+  box-shadow: 0 6px 24px rgba(249, 115, 22, 0.35);
+  transform: translateY(-1px);
+}
+.admin-login-btn:active {
+  transform: scale(0.97);
+}
+.admin-login-btn:disabled {
+  opacity: 0.7;
+  transform: none;
+}

@@ -36,12 +36,20 @@ export function AdminSettings() {
     async function load() {
       try {
         setLoading(true)
-        const [s, chs] = await Promise.all([
+        // Load settings and channels independently — don't let one failure block the other
+        const [sResult, chsResult] = await Promise.allSettled([
           fetchSettings(),
           fetchChannels({ includeInactive: true }),
         ])
+
+        if (sResult.status === 'rejected') {
+          toast.error('Error', { description: 'Failed to load settings — please refresh' })
+          setLoading(false)
+          return
+        }
+
+        const s = sResult.value
         setSettings(s)
-        setChannels(chs)
         setAppName(s.appName)
         setLogoUrl(s.logoUrl)
         setMaintenanceMode(s.maintenanceMode)
@@ -57,8 +65,15 @@ export function AdminSettings() {
           const parts = s.apkUrl.split('/')
           setApkFileName(parts[parts.length - 1] || 'app.apk')
         }
+
+        if (chsResult.status === 'fulfilled') {
+          setChannels(chsResult.value)
+        } else {
+          // Channels failed to load — still allow settings to work
+          console.error('Failed to load channels:', chsResult.reason)
+        }
       } catch {
-        toast.error('Error', { description: 'Failed to load settings' })
+        toast.error('Error', { description: 'Failed to load settings — please refresh' })
       } finally {
         setLoading(false)
       }

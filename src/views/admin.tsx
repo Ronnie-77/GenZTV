@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useAppStore } from '@/lib/store'
-import { Shield, Lock, Eye, EyeOff, LogOut, Zap, AlertCircle, Loader2, Fingerprint, Clock, ChevronRight } from 'lucide-react'
+import { Shield, Lock, Eye, EyeOff, LogOut, AlertCircle, Loader2, Fingerprint, ChevronRight, Tv } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { AdminDashboard } from '@/views/admin/dashboard'
@@ -28,23 +28,6 @@ export function AdminPage() {
   const [verifying, setVerifying] = useState(true)
   const [failedAttempts, setFailedAttempts] = useState(0)
   const [shakeKey, setShakeKey] = useState(0)
-  const [currentTime, setCurrentTime] = useState('')
-
-  // Update clock
-  useEffect(() => {
-    const updateTime = () => {
-      setCurrentTime(new Date().toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: true,
-      }))
-    }
-    updateTime()
-    const interval = setInterval(updateTime, 1000)
-    return () => clearInterval(interval)
-  }, [])
-
   // Check server-side session on mount
   const verifySession = useCallback(async () => {
     try {
@@ -152,35 +135,47 @@ export function AdminPage() {
     const isRateLimited = failedAttempts >= 5
 
     return (
-      <div className="flex items-center justify-center min-h-[80vh] p-4">
-        <div className="w-full max-w-[380px]">
+      <div className="flex items-center justify-center min-h-[80vh] p-4 relative overflow-hidden">
+        {/* Animated background — same vibe as hero section */}
+        <div className="absolute inset-0 pointer-events-none">
+          {/* Gradient background */}
+          <div className="absolute inset-0 admin-login-bg" />
+          {/* Floating decorative orbs */}
+          <div className="absolute w-72 h-72 sm:w-96 sm:h-96 rounded-full opacity-[0.08] -top-20 -right-16 animate-pulse" style={{ background: 'linear-gradient(135deg, #E11D48, #F97316)' }} />
+          <div className="absolute w-56 h-56 sm:w-72 sm:h-72 rounded-full opacity-[0.08] -bottom-16 -left-12 animate-pulse" style={{ background: 'linear-gradient(135deg, #14B8A6, #7C8CF8)', animationDelay: '2s' }} />
+          <div className="absolute w-40 h-40 sm:w-52 sm:h-52 rounded-full opacity-[0.06] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" style={{ background: 'linear-gradient(135deg, #EAB308, #FB7185)', animationDelay: '4s' }} />
+        </div>
+
+        <div className="w-full max-w-[380px] relative z-10">
           {/* Header with brand */}
           <div className="text-center mb-8">
-            {/* Animated logo */}
-            <div className="relative mx-auto w-24 h-24 mb-6">
-              <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-primary/30 via-primary/15 to-primary/5 animate-pulse" />
-              <div className="absolute inset-1 rounded-2xl bg-gradient-to-br from-primary/20 via-primary/10 to-transparent flex items-center justify-center backdrop-blur-sm">
-                <Zap className="h-10 w-10 text-primary" />
+            {/* Animated logo icon */}
+            <div className="relative mx-auto w-20 h-20 mb-6">
+              <div className="absolute inset-0 rounded-2xl animate-pulse" style={{ background: 'linear-gradient(135deg, rgba(225,29,72,0.25), rgba(249,115,22,0.2), rgba(234,179,8,0.15))' }} />
+              <div className="absolute inset-1 rounded-xl flex items-center justify-center backdrop-blur-sm" style={{ background: 'linear-gradient(135deg, rgba(225,29,72,0.15), rgba(249,115,22,0.1), transparent)' }}>
+                <Tv className="h-9 w-9" style={{ color: '#F97316' }} />
               </div>
               {/* Glow effect */}
-              <div className="absolute -inset-2 rounded-3xl bg-primary/5 blur-xl" />
+              <div className="absolute -inset-3 rounded-3xl blur-xl opacity-50" style={{ background: 'linear-gradient(135deg, rgba(225,29,72,0.15), rgba(249,115,22,0.1))' }} />
             </div>
-            <h1 className="text-3xl font-black tracking-tight">
-              <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">GenZ</span>
-              <span className="text-muted-foreground font-light"> TV</span>
+
+            {/* GenZ TV — same gradient animation as hero section */}
+            <h1 className="text-4xl font-black tracking-tight mb-1">
+              <span className="admin-login-brand">GenZ</span>
+              <span className="text-foreground/60 font-light"> TV</span>
             </h1>
-            <p className="text-sm text-muted-foreground mt-1.5 font-medium">Admin Control Panel</p>
+            <p className="text-sm font-medium" style={{ color: '#F97316' }}>Admin Control Panel</p>
           </div>
 
           {/* Login Card */}
           <div
             key={shakeKey}
-            className="rounded-2xl border border-border/80 bg-card/95 backdrop-blur-sm p-6 shadow-2xl shadow-black/10 animate-fade-slide"
+            className="rounded-2xl border border-border/60 bg-card/90 backdrop-blur-md p-6 shadow-2xl shadow-black/5 animate-fade-slide"
           >
             {/* Card header */}
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center border border-primary/10">
-                <Fingerprint className="h-5 w-5 text-primary" />
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center border" style={{ background: 'linear-gradient(135deg, rgba(249,115,22,0.15), rgba(234,179,8,0.1))', borderColor: 'rgba(249,115,22,0.15)' }}>
+                <Fingerprint className="h-5 w-5" style={{ color: '#F97316' }} />
               </div>
               <div>
                 <h2 className="text-sm font-bold tracking-tight">Secure Login</h2>
@@ -188,14 +183,14 @@ export function AdminPage() {
               </div>
             </div>
 
-            {/* Divider */}
-            <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-5" />
+            {/* Divider with gradient */}
+            <div className="h-px mb-5" style={{ background: 'linear-gradient(90deg, transparent, rgba(249,115,22,0.3), rgba(234,179,8,0.3), rgba(20,184,166,0.2), transparent)' }} />
 
             {/* Form */}
             <div className="space-y-4">
               <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                  <Lock className="h-3 w-3" />
+                  <Lock className="h-3 w-3" style={{ color: '#F97316' }} />
                   Password
                 </label>
                 <div className="relative group">
@@ -206,7 +201,7 @@ export function AdminPage() {
                     value={password}
                     onChange={(e) => { setPassword(e.target.value); setError('') }}
                     onKeyDown={(e) => e.key === 'Enter' && !loading && !isRateLimited && handleLogin()}
-                    className="pl-9 pr-10 h-12 text-sm border-border/80 focus:border-primary/50 transition-all"
+                    className="pl-9 pr-10 h-12 text-sm transition-all"
                     autoFocus
                     disabled={loading || isRateLimited}
                   />
@@ -236,11 +231,11 @@ export function AdminPage() {
                 </div>
               )}
 
-              {/* Login button */}
+              {/* Login button — gradient themed */}
               <Button
                 onClick={handleLogin}
                 disabled={loading || !password.trim() || isRateLimited}
-                className="w-full h-12 btn-press font-bold gap-2.5 text-sm rounded-xl shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all"
+                className="w-full h-12 btn-press font-bold gap-2.5 text-sm rounded-xl transition-all admin-login-btn"
               >
                 {loading ? (
                   <>
@@ -256,31 +251,15 @@ export function AdminPage() {
               </Button>
             </div>
 
-            {/* Session info */}
+            {/* Session info — minimal */}
             <div className="mt-5 pt-4 border-t border-border/50">
-              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+              <div className="flex items-center justify-center text-[10px] text-muted-foreground">
                 <div className="flex items-center gap-1.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   <span>Secure connection</span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <Clock className="h-3 w-3" />
-                  <span>Session: 24h</span>
-                </div>
               </div>
             </div>
-          </div>
-
-          {/* Footer */}
-          <div className="text-center mt-6 space-y-2">
-            <p className="text-[10px] text-muted-foreground">
-              Protected by server-side authentication • httpOnly cookies
-            </p>
-            {currentTime && (
-              <p className="text-[10px] text-muted-foreground/60 font-mono">
-                {currentTime}
-              </p>
-            )}
           </div>
         </div>
       </div>
