@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
 import { Globe, MapPin, Search, Check, ChevronDown, Locate } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useMounted } from '@/hooks/use-mounted'
 
 // Major timezones grouped by region for easy selection
 const TIMEZONE_GROUPS = [
@@ -114,11 +115,12 @@ export function TimezoneSelector() {
   const { timezone, timezoneSource, setTimezone, detectTimezone } = useAppStore()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const mounted = useMounted()
   const dropdownRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
-  const abbr = useMemo(() => getTimezoneAbbr(timezone), [timezone])
-  const offset = useMemo(() => getUtcOffset(timezone), [timezone])
+  const abbr = useMemo(() => mounted ? getTimezoneAbbr(timezone) : '...', [timezone, mounted])
+  const offset = useMemo(() => mounted ? getUtcOffset(timezone) : '', [timezone, mounted])
 
   // Filter zones by search
   const filteredGroups = useMemo(() => {
@@ -173,19 +175,18 @@ export function TimezoneSelector() {
         className={cn(
           'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-200',
           'hover:bg-secondary/80 active:scale-95',
-          timezoneSource === 'auto'
+          mounted && timezoneSource === 'auto'
             ? 'text-emerald-600 dark:text-emerald-400'
             : 'text-foreground'
         )}
-        title={`Timezone: ${timezone} (${offset})`}
+        title={mounted ? `Timezone: ${timezone} (${offset})` : 'Timezone'}
       >
-        {timezoneSource === 'auto' ? (
+        {mounted && timezoneSource === 'auto' ? (
           <Locate className="h-3.5 w-3.5" />
         ) : (
           <Globe className="h-3.5 w-3.5" />
         )}
-        <span className="hidden sm:inline">{abbr}</span>
-        <span className="sm:hidden">{abbr}</span>
+        <span>{abbr}</span>
         <ChevronDown className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
       </button>
 
@@ -231,11 +232,11 @@ export function TimezoneSelector() {
             <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
               <span className={cn(
                 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium',
-                timezoneSource === 'auto'
+                mounted && timezoneSource === 'auto'
                   ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                   : 'bg-secondary text-muted-foreground'
               )}>
-                {timezoneSource === 'auto' ? <><MapPin className="h-2.5 w-2.5" /> Auto</> : 'Manual'}
+                {mounted && timezoneSource === 'auto' ? <><MapPin className="h-2.5 w-2.5" /> Auto</> : 'Manual'}
               </span>
               <span className="truncate">{timezone.replace(/_/g, ' ')}</span>
               <span className="ml-auto font-mono">{offset}</span>

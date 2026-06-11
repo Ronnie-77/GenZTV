@@ -10,6 +10,78 @@ import { fetchMatches, fetchChannels, createMatch, updateMatch, deleteMatch, typ
 import { searchTeams, type TeamEntry } from '@/lib/teams-data'
 import { toast } from 'sonner'
 
+// ─── Timezone helpers for admin ───
+// Admin always inputs times in Bangladesh timezone (Asia/Dhaka)
+const ADMIN_TIMEZONE = 'Asia/Dhaka'
+
+/** Convert a datetime-local value (from HTML input) in admin timezone to UTC ISO string */
+function adminLocalToUTC(dtLocalValue: string): string {
+  if (!dtLocalValue) return ''
+  // datetime-local gives "YYYY-MM-DDTHH:mm" — interpret as Asia/Dhaka
+  // Get the offset for Asia/Dhaka at this specific date
+  const date = new Date(dtLocalValue)
+  const utcStr = date.toLocaleString('en-US', { timeZone: 'UTC' })
+  const dhakaStr = date.toLocaleString('en-US', { timeZone: ADMIN_TIMEZONE })
+  const utcMs = new Date(utcStr).getTime()
+  const dhakaMs = new Date(dhakaStr).getTime()
+  const offsetMs = dhakaMs - utcMs // positive for east of UTC (+6h = +360min)
+  // The datetime-local value is what the admin entered as Dhaka time
+  // But the browser interpreted it as local time. We need to convert:
+  // If browser is in UTC and admin enters 11:00, browser makes Date(11:00 UTC)
+  // But admin meant 11:00 Dhaka = 05:00 UTC
+  // So we subtract the offset between Dhaka and the browser's timezone
+  const browserOffsetMs = date.getTimezoneOffset() * -60000 // browser's offset from UTC in ms
+  const dhakaOffsetMs = offsetMs // Dhaka's offset from UTC in ms
+  const adjustmentMs = browserOffsetMs - dhakaOffsetMs
+  const adjusted = new Date(date.getTime() - adjustmentMs)
+  return adjusted.toISOString()
+}
+
+/** Convert a UTC ISO string from the database to admin timezone datetime-local value */
+function utcToAdminLocal(utcDateStr: string): string {
+  if (!utcDateStr) return ''
+  const date = new Date(utcDateStr)
+  // Format in Asia/Dhaka timezone as YYYY-MM-DDTHH:mm
+  const formatter = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: ADMIN_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+  // sv-SE locale gives "YYYY-MM-DD HH:mm"
+  const formatted = formatter.format(date)
+  return formatted.replace(' ', 'T')
+}
+
+/** Format a UTC date in admin timezone for display */
+function formatAdminTime(utcDateStr: string): string {
+  if (!utcDateStr) return 'Not set'
+  const date = new Date(utcDateStr)
+  return date.toLocaleString('en-US', {
+    timeZone: ADMIN_TIMEZONE,
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+/** Get the current UTC offset string for admin timezone */
+function getAdminOffset(): string {
+  const date = new Date()
+  const utcStr = date.toLocaleString('en-US', { timeZone: 'UTC' })
+  const dhakaStr = date.toLocaleString('en-US', { timeZone: ADMIN_TIMEZONE })
+  const diff = (new Date(dhakaStr).getTime() - new Date(utcStr).getTime()) / 60000
+  const sign = diff >= 0 ? '+' : '-'
+  const absDiff = Math.abs(diff)
+  const hours = Math.floor(absDiff / 60)
+  const mins = absDiff % 60
+  return mins > 0 ? `UTC${sign}${hours}:${String(mins).padStart(2, '0')}` : `UTC${sign}${hours}`
+}
+
 // ─── Logo renderer helper ───
 function TeamLogo({ logo, name, size = 'sm' }: { logo: string; name: string; size?: 'xs' | 'sm' | 'md' }) {
   const sizeClasses = {
@@ -17,22 +89,30 @@ function TeamLogo({ logo, name, size = 'sm' }: { logo: string; name: string; siz
     sm: 'w-7 h-7 text-xs',
     md: 'w-10 h-10 text-lg',
   }
+  const [erroredUrls, setErroredUrls] = useState<Set<string>>(() => new Set())
   const isUrl = logo?.startsWith('http')
+  const hasError = isUrl && erroredUrls.has(logo)
+
+  const handleImgError = () => {
+    if (logo) {
+      setErroredUrls(prev => {
+        const next = new Set(prev)
+        next.add(logo)
+        return next
+      })
+    }
+  }
 
   return (
     <div className={`${sizeClasses[size]} rounded-md border border-border bg-secondary flex items-center justify-center overflow-hidden shrink-0`}>
-      {isUrl ? (
+      {isUrl && !hasError ? (
         <img
           src={logo}
           alt={name}
           className="w-full h-full object-contain p-0.5"
-          onError={(e) => {
-            (e.target as HTMLImageElement).style.display = 'none'
-            const parent = (e.target as HTMLImageElement).parentElement!
-            parent.innerHTML = `<span class="font-bold" style="font-size:inherit">${name?.charAt(0) || '?'}</span>`
-          }}
+          onError={handleImgError}
         />
-      ) : logo ? (
+      ) : logo && !isUrl ? (
         <span className="leading-none">{logo}</span>
       ) : (
         <span className="font-bold" style={{ fontSize: 'inherit' }}>{name?.charAt(0) || '?'}</span>
@@ -380,7 +460,16 @@ function MatchPreview({ teamA, teamALogo, teamB, teamBLogo, league, sport, start
   const sportIcon = sport === 'cricket' ? '🏏' : '⚽'
   const formatTime = (d: string) => {
     if (!d) return 'Not set'
-    return new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    // d is a datetime-local value — show it as-is since it's already in admin timezone
+    try {
+      const date = new Date(d)
+      return date.toLocaleString('en-US', {
+        timeZone: ADMIN_TIMEZONE,
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+      })
+    } catch {
+      return d
+    }
   }
 
   return (
@@ -522,8 +611,8 @@ export function AdminMatches() {
     setTeamALogo(match.teamALogo)
     setTeamBName(match.teamB)
     setTeamBLogo(match.teamBLogo)
-    setStartTime(new Date(match.startTime).toISOString().slice(0, 16))
-    setEndTime(match.endTime ? new Date(match.endTime).toISOString().slice(0, 16) : '')
+    setStartTime(utcToAdminLocal(match.startTime))
+    setEndTime(match.endTime ? utcToAdminLocal(match.endTime) : '')
     setStatus(match.status)
     setFeatured(match.isFeatured)
     setStreams(match.streams.map(s => ({
@@ -555,8 +644,8 @@ export function AdminMatches() {
         teamB: teamBName,
         teamBLogo,
         league,
-        startTime,
-        endTime: endTime || undefined,
+        startTime: adminLocalToUTC(startTime),
+        endTime: endTime ? adminLocalToUTC(endTime) : undefined,
         status,
         isFeatured: featured,
         streams: streams.map(s => ({
@@ -770,11 +859,14 @@ export function AdminMatches() {
             <FormSection
               icon={<Calendar className="h-3.5 w-3.5" />}
               title="Schedule & Status"
-              description="Set match timing — end time will auto-complete the match"
+              description={`All times in Bangladesh timezone (BST, ${getAdminOffset()}) — displayed in user's local timezone on home page`}
             >
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Start Time *</label>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1.5">
+                    Start Time *
+                    <span className="text-[9px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded">BST ({getAdminOffset()})</span>
+                  </label>
                   <input
                     type="datetime-local"
                     value={startTime}
@@ -783,7 +875,10 @@ export function AdminMatches() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">End Time</label>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1.5">
+                    End Time
+                    <span className="text-[9px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded">BST</span>
+                  </label>
                   <input
                     type="datetime-local"
                     value={endTime}
@@ -889,7 +984,7 @@ export function AdminMatches() {
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground">Sport</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground">League</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground">Status</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Start Time</th>
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Start Time <span className="text-emerald-500">(BST)</span></th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground">Streams</th>
                   <th className="text-right p-3 text-xs font-medium text-muted-foreground">Actions</th>
                 </tr>
@@ -925,9 +1020,7 @@ export function AdminMatches() {
                       </Badge>
                     </td>
                     <td className="p-3 text-xs text-muted-foreground">
-                      {new Date(match.startTime).toLocaleString('en-US', {
-                        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                      })}
+                      {formatAdminTime(match.startTime)}
                     </td>
                     <td className="p-3 text-sm">
                       <Badge variant="secondary" className="text-xs">{match.streams.length}</Badge>

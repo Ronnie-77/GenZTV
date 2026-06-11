@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 interface ChannelCardProps {
   channel: Channel
   compact?: boolean
+  home?: boolean  // Home page variant: no category badge, no view count
 }
 
 const categoryColors: Record<string, string> = {
@@ -20,7 +21,7 @@ const categoryColors: Record<string, string> = {
   international: 'bg-teal-500/10 text-teal-600',
 }
 
-export function ChannelCard({ channel, compact }: ChannelCardProps) {
+export function ChannelCard({ channel, compact, home }: ChannelCardProps) {
   const { setCurrentPage, setCurrentChannelId, toggleFavorite, favorites } = useAppStore()
   const isFav = favorites.includes(channel.id)
 
@@ -99,18 +100,20 @@ export function ChannelCard({ channel, compact }: ChannelCardProps) {
       {/* Channel Info */}
       <div className="text-center w-full">
         <p className="text-sm font-medium truncate">{channel.name}</p>
-        <div className="flex items-center justify-center gap-1 mt-1">
-          <Badge
-            variant="secondary"
-            className={`text-[10px] px-1.5 py-0 ${categoryColors[channel.category] || 'bg-secondary text-muted-foreground'}`}
-          >
-            {channel.category}
-          </Badge>
-        </div>
+        {!home && (
+          <div className="flex items-center justify-center gap-1 mt-1">
+            <Badge
+              variant="secondary"
+              className={`text-[10px] px-1.5 py-0 ${categoryColors[channel.category] || 'bg-secondary text-muted-foreground'}`}
+            >
+              {channel.category}
+            </Badge>
+          </div>
+        )}
       </div>
 
       {/* View count */}
-      {channel.viewCount > 0 && (
+      {!home && channel.viewCount > 0 && (
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <Eye className="h-3 w-3" />
           <span>{channel.viewCount.toLocaleString()}</span>

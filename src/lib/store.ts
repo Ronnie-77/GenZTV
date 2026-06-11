@@ -191,7 +191,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 }))
 
-// Initialize from URL hash on load + auto-unlock admin
+// Initialize from URL hash on load + auto-unlock admin + timezone hydration
 if (typeof window !== 'undefined') {
   function initFromUrl() {
     const hash = window.location.hash.replace('#/', '').replace('#', '')
@@ -212,6 +212,10 @@ if (typeof window !== 'undefined') {
   }
 
   initFromUrl()
+
+  // Hydrate timezone from localStorage or auto-detect on client
+  const tzData = loadTimezone()
+  useAppStore.setState({ timezone: tzData.tz, timezoneSource: tzData.source })
 
   // Listen for hash changes (browser back/forward, manual URL entry)
   window.addEventListener('hashchange', initFromUrl)

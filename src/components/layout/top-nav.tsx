@@ -1,4 +1,4 @@
-// v16 — Timezone selector in topbar
+// v17 — Removed timezone selector (moved to home page hero)
 'use client'
 
 import { useAppStore } from '@/lib/store'
@@ -6,7 +6,6 @@ import { Search, Menu, Tv } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { NotificationBell } from '@/components/notifications/notification-manager'
-import { TimezoneSelector } from '@/components/timezone/timezone-selector'
 
 export function TopNav() {
   const { setCurrentPage, setSearchQuery, setSidebarOpen } = useAppStore()
@@ -51,9 +50,8 @@ export function TopNav() {
           </div>
         </div>
 
-        {/* Right: Timezone + Notification */}
+        {/* Right: Notification */}
         <div className="flex items-center gap-0.5 shrink-0">
-          <TimezoneSelector />
           <NotificationBell />
         </div>
       </div>

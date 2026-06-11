@@ -71,6 +71,9 @@ export interface AppSettings {
   defaultQuality: string
   bannerAdScript: string
   socialBarAdScript: string
+  adsEnabled: boolean
+  homeAdsEnabled: boolean
+  videoAdsEnabled: boolean
 }
 
 // ============ Channels ============

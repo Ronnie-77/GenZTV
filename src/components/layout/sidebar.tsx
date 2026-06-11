@@ -231,13 +231,15 @@ export function Sidebar() {
           <Separator className="my-4 bg-sidebar-border" />
 
           {/* Bottom info — tap 5 times to unlock admin */}
-          <div className="mt-6 px-3">
+          <div className="mt-auto px-3 pt-4">
             <div
               className="bg-secondary/50 rounded-xl p-3 text-xs text-muted-foreground cursor-pointer select-none"
               onClick={handleSecretTap}
             >
-              <p className="font-semibold text-foreground mb-1">GenZ TV v1.0</p>
-              <p>Premium live streaming platform</p>
+              <div>
+                <p className="font-semibold text-foreground mb-0.5">GenZ TV v1.0</p>
+                <p>Premium live streaming platform</p>
+              </div>
             </div>
           </div>
         </ScrollArea>

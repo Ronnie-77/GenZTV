@@ -11,7 +11,7 @@ import { AdminMatches } from '@/views/admin/matches'
 import { AdminCategories } from '@/views/admin/categories'
 import { AdminSettings } from '@/views/admin/settings'
 
-const ADMIN_PASSWORD = 'Ronnie77'
+const ADMIN_PASSWORD = 'Ronnie7700'
 
 const adminTabs = [
   { id: 'dashboard' as const, label: 'Dashboard', icon: '📊' },

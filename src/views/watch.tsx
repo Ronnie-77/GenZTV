@@ -10,6 +10,7 @@ import { ArrowLeft, Heart, Share2, Tv, ExternalLink, Radio, ListVideo } from 'lu
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { fetchSettings } from '@/lib/api'
 
 // Adsterra Banner Ad — dynamically injects ad script below video player (mobile & PC)
 function BannerAd() {
@@ -56,6 +57,14 @@ export function WatchPage() {
   const [loading, setLoading] = useState(true)
   const [activeStreamIndex, setActiveStreamIndex] = useState(0)
   const [viewMode, setViewMode] = useState<'channel' | 'match'>('channel')
+  const [videoAdsEnabled, setVideoAdsEnabled] = useState(true)
+
+  // Fetch ad settings
+  useEffect(() => {
+    fetchSettings().then(s => {
+      setVideoAdsEnabled(s.adsEnabled && (s.videoAdsEnabled ?? true))
+    }).catch(() => {})
+  }, [])
 
   // Fetch related channels from the same category
   const { channels: relatedChannels, loading: loadingRelated } = useChannels(
@@ -259,7 +268,7 @@ export function WatchPage() {
             </div>
 
             {/* Banner Ad below player — both mobile & PC */}
-            <BannerAd />
+            {videoAdsEnabled && <BannerAd />}
           </div>
 
           {/* Right: Related Channels */}

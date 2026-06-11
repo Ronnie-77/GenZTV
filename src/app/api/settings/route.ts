@@ -30,6 +30,9 @@ export async function PUT(req: NextRequest) {
         ...(body.defaultQuality !== undefined && { defaultQuality: body.defaultQuality }),
         ...(body.bannerAdScript !== undefined && { bannerAdScript: body.bannerAdScript }),
         ...(body.socialBarAdScript !== undefined && { socialBarAdScript: body.socialBarAdScript }),
+        ...(body.adsEnabled !== undefined && { adsEnabled: body.adsEnabled }),
+        ...(body.homeAdsEnabled !== undefined && { homeAdsEnabled: body.homeAdsEnabled }),
+        ...(body.videoAdsEnabled !== undefined && { videoAdsEnabled: body.videoAdsEnabled }),
       },
       create: {
         id: 'app',
@@ -41,6 +44,9 @@ export async function PUT(req: NextRequest) {
         defaultQuality: body.defaultQuality || 'auto',
         bannerAdScript: body.bannerAdScript || '',
         socialBarAdScript: body.socialBarAdScript || '',
+        adsEnabled: body.adsEnabled !== undefined ? body.adsEnabled : true,
+        homeAdsEnabled: body.homeAdsEnabled !== undefined ? body.homeAdsEnabled : true,
+        videoAdsEnabled: body.videoAdsEnabled !== undefined ? body.videoAdsEnabled : true,
       },
     })
     return NextResponse.json(settings)

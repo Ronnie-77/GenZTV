@@ -8,6 +8,7 @@ import { MatchCard } from '@/components/matches/match-card'
 import { ChannelCard } from '@/components/channels/channel-card'
 import { Play, Trophy, Globe, Antenna, ChevronRight, Tv, Zap, Download, Smartphone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { TimezoneSelector } from '@/components/timezone/timezone-selector'
 import Image from 'next/image'
 
 export function HomePage() {
@@ -15,8 +16,12 @@ export function HomePage() {
 
   // Fetch APK URL from settings
   const [apkUrl, setApkUrl] = useState('')
+  const [homeAdsEnabled, setHomeAdsEnabled] = useState(true)
   useEffect(() => {
-    fetchSettings().then(s => setApkUrl(s.apkUrl || '')).catch(() => {})
+    fetchSettings().then(s => {
+      setApkUrl(s.apkUrl || '')
+      setHomeAdsEnabled(s.adsEnabled && (s.homeAdsEnabled ?? true))
+    }).catch(() => {})
   }, [])
 
   // Fetch real data from API
@@ -170,10 +175,21 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* ── Adsterra Ad Banner ── */}
-      <div className="px-4 md:px-6 lg:px-8 py-3 flex justify-center">
-        <AdsterraBanner />
+      {/* ── Timezone Selector (PC view only, below hero) ── */}
+      <div className="hidden lg:flex justify-center py-2 px-4 md:px-6 lg:px-8">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Globe className="h-3.5 w-3.5" />
+          <span>Timezone:</span>
+          <TimezoneSelector />
+        </div>
       </div>
+
+      {/* ── Adsterra Ad Banner ── */}
+      {homeAdsEnabled && (
+        <div className="px-4 md:px-6 lg:px-8 py-3 flex justify-center">
+          <AdsterraBanner />
+        </div>
+      )}
 
       {/* ── Content Sections ── */}
       <div className="space-y-8 px-4 md:px-6 lg:px-8 py-6">
@@ -322,7 +338,7 @@ export function HomePage() {
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
               {featuredChannels.slice(0, 16).map((channel) => (
-                <ChannelCard key={channel.id} channel={channel} />
+                <ChannelCard key={channel.id} channel={channel} home />
               ))}
             </div>
           )}

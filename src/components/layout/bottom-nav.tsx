@@ -15,6 +15,20 @@ const bottomNavItems: { icon: React.ElementType; label: string; page: PageName }
 export function BottomNav() {
   const { currentPage, setCurrentPage } = useAppStore()
 
+  const handleNavClick = (page: PageName) => {
+    setCurrentPage(page)
+    // If clicking search, focus the search input after a small delay
+    if (page === 'search') {
+      setTimeout(() => {
+        const searchInput = document.querySelector('header input[type="text"], header input:not([type])') as HTMLInputElement | null
+        if (searchInput) {
+          searchInput.focus()
+          searchInput.click()
+        }
+      }, 100)
+    }
+  }
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 glass bg-background/95 md:bg-background/80 border-t border-border lg:hidden safe-area-bottom">
       <div className="flex items-center justify-around h-16 px-2">
@@ -26,7 +40,7 @@ export function BottomNav() {
           return (
             <button
               key={item.page}
-              onClick={() => setCurrentPage(item.page)}
+              onClick={() => handleNavClick(item.page)}
               className={cn(
                 'flex flex-col items-center justify-center gap-0.5 py-1 px-3 rounded-xl transition-all duration-200 min-w-[56px]',
                 isActive

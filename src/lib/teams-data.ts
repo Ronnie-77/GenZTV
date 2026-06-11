@@ -317,7 +317,7 @@ export const iccCountries: TeamEntry[] = [
   { name: 'Pakistan', logo: 'https://flagcdn.com/w80/pk.png', type: 'country' },
   { name: 'South Africa', logo: 'https://flagcdn.com/w80/za.png', type: 'country' },
   { name: 'Sri Lanka', logo: 'https://flagcdn.com/w80/lk.png', type: 'country' },
-  { name: 'West Indies', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/West_Indies_cricket_team_flag.svg/200px-West_Indies_cricket_team_flag.svg.png', type: 'country' },
+  { name: 'West Indies', logo: 'https://ssl.gstatic.com/onebox/media/sports/logos/optimized/qziJXGzGxNQbkPJRfxodgA_96x96.png', type: 'country' },
   { name: 'Bangladesh', logo: 'https://flagcdn.com/w80/bd.png', type: 'country' },
   { name: 'Zimbabwe', logo: 'https://flagcdn.com/w80/zw.png', type: 'country' },
   { name: 'Ireland', logo: 'https://flagcdn.com/w80/ie.png', type: 'country' },

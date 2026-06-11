@@ -1,12 +1,13 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Settings, Save, RefreshCw, Globe, Tv, Monitor, Shield, Database, Download, Upload, X, FileArchive, Trash2 } from 'lucide-react'
+import { Settings, Save, RefreshCw, Globe, Tv, Monitor, Shield, Database, Download, Upload, X, FileArchive, Trash2, Megaphone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { fetchSettings, updateSettings, fetchChannels, fetchMatches, fetchCategories, type AppSettings, type Channel } from '@/lib/api'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 
 export function AdminSettings() {
   const [settings, setSettings] = useState<AppSettings | null>(null)
@@ -27,6 +28,9 @@ export function AdminSettings() {
   const [defaultQuality, setDefaultQuality] = useState('auto')
   const [apkUrl, setApkUrl] = useState('')
   const [apkFileName, setApkFileName] = useState('')
+  const [adsEnabled, setAdsEnabled] = useState(true)
+  const [homeAdsEnabled, setHomeAdsEnabled] = useState(true)
+  const [videoAdsEnabled, setVideoAdsEnabled] = useState(true)
 
   useEffect(() => {
     async function load() {
@@ -45,6 +49,9 @@ export function AdminSettings() {
         setHeroBannerText(s.heroBannerText)
         setDefaultQuality(s.defaultQuality)
         setApkUrl(s.apkUrl || '')
+        setAdsEnabled(s.adsEnabled ?? true)
+        setHomeAdsEnabled(s.homeAdsEnabled ?? true)
+        setVideoAdsEnabled(s.videoAdsEnabled ?? true)
         // Extract filename from URL
         if (s.apkUrl) {
           const parts = s.apkUrl.split('/')
@@ -70,6 +77,9 @@ export function AdminSettings() {
         heroBannerText,
         defaultQuality,
         apkUrl,
+        adsEnabled,
+        homeAdsEnabled,
+        videoAdsEnabled,
       })
       setSettings(updated)
       toast.success('Settings Saved', { description: 'App settings have been updated successfully' })
@@ -404,6 +414,69 @@ export function AdminSettings() {
         {maintenanceMode && (
           <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3 text-sm text-yellow-400">
             ⚠️ Maintenance mode is enabled. Users cannot access the app.
+          </div>
+        )}
+      </div>
+
+      {/* Ad Controls */}
+      <div className="bg-card rounded-2xl border border-border p-4 space-y-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Megaphone className="h-4 w-4 text-primary" />
+          <h3 className="font-semibold">Ad Controls</h3>
+        </div>
+
+        {/* Master Switch */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">All Ads</p>
+            <p className="text-xs text-muted-foreground">Master switch — disables all ads when off</p>
+          </div>
+          <Switch
+            checked={adsEnabled}
+            onCheckedChange={(checked) => {
+              setAdsEnabled(checked)
+              if (!checked) {
+                setHomeAdsEnabled(false)
+                setVideoAdsEnabled(false)
+              } else {
+                setHomeAdsEnabled(true)
+                setVideoAdsEnabled(true)
+              }
+            }}
+          />
+        </div>
+
+        <div className={cn(!adsEnabled && 'opacity-50 pointer-events-none')}>
+          {/* Home Page Ads */}
+          <div className="flex items-center justify-between py-2 border-t border-border">
+            <div>
+              <p className="text-sm font-medium">Home Page Ads</p>
+              <p className="text-xs text-muted-foreground">Banner ads on the home page</p>
+            </div>
+            <Switch
+              checked={homeAdsEnabled}
+              onCheckedChange={setHomeAdsEnabled}
+              disabled={!adsEnabled}
+            />
+          </div>
+
+          {/* Video Page Ads */}
+          <div className="flex items-center justify-between py-2 border-t border-border">
+            <div>
+              <p className="text-sm font-medium">Video Page Ads</p>
+              <p className="text-xs text-muted-foreground">Ads below the video player</p>
+            </div>
+            <Switch
+              checked={videoAdsEnabled}
+              onCheckedChange={setVideoAdsEnabled}
+              disabled={!adsEnabled}
+            />
+          </div>
+        </div>
+
+        {!adsEnabled && (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-sm text-red-400">
+            🔴 All ads are disabled. No ads will be shown anywhere.
           </div>
         )}
       </div>
