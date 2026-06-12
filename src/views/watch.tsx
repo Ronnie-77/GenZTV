@@ -12,6 +12,35 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { fetchSettings } from '@/lib/api'
 
+// Dynamic ad slot — renders custom ad script HTML from settings
+function DynamicAdSlot({ script }: { script: string }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!containerRef.current || !script.trim()) return
+    containerRef.current.innerHTML = ''
+    const wrapper = document.createElement('div')
+    wrapper.innerHTML = script.trim()
+    while (wrapper.firstChild) {
+      const node = wrapper.firstChild
+      if (node.nodeName === 'SCRIPT') {
+        const newScript = document.createElement('script')
+        const oldScript = node as HTMLScriptElement
+        if (oldScript.src) newScript.src = oldScript.src
+        if (oldScript.textContent) newScript.textContent = oldScript.textContent
+        Array.from(oldScript.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.async = true
+        containerRef.current.appendChild(newScript)
+      } else {
+        containerRef.current.appendChild(node)
+      }
+    }
+  }, [script])
+
+  if (!script.trim()) return null
+  return <div ref={containerRef} className="w-full max-w-[728px]" />
+}
+
 // Adsterra Banner Ad — dynamically injects ad script below video player (mobile & PC)
 function BannerAd() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -58,11 +87,17 @@ export function WatchPage() {
   const [activeStreamIndex, setActiveStreamIndex] = useState(0)
   const [viewMode, setViewMode] = useState<'channel' | 'match'>('channel')
   const [videoAdsEnabled, setVideoAdsEnabled] = useState(true)
+  const [videoAdScripts, setVideoAdScripts] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
 
   // Fetch ad settings
   useEffect(() => {
     fetchSettings().then(s => {
       setVideoAdsEnabled(s.adsEnabled && (s.videoAdsEnabled ?? true))
+      try {
+        const all = JSON.parse(s.customAdScripts || '[]')
+        const videoAds = all.filter((a: {position: string; enabled: boolean}) => a.position === 'video-below' && a.enabled)
+        setVideoAdScripts(videoAds)
+      } catch { /* ignore */ }
     }).catch(() => {})
   }, [])
 
@@ -268,7 +303,14 @@ export function WatchPage() {
             </div>
 
             {/* Banner Ad below player — both mobile & PC */}
-            {videoAdsEnabled && <BannerAd />}
+            {videoAdsEnabled && (
+              <div className="flex flex-col items-center gap-3">
+                {videoAdScripts.map((ad) => (
+                  <DynamicAdSlot key={ad.id} script={ad.script} />
+                ))}
+                {videoAdScripts.length === 0 && <BannerAd />}
+              </div>
+            )}
           </div>
 
           {/* Right: Related Channels */}

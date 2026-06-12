@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Plus, Tv, Edit, Trash2, Search, X, Check, RefreshCw, Eye, Star, ToggleLeft, ToggleRight, Upload, Github } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,7 +27,7 @@ const streamTypeOptions = [
 interface ChannelFormData {
   name: string
   logo: string
-  category: string
+  categories: string[]  // Array of selected categories (stored as comma-separated in DB)
   streamType: string
   streamUrl: string
   githubM3uPath: string
@@ -41,7 +41,7 @@ interface ChannelFormData {
 const emptyForm: ChannelFormData = {
   name: '',
   logo: '',
-  category: 'entertainment',
+  categories: ['entertainment'],
   streamType: 'iframe',
   streamUrl: '',
   githubM3uPath: '',
@@ -50,6 +50,18 @@ const emptyForm: ChannelFormData = {
   tags: '',
   isFeatured: false,
   isActive: true,
+}
+
+/** Parse comma-separated category string into array */
+function parseCategories(categoryStr: string): string[] {
+  if (!categoryStr) return []
+  return categoryStr.split(',').map(c => c.trim()).filter(Boolean)
+}
+
+/** Get the primary (first) category from a category string */
+function getPrimaryCategory(categoryStr: string): string {
+  const cats = parseCategories(categoryStr)
+  return cats.length > 0 ? cats[0] : 'entertainment'
 }
 
 export function AdminChannels() {
@@ -74,6 +86,9 @@ export function AdminChannels() {
 
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+
+  // Ref for scrolling to form on edit
+  const formRef = useRef<HTMLDivElement>(null)
 
   const loadChannels = useCallback(async () => {
     try {
@@ -106,7 +121,7 @@ export function AdminChannels() {
       const data = {
         name: form.name,
         logo: form.logo,
-        category: form.category,
+        category: form.categories.filter(Boolean).join(','),
         streamType: form.streamType,
         streamUrl: form.streamUrl,
         githubM3uPath: form.githubM3uPath,
@@ -138,10 +153,11 @@ export function AdminChannels() {
 
   const handleEdit = (channel: Channel) => {
     setEditingId(channel.id)
+    const channelCategories = parseCategories(channel.category)
     setForm({
       name: channel.name,
       logo: channel.logo,
-      category: channel.category,
+      categories: channelCategories.length > 0 ? channelCategories : ['entertainment'],
       streamType: channel.streamType,
       streamUrl: channel.streamUrl,
       githubM3uPath: channel.githubM3uPath,
@@ -152,6 +168,19 @@ export function AdminChannels() {
       isActive: channel.isActive,
     })
     setShowForm(true)
+    // Scroll to form after a short delay to allow state to render
+    setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 100)
+  }
+
+  const toggleCategory = (catValue: string) => {
+    setForm(prev => {
+      const cats = prev.categories.includes(catValue)
+        ? prev.categories.filter(c => c !== catValue)
+        : [...prev.categories, catValue]
+      return { ...prev, categories: cats.length > 0 ? cats : ['entertainment'] }
+    })
   }
 
   const handleDelete = async (id: string) => {
@@ -211,7 +240,7 @@ export function AdminChannels() {
             await createChannel({
               name: ch.name,
               logo: ch.logo,
-              category: ch.group ? ch.group.toLowerCase() : 'entertainment',
+              category: ch.group ? `sports,${ch.group.toLowerCase()}` : 'entertainment',
               streamType: ch.url.includes('.m3u8') ? 'm3u' : 'iframe',
               streamUrl: ch.url,
             })
@@ -380,7 +409,7 @@ export function AdminChannels() {
 
       {/* Add/Edit Channel Form */}
       {showForm && (
-        <div className="bg-card rounded-2xl border border-border p-4 space-y-4 animate-fade-slide">
+        <div ref={formRef} className="bg-card rounded-2xl border border-border p-4 space-y-4 animate-fade-slide scroll-mt-4">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-bold">{editingId ? 'Edit Channel' : 'Add New Channel'}</h3>
             <Button variant="ghost" size="icon" onClick={() => { setShowForm(false); setEditingId(null); setForm(emptyForm) }}>
@@ -414,16 +443,31 @@ export function AdminChannels() {
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">Category</label>
-              <select
-                value={form.category}
-                onChange={(e) => setForm({ ...form, category: e.target.value })}
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-              >
-                {categoryOptions.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
+              <label className="text-sm font-medium mb-1.5 block">Categories</label>
+              <p className="text-[10px] text-muted-foreground mb-2">Select all categories this channel belongs to. First selected is primary.</p>
+              <div className="flex flex-wrap gap-2">
+                {categoryOptions.map(opt => {
+                  const isSelected = form.categories.includes(opt.value)
+                  const isFirst = form.categories[0] === opt.value
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => toggleCategory(opt.value)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${
+                        isSelected
+                          ? isFirst
+                            ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                            : 'bg-primary/15 text-primary border-primary/30'
+                          : 'bg-secondary/50 text-muted-foreground border-border hover:border-primary/30'
+                      }`}
+                    >
+                      <span>{opt.label}</span>
+                      {isFirst && isSelected && <span className="text-[9px] opacity-70">(Primary)</span>}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
             <div>
               <label className="text-sm font-medium mb-1 block">Stream Type</label>
@@ -555,7 +599,13 @@ export function AdminChannels() {
                       </div>
                     </td>
                     <td className="p-3 text-sm">
-                      <Badge variant="secondary" className="capitalize text-xs">{ch.category}</Badge>
+                      <div className="flex flex-wrap gap-1">
+                        {parseCategories(ch.category).map((cat, i) => (
+                          <Badge key={i} variant="secondary" className={`capitalize text-[10px] ${i === 0 ? 'bg-primary/10 text-primary' : ''}`}>
+                            {cat}
+                          </Badge>
+                        ))}
+                      </div>
                     </td>
                     <td className="p-3 text-sm text-xs uppercase text-muted-foreground">{ch.streamType}</td>
                     <td className="p-3 text-sm">

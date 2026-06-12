@@ -1,13 +1,22 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Settings, Save, RefreshCw, Globe, Tv, Monitor, Shield, Database, Download, Upload, X, FileArchive, Trash2, Megaphone } from 'lucide-react'
+import { Settings, Save, RefreshCw, Globe, Tv, Monitor, Shield, Database, Download, Upload, X, FileArchive, Trash2, Megaphone, Plus, Code, Eye, EyeOff, GripVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { fetchSettings, updateSettings, fetchChannels, fetchMatches, fetchCategories, type AppSettings, type Channel } from '@/lib/api'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+
+// Ad script interface
+interface AdScript {
+  id: string
+  name: string
+  script: string
+  position: 'home-banner' | 'video-below' | 'sidebar' | 'custom'
+  enabled: boolean
+}
 
 export function AdminSettings() {
   const [settings, setSettings] = useState<AppSettings | null>(null)
@@ -31,6 +40,10 @@ export function AdminSettings() {
   const [adsEnabled, setAdsEnabled] = useState(true)
   const [homeAdsEnabled, setHomeAdsEnabled] = useState(true)
   const [videoAdsEnabled, setVideoAdsEnabled] = useState(true)
+
+  // Ad scripts state
+  const [adScripts, setAdScripts] = useState<AdScript[]>([])
+  const [editingAdScript, setEditingAdScript] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -60,6 +73,13 @@ export function AdminSettings() {
         setAdsEnabled(s.adsEnabled ?? true)
         setHomeAdsEnabled(s.homeAdsEnabled ?? true)
         setVideoAdsEnabled(s.videoAdsEnabled ?? true)
+        // Parse custom ad scripts
+        try {
+          const parsed = JSON.parse(s.customAdScripts || '[]')
+          setAdScripts(Array.isArray(parsed) ? parsed : [])
+        } catch {
+          setAdScripts([])
+        }
         // Extract filename from URL
         if (s.apkUrl) {
           const parts = s.apkUrl.split('/')
@@ -92,11 +112,17 @@ export function AdminSettings() {
         heroBannerText,
         defaultQuality,
         apkUrl,
+        bannerAdScript: settings?.bannerAdScript || '',
+        socialBarAdScript: settings?.socialBarAdScript || '',
+        customAdScripts: JSON.stringify(adScripts),
         adsEnabled,
         homeAdsEnabled,
         videoAdsEnabled,
       })
       setSettings(updated)
+      // Notify AppShell to re-check maintenance mode immediately
+      localStorage.setItem('zeng-settings-updated', Date.now().toString())
+      window.dispatchEvent(new CustomEvent('zeng-settings-changed'))
       toast.success('Settings Saved', { description: 'App settings have been updated successfully' })
     } catch {
       toast.error('Error', { description: 'Failed to save settings' })
@@ -448,9 +474,31 @@ export function AdminSettings() {
 
       {/* Ad Controls */}
       <div className="bg-card rounded-2xl border border-border p-4 space-y-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Megaphone className="h-4 w-4 text-primary" />
-          <h3 className="font-semibold">Ad Controls</h3>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Megaphone className="h-4 w-4 text-primary" />
+            <h3 className="font-semibold">Ad Controls</h3>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const newAd: AdScript = {
+                id: `ad-${Date.now()}`,
+                name: `Ad Script ${adScripts.length + 1}`,
+                script: '',
+                position: 'home-banner',
+                enabled: true,
+              }
+              setAdScripts([...adScripts, newAd])
+              setEditingAdScript(newAd.id)
+            }}
+            disabled={!adsEnabled}
+            className="gap-1.5 text-xs"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Script
+          </Button>
         </div>
 
         {/* Master Switch */}
@@ -505,6 +553,77 @@ export function AdminSettings() {
         {!adsEnabled && (
           <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-sm text-red-400">
             🔴 All ads are disabled. No ads will be shown anywhere.
+          </div>
+        )}
+
+        {/* Custom Ad Scripts List */}
+        {adsEnabled && adScripts.length > 0 && (
+          <div className="space-y-2 pt-2 border-t border-border">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Custom Ad Scripts</p>
+            {adScripts.map((ad) => (
+              <div key={ad.id} className={`rounded-xl border p-3 space-y-3 transition-all ${editingAdScript === ad.id ? 'border-primary/40 bg-primary/5' : ad.enabled ? 'border-border bg-secondary/20' : 'border-border/50 bg-secondary/10 opacity-60'}`}>
+                <div className="flex items-center gap-2">
+                  <Code className="h-4 w-4 text-primary shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <Input
+                      value={ad.name}
+                      onChange={(e) => setAdScripts(adScripts.map(a => a.id === ad.id ? { ...a, name: e.target.value } : a))}
+                      className="h-7 text-sm font-medium"
+                      placeholder="Ad script name"
+                    />
+                  </div>
+                  <select
+                    value={ad.position}
+                    onChange={(e) => setAdScripts(adScripts.map(a => a.id === ad.id ? { ...a, position: e.target.value as AdScript['position'] } : a))}
+                    className="h-7 rounded-md border border-input bg-background px-2 text-xs"
+                  >
+                    <option value="home-banner">🏠 Home Banner</option>
+                    <option value="video-below">📺 Below Video</option>
+                    <option value="sidebar">📌 Sidebar</option>
+                    <option value="custom">⚙️ Custom</option>
+                  </select>
+                  <button
+                    onClick={() => setAdScripts(adScripts.map(a => a.id === ad.id ? { ...a, enabled: !a.enabled } : a))}
+                    className="p-1 rounded-md hover:bg-secondary transition-colors"
+                    title={ad.enabled ? 'Disable' : 'Enable'}
+                  >
+                    {ad.enabled ? <Eye className="h-3.5 w-3.5 text-green-500" /> : <EyeOff className="h-3.5 w-3.5 text-muted-foreground" />}
+                  </button>
+                  <button
+                    onClick={() => setEditingAdScript(editingAdScript === ad.id ? null : ad.id)}
+                    className="p-1 rounded-md hover:bg-secondary transition-colors text-xs text-primary"
+                  >
+                    {editingAdScript === ad.id ? 'Done' : 'Edit'}
+                  </button>
+                  <button
+                    onClick={() => setAdScripts(adScripts.filter(a => a.id !== ad.id))}
+                    className="p-1 rounded-md hover:bg-destructive/10 transition-colors"
+                    title="Delete"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                  </button>
+                </div>
+                {editingAdScript === ad.id && (
+                  <div className="space-y-2">
+                    <textarea
+                      value={ad.script}
+                      onChange={(e) => setAdScripts(adScripts.map(a => a.id === ad.id ? { ...a, script: e.target.value } : a))}
+                      placeholder="Paste your ad script (HTML/JavaScript) here..."
+                      className="w-full h-32 rounded-lg border border-input bg-background px-3 py-2 text-xs font-mono resize-y"
+                    />
+                    <p className="text-[10px] text-muted-foreground">Paste the full ad script including &lt;script&gt; tags. Supports HTML, JavaScript, and iframe embeds.</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {adsEnabled && adScripts.length === 0 && (
+          <div className="text-center py-4 border-t border-border">
+            <Code className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground">No custom ad scripts yet</p>
+            <p className="text-xs text-muted-foreground">Click "Add Script" to add your first ad script</p>
           </div>
         )}
       </div>

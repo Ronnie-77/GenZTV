@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { Plus, Trophy, Edit, Trash2, X, Check, RefreshCw, Play, Pencil, Tv, Calendar, Radio, Clock, Sparkles, Users, Settings2 } from 'lucide-react'
+import { useState, useEffect, useCallback, Fragment, useRef } from 'react'
+import { Plus, Trophy, Edit, Trash2, X, Check, RefreshCw, Play, Pencil, Tv, Calendar, Radio, Clock, Sparkles, Users, Settings2, ArrowDownUp, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui/switch'
 import { fetchMatches, fetchChannels, createMatch, updateMatch, deleteMatch, type Match, type MatchStream, type Channel } from '@/lib/api'
 import { searchTeams, type TeamEntry } from '@/lib/teams-data'
 import { toast } from 'sonner'
+import { DateTimePicker } from '@/components/ui/datetime-picker'
 
 // ─── Timezone helpers for admin ───
 // Admin always inputs times in Bangladesh timezone (Asia/Dhaka)
@@ -302,12 +303,23 @@ function StreamInput({ stream, onUpdate, onRemove, channels, index }: {
 
   return (
     <div className="relative p-3 bg-secondary/20 rounded-xl border border-border/50 hover:border-border transition-colors">
-      {/* Stream header */}
+      {/* Stream header - Pick Channel on LEFT side */}
       <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-secondary px-2 py-0.5 rounded">
             Stream {index + 1}
           </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={`h-6 text-[10px] gap-1 px-2 ${showChannelPicker ? 'bg-primary/10 border-primary/30 text-primary' : ''}`}
+            onClick={() => { setShowChannelPicker(!showChannelPicker); setChannelSearch('') }}
+          >
+            <Tv className="h-3 w-3" />
+            Pick Channel
+            <ChevronDown className={`h-2.5 w-2.5 transition-transform ${showChannelPicker ? 'rotate-180' : ''}`} />
+          </Button>
           {stream.channel && (
             <div className="flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
               <Tv className="h-2.5 w-2.5" />
@@ -322,30 +334,19 @@ function StreamInput({ stream, onUpdate, onRemove, channels, index }: {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-6 text-[10px] gap-1 px-2"
-            onClick={() => setShowChannelPicker(!showChannelPicker)}
-          >
-            <Tv className="h-3 w-3" />
-            Pick Channel
-          </Button>
-          <button
-            type="button"
-            onClick={onRemove}
-            className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-          >
-            <Trash2 className="h-3 w-3" />
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+          title="Remove stream"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
       </div>
 
-      {/* Channel picker dropdown */}
+      {/* Channel picker dropdown - appears below the left-side button */}
       {showChannelPicker && (
-        <div className="mb-2 relative">
+        <div className="mb-3">
           <div className="bg-popover border border-border rounded-lg shadow-xl overflow-hidden">
             <div className="p-2 border-b border-border">
               <Input
@@ -546,6 +547,9 @@ export function AdminMatches() {
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
+  // Ref for scrolling to form on edit
+  const formRef = useRef<HTMLDivElement>(null)
+
   // Filter channels by sport type
   const sportFilteredChannels = allChannels.filter(ch => {
     if (sportType === 'football') {
@@ -557,6 +561,17 @@ export function AdminMatches() {
     return ch.category === 'sports'
   })
 
+  // Sort matches: live first, then upcoming, then ended (within each group, earliest startTime first)
+  const sortMatches = (data: Match[]): Match[] => {
+    const statusPriority: Record<string, number> = { live: 0, upcoming: 1, ended: 2 }
+    return [...data].sort((a, b) => {
+      const aPriority = statusPriority[a.status] ?? 9
+      const bPriority = statusPriority[b.status] ?? 9
+      if (aPriority !== bPriority) return aPriority - bPriority
+      return new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+    })
+  }
+
   const loadMatches = useCallback(async () => {
     try {
       setLoading(true)
@@ -564,7 +579,7 @@ export function AdminMatches() {
         ...(filterSport !== 'all' ? { sport: filterSport } : {}),
         ...(filterStatus !== 'all' ? { status: filterStatus } : {}),
       })
-      setMatches(data)
+      setMatches(sortMatches(data))
     } catch {
       toast.error('Error', { description: 'Failed to load matches' })
     } finally {
@@ -623,6 +638,10 @@ export function AdminMatches() {
       url: s.url,
     })))
     setShowForm(true)
+    // Scroll to form after a short delay to allow state to render
+    setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 100)
   }
 
   const handleSave = async () => {
@@ -761,7 +780,7 @@ export function AdminMatches() {
 
       {/* Add/Edit Match Form */}
       {showForm && (
-        <div className="bg-card rounded-2xl border border-border overflow-hidden animate-fade-slide">
+        <div ref={formRef} className="bg-card rounded-2xl border border-border overflow-hidden animate-fade-slide scroll-mt-4">
           {/* Form Header */}
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-border bg-gradient-to-r from-secondary/40 to-secondary/20">
             <div className="flex items-center gap-3">
@@ -802,20 +821,32 @@ export function AdminMatches() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground mb-1 block">Sport Type</label>
-                  <select
-                    value={sportType}
-                    onChange={(e) => {
-                      setSportType(e.target.value)
-                      setTeamAName('')
-                      setTeamALogo('')
-                      setTeamBName('')
-                      setTeamBLogo('')
-                    }}
-                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="football">⚽ Football</option>
-                    <option value="cricket">🏏 Cricket</option>
-                  </select>
+                  <div className="flex gap-1.5">
+                    {[
+                      { value: 'football', emoji: '⚽', label: 'Football' },
+                      { value: 'cricket', emoji: '🏏', label: 'Cricket' },
+                    ].map((sport) => (
+                      <button
+                        key={sport.value}
+                        type="button"
+                        onClick={() => {
+                          setSportType(sport.value)
+                          setTeamAName('')
+                          setTeamALogo('')
+                          setTeamBName('')
+                          setTeamBLogo('')
+                        }}
+                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium border transition-all ${
+                          sportType === sport.value
+                            ? 'bg-primary/10 text-primary border-primary/30 shadow-sm'
+                            : 'bg-secondary/30 text-muted-foreground border-transparent hover:border-border'
+                        }`}
+                      >
+                        <span className="text-base">{sport.emoji}</span>
+                        {sport.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground mb-1 block">League / Competition</label>
@@ -823,7 +854,7 @@ export function AdminMatches() {
                     value={league}
                     onChange={(e) => setLeague(e.target.value)}
                     placeholder="e.g. Premier League, ICC World Cup"
-                    className="h-9"
+                    className="h-10"
                   />
                 </div>
               </div>
@@ -861,54 +892,60 @@ export function AdminMatches() {
               title="Schedule & Status"
               description={`All times in Bangladesh timezone (BST, ${getAdminOffset()}) — displayed in user's local timezone on home page`}
             >
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1.5">
-                    Start Time *
-                    <span className="text-[9px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded">BST ({getAdminOffset()})</span>
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={startTime}
-                    onChange={(e) => setStartTime(e.target.value)}
-                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1.5">
-                    End Time
-                    <span className="text-[9px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded">BST</span>
-                  </label>
-                  <input
-                    type="datetime-local"
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <DateTimePicker
+                  value={startTime}
+                  onChange={setStartTime}
+                  label="Start Time *"
+                  timeZoneLabel={`BST (${getAdminOffset()})`}
+                />
+                <div className="space-y-2">
+                  <DateTimePicker
                     value={endTime}
-                    onChange={(e) => setEndTime(e.target.value)}
-                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    onChange={setEndTime}
+                    label="End Time"
+                    timeZoneLabel="BST"
                   />
-                  <p className="text-[10px] text-muted-foreground mt-1">Match auto-ends when time passes</p>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Status</label>
-                  <select
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value)}
-                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="upcoming">🕐 Upcoming</option>
-                    <option value="live">🔴 Live</option>
-                    <option value="ended">✅ Ended</option>
-                  </select>
+                  <p className="text-[10px] text-muted-foreground">Match auto-ends when time passes</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 mt-3">
-                <Switch
-                  checked={featured}
-                  onCheckedChange={setFeatured}
-                />
-                <label className="text-xs font-medium flex items-center gap-1">
-                  <Star className="h-3 w-3 text-zeng-gold fill-zeng-gold" />
-                  Featured Match
-                </label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Status</label>
+                  <div className="flex gap-1.5">
+                    {(['upcoming', 'live', 'ended'] as const).map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setStatus(s)}
+                        className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
+                          status === s
+                            ? s === 'live'
+                              ? 'bg-red-500/15 text-red-500 dark:text-red-400 border-red-500/30 shadow-sm'
+                              : s === 'upcoming'
+                              ? 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/30 shadow-sm'
+                              : 'bg-secondary text-muted-foreground border-border shadow-sm'
+                            : 'bg-secondary/30 text-muted-foreground border-transparent hover:border-border'
+                        }`}
+                      >
+                        {s === 'live' ? '🔴' : s === 'upcoming' ? '🕐' : '✅'}
+                        {s.charAt(0).toUpperCase() + s.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-end">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={featured}
+                      onCheckedChange={setFeatured}
+                    />
+                    <label className="text-xs font-medium flex items-center gap-1">
+                      <Star className="h-3 w-3 text-zeng-gold fill-zeng-gold" />
+                      Featured Match
+                    </label>
+                  </div>
+                </div>
               </div>
             </FormSection>
 
@@ -990,8 +1027,39 @@ export function AdminMatches() {
                 </tr>
               </thead>
               <tbody>
-                {matches.map((match) => (
-                  <tr key={match.id} className="border-t border-border hover:bg-secondary/20 transition-colors">
+                {matches.map((match, idx) => {
+                  // Add section header when status group changes
+                  const prevMatch = idx > 0 ? matches[idx - 1] : null
+                  const showSectionHeader = !prevMatch || prevMatch.status !== match.status
+                  const statusPriority: Record<string, number> = { live: 0, upcoming: 1, ended: 2 }
+                  const sectionInfo: Record<string, { label: string; icon: string; className: string; count: number }> = {}
+                  // Count matches per status
+                  matches.forEach(m => {
+                    if (!sectionInfo[m.status]) {
+                      const info = m.status === 'live'
+                        ? { label: 'Live Matches', icon: '🔴', className: 'bg-red-500/10 text-red-500 dark:text-red-400 border-red-500/20' }
+                        : m.status === 'upcoming'
+                        ? { label: 'Upcoming Matches', icon: '🕐', className: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20' }
+                        : { label: 'Ended Matches', icon: '✅', className: 'bg-secondary text-muted-foreground border-border' }
+                      sectionInfo[m.status] = { ...info, count: 0 }
+                    }
+                    sectionInfo[m.status].count++
+                  })
+
+                  return (
+                    <Fragment key={match.id}>
+                      {showSectionHeader && sectionInfo[match.status] && (
+                        <tr>
+                          <td colSpan={7} className="p-0">
+                            <div className={`flex items-center gap-2 px-3 py-2 border-t border-b ${sectionInfo[match.status].className} text-xs font-bold uppercase tracking-wider`}>
+                              <span>{sectionInfo[match.status].icon}</span>
+                              <span>{sectionInfo[match.status].label}</span>
+                              <Badge variant="secondary" className="text-[9px] h-4 px-1.5">{sectionInfo[match.status].count}</Badge>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      <tr className="border-t border-border hover:bg-secondary/20 transition-colors">
                     <td className="p-3 text-sm">
                       <div className="flex items-center gap-1.5">
                         <TeamLogo logo={match.teamALogo} name={match.teamA} size="xs" />
@@ -1079,7 +1147,9 @@ export function AdminMatches() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                    </Fragment>
+                  )
+                })}
               </tbody>
             </table>
           </div>

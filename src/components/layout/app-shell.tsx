@@ -245,9 +245,23 @@ export function AppShell() {
     checkMaintenance()
     // Re-check every 30 seconds
     const interval = setInterval(checkMaintenance, 30000)
+
+    // Listen for immediate settings updates from admin panel
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'zeng-settings-updated') {
+        checkMaintenance()
+      }
+    }
+    // Also listen for same-tab updates (StorageEvent doesn't fire in same tab)
+    const handleSettingsUpdate = () => checkMaintenance()
+    window.addEventListener('storage', handleStorageChange)
+    window.addEventListener('zeng-settings-changed', handleSettingsUpdate)
+
     return () => {
       mounted = false
       clearInterval(interval)
+      window.removeEventListener('storage', handleStorageChange)
+      window.removeEventListener('zeng-settings-changed', handleSettingsUpdate)
     }
   }, [])
 

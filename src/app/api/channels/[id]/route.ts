@@ -36,7 +36,7 @@ export async function PUT(
       data: {
         ...(body.name !== undefined && { name: body.name }),
         ...(body.logo !== undefined && { logo: body.logo }),
-        ...(body.category !== undefined && { category: body.category }),
+        ...(body.category !== undefined && { category: Array.isArray(body.category) ? body.category.filter(Boolean).join(',') : body.category }),
         ...(body.streamType !== undefined && { streamType: body.streamType }),
         ...(body.streamUrl !== undefined && { streamUrl: body.streamUrl }),
         ...(body.githubM3uPath !== undefined && { githubM3uPath: body.githubM3uPath }),

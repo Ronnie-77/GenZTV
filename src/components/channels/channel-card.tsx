@@ -12,13 +12,19 @@ interface ChannelCardProps {
   home?: boolean  // Home page variant: no category badge, no view count
 }
 
-const categoryColors: Record<string, string> = {
-  news: 'bg-purple-500/10 text-purple-600',
-  sports: 'bg-blue-500/10 text-blue-600',
-  cricket: 'bg-indigo-500/10 text-indigo-600',
-  football: 'bg-amber-500/10 text-amber-600',
-  entertainment: 'bg-pink-500/10 text-pink-600',
-  international: 'bg-teal-500/10 text-teal-600',
+const categoryIcons: Record<string, string> = {
+  news: '📰',
+  sports: '🏆',
+  cricket: '🏏',
+  football: '⚽',
+  entertainment: '🎬',
+  international: '🌍',
+}
+
+/** Parse comma-separated category string into array */
+function parseCategories(categoryStr: string): string[] {
+  if (!categoryStr) return []
+  return categoryStr.split(',').map(c => c.trim()).filter(Boolean)
 }
 
 export function ChannelCard({ channel, compact, home }: ChannelCardProps) {
@@ -55,7 +61,15 @@ export function ChannelCard({ channel, compact, home }: ChannelCardProps) {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate">{channel.name}</p>
-          <p className="text-xs text-muted-foreground capitalize">{channel.category}</p>
+          <div className="flex items-center gap-1 flex-wrap">
+            {parseCategories(channel.category).map((cat, i) => (
+              <span key={i} className="text-[10px] text-muted-foreground">
+                {i > 0 && <span className="mr-1">·</span>}
+                {categoryIcons[cat] && <span className="mr-0.5">{categoryIcons[cat]}</span>}
+                {cat}
+              </span>
+            ))}
+          </div>
         </div>
         <button
           onClick={handleFavToggle}
@@ -101,13 +115,17 @@ export function ChannelCard({ channel, compact, home }: ChannelCardProps) {
       <div className="text-center w-full">
         <p className="text-sm font-medium truncate">{channel.name}</p>
         {!home && (
-          <div className="flex items-center justify-center gap-1 mt-1">
-            <Badge
-              variant="secondary"
-              className={`text-[10px] px-1.5 py-0 ${categoryColors[channel.category] || 'bg-secondary text-muted-foreground'}`}
-            >
-              {channel.category}
-            </Badge>
+          <div className="flex items-center justify-center gap-1 flex-wrap">
+            {parseCategories(channel.category).map((cat, i) => (
+              <Badge
+                key={i}
+                variant="secondary"
+                className={`text-[10px] px-1.5 py-0 capitalize ${i === 0 ? 'bg-primary/10 text-primary' : 'bg-secondary text-muted-foreground'}`}
+              >
+                {categoryIcons[cat] && <span className="mr-0.5">{categoryIcons[cat]}</span>}
+                {cat}
+              </Badge>
+            ))}
           </div>
         )}
       </div>

@@ -12,7 +12,9 @@ export async function GET(req: NextRequest) {
     const active = searchParams.get('active')
 
     const where: Record<string, unknown> = {}
-    if (category && category !== 'all') where.category = category
+    // Support multi-category: category field stores comma-separated values (e.g., "sports,cricket")
+    // Using 'contains' so a channel with "sports,cricket" matches both 'sports' and 'cricket' filters
+    if (category && category !== 'all') where.category = { contains: category }
     if (featured === 'true') where.isFeatured = true
     // By default only show active channels, unless includeInactive=true (for admin)
     if (active === 'all') {
@@ -54,7 +56,7 @@ export async function POST(req: NextRequest) {
       data: {
         name: body.name,
         logo: body.logo || '',
-        category: body.category || 'entertainment',
+        category: Array.isArray(body.category) ? body.category.filter(Boolean).join(',') : (body.category || 'entertainment'),
         streamType: body.streamType || 'm3u',
         streamUrl: body.streamUrl || '',
         githubM3uPath: body.githubM3uPath || '',

@@ -87,6 +87,7 @@ export interface AppSettings {
   defaultQuality: string
   bannerAdScript: string
   socialBarAdScript: string
+  customAdScripts: string  // JSON array of {id, name, script, position, enabled}
   adsEnabled: boolean
   homeAdsEnabled: boolean
   videoAdsEnabled: boolean

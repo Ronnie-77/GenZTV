@@ -5,6 +5,10 @@ import { existsSync } from 'fs'
 import { db } from '@/lib/db'
 import { requireAdminAuth } from '@/lib/auth'
 
+// Allow large file uploads for APK files
+export const runtime = 'nodejs'
+export const maxDuration = 300 // 5 minutes timeout for large uploads
+
 // POST /api/upload/apk (admin only)
 export async function POST(req: NextRequest) {
   return requireAdminAuth(req, async () => {

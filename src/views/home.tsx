@@ -14,13 +14,20 @@ import Image from 'next/image'
 export function HomePage() {
   const { setCurrentPage } = useAppStore()
 
-  // Fetch APK URL from settings
+  // Fetch APK URL and ad settings from settings
   const [apkUrl, setApkUrl] = useState('')
   const [homeAdsEnabled, setHomeAdsEnabled] = useState(true)
+  const [homeAdScripts, setHomeAdScripts] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
   useEffect(() => {
     fetchSettings().then(s => {
       setApkUrl(s.apkUrl || '')
       setHomeAdsEnabled(s.adsEnabled && (s.homeAdsEnabled ?? true))
+      // Parse custom ad scripts for home page
+      try {
+        const all = JSON.parse(s.customAdScripts || '[]')
+        const homeAds = all.filter((a: {position: string; enabled: boolean}) => a.position === 'home-banner' && a.enabled)
+        setHomeAdScripts(homeAds)
+      } catch { /* ignore */ }
     }).catch(() => {})
   }, [])
 
@@ -184,10 +191,15 @@ export function HomePage() {
         </div>
       </div>
 
-      {/* ── Adsterra Ad Banner ── */}
+      {/* ── Ad Banner ── */}
       {homeAdsEnabled && (
-        <div className="px-4 md:px-6 lg:px-8 py-3 flex justify-center">
-          <AdsterraBanner />
+        <div className="px-4 md:px-6 lg:px-8 py-3 flex flex-col items-center gap-3">
+          {/* Dynamic ad scripts from settings */}
+          {homeAdScripts.map((ad) => (
+            <DynamicAdSlot key={ad.id} script={ad.script} />
+          ))}
+          {/* Fallback if no custom scripts */}
+          {homeAdScripts.length === 0 && <AdsterraBanner />}
         </div>
       )}
 
@@ -349,6 +361,41 @@ export function HomePage() {
 }
 
 /* ── Adsterra Banner Component ── */
+// Dynamic ad slot — renders custom ad script HTML from settings
+function DynamicAdSlot({ script }: { script: string }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!containerRef.current || !script.trim()) return
+    // Clear previous content
+    containerRef.current.innerHTML = ''
+    // Create a div to hold the script content
+    const wrapper = document.createElement('div')
+    wrapper.innerHTML = script.trim()
+    // Insert all child nodes (scripts and elements)
+    while (wrapper.firstChild) {
+      const node = wrapper.firstChild
+      if (node.nodeName === 'SCRIPT') {
+        // Scripts need to be recreated to execute
+        const newScript = document.createElement('script')
+        const oldScript = node as HTMLScriptElement
+        if (oldScript.src) newScript.src = oldScript.src
+        if (oldScript.textContent) newScript.textContent = oldScript.textContent
+        Array.from(oldScript.attributes).forEach(attr => {
+          newScript.setAttribute(attr.name, attr.value)
+        })
+        newScript.async = true
+        containerRef.current.appendChild(newScript)
+      } else {
+        containerRef.current.appendChild(node)
+      }
+    }
+  }, [script])
+
+  if (!script.trim()) return null
+  return <div ref={containerRef} className="w-full max-w-4xl" />
+}
+
 function AdsterraBanner() {
   const containerRef = useRef<HTMLDivElement>(null)
 

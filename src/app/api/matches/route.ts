@@ -20,9 +20,18 @@ export async function GET(req: NextRequest) {
       where,
       include: { streams: true },
       orderBy: [
-        { status: 'asc' }, // live first, then upcoming, then ended
         { startTime: 'asc' },
       ],
+    })
+
+    // Sort by status priority: live → upcoming → ended
+    const statusPriority: Record<string, number> = { live: 0, upcoming: 1, ended: 2 }
+    matches.sort((a, b) => {
+      const aPriority = statusPriority[a.status] ?? 9
+      const bPriority = statusPriority[b.status] ?? 9
+      if (aPriority !== bPriority) return aPriority - bPriority
+      // Within same status, sort by startTime ascending
+      return new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
     })
 
     return NextResponse.json(matches)
