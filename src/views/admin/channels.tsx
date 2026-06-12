@@ -391,7 +391,7 @@ export function AdminChannels() {
                       onChange={() => toggleIptvChannel(idx)}
                       className="rounded"
                     />
-                    {ch.logo && <img src={ch.logo} alt="" className="w-8 h-8 rounded object-cover" />}
+                    {ch.logo && <img src={ch.logo} alt="" className="w-8 h-8 rounded object-contain p-0.5" />}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{ch.name}</p>
                       <p className="text-xs text-muted-foreground truncate">{ch.group || 'No group'}</p>
@@ -437,7 +437,7 @@ export function AdminChannels() {
                 />
                 {form.logo && (
                   <div className="w-9 h-9 rounded-lg border border-input bg-secondary flex items-center justify-center overflow-hidden shrink-0">
-                    <img src={form.logo} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    <img src={form.logo} alt="" className="w-full h-full object-contain p-0.5" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                   </div>
                 )}
               </div>
@@ -585,9 +585,9 @@ export function AdminChannels() {
                   <tr key={ch.id} className="border-t border-border hover:bg-secondary/20 transition-colors">
                     <td className="p-3 text-sm">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center overflow-hidden shrink-0">
+                        <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center overflow-hidden shrink-0 p-0.5">
                           {ch.logo ? (
-                            <img src={ch.logo} alt="" className="w-full h-full object-cover" />
+                            <img src={ch.logo} alt="" className="w-full h-full object-contain" />
                           ) : (
                             <Tv className="h-3.5 w-3.5 text-muted-foreground" />
                           )}

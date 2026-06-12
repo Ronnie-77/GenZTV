@@ -264,9 +264,9 @@ export function AdminDulo() {
                   <tr key={ch.id} className="border-t border-border hover:bg-secondary/20 transition-colors">
                     <td className="p-3 text-sm">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center overflow-hidden shrink-0">
+                        <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center overflow-hidden shrink-0 p-0.5">
                           {ch.logo ? (
-                            <img src={ch.logo} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                            <img src={ch.logo} alt="" className="w-full h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                           ) : (
                             <Tv className="h-3.5 w-3.5 text-muted-foreground" />
                           )}

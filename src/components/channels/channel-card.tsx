@@ -2,8 +2,7 @@
 
 import { useAppStore } from '@/lib/store'
 import { type Channel } from '@/lib/api'
-import { Heart, Tv, Eye } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { Heart, Tv } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface ChannelCardProps {
@@ -52,9 +51,9 @@ export function ChannelCard({ channel, compact, home }: ChannelCardProps) {
         onClick={handleClick}
         className="channel-card flex items-center gap-3 bg-card border border-border p-3 cursor-pointer group rounded-xl shadow-sm"
       >
-        <div className="w-10 h-10 bg-secondary flex items-center justify-center shrink-0 overflow-hidden rounded-lg">
+        <div className="w-10 h-10 bg-secondary flex items-center justify-center shrink-0 overflow-hidden rounded-lg p-1">
           {channel.logo ? (
-            <img src={channel.logo} alt={channel.name} className="w-full h-full object-cover" loading="lazy" decoding="async" />
+            <img src={channel.logo} alt={channel.name} className="w-full h-full object-contain" loading="lazy" decoding="async" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
           ) : (
             <Tv className="h-4 w-4 text-foreground/50" />
           )}
@@ -103,11 +102,11 @@ export function ChannelCard({ channel, compact, home }: ChannelCardProps) {
       </button>
 
       {/* Channel Logo */}
-      <div className="w-14 h-14 bg-secondary flex items-center justify-center overflow-hidden rounded-xl">
+      <div className="w-24 h-24 bg-white flex items-center justify-center overflow-hidden rounded-xl p-2">
         {channel.logo ? (
-          <img src={channel.logo} alt={channel.name} className="w-full h-full object-cover" loading="lazy" decoding="async" />
+          <img src={channel.logo} alt={channel.name} className="w-full h-full object-contain" loading="lazy" decoding="async" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
         ) : (
-          <Tv className="h-6 w-6 text-foreground/50" />
+          <Tv className="h-8 w-8 text-foreground/50" />
         )}
       </div>
 
@@ -117,26 +116,18 @@ export function ChannelCard({ channel, compact, home }: ChannelCardProps) {
         {!home && (
           <div className="flex items-center justify-center gap-1 flex-wrap">
             {parseCategories(channel.category).map((cat, i) => (
-              <Badge
+              <span
                 key={i}
-                variant="secondary"
-                className={`text-[10px] px-1.5 py-0 capitalize ${i === 0 ? 'bg-primary/10 text-primary' : 'bg-secondary text-muted-foreground'}`}
+                className="text-[9px] text-muted-foreground capitalize"
               >
+                {i > 0 && <span className="mr-1">·</span>}
                 {categoryIcons[cat] && <span className="mr-0.5">{categoryIcons[cat]}</span>}
                 {cat}
-              </Badge>
+              </span>
             ))}
           </div>
         )}
       </div>
-
-      {/* View count */}
-      {!home && channel.viewCount > 0 && (
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <Eye className="h-3 w-3" />
-          <span>{channel.viewCount.toLocaleString()}</span>
-        </div>
-      )}
 
       {/* Featured indicator */}
       {channel.isFeatured && (
