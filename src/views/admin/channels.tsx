@@ -58,12 +58,6 @@ function parseCategories(categoryStr: string): string[] {
   return categoryStr.split(',').map(c => c.trim()).filter(Boolean)
 }
 
-/** Get the primary (first) category from a category string */
-function getPrimaryCategory(categoryStr: string): string {
-  const cats = parseCategories(categoryStr)
-  return cats.length > 0 ? cats[0] : 'entertainment'
-}
-
 export function AdminChannels() {
   const [channels, setChannels] = useState<Channel[]>([])
   const [loading, setLoading] = useState(true)
@@ -83,6 +77,7 @@ export function AdminChannels() {
   const [iptvResults, setIptvResults] = useState<{ name: string; logo: string; group: string; url: string }[]>([])
   const [selectedIptvChannels, setSelectedIptvChannels] = useState<Set<number>>(new Set())
   const [importing, setImporting] = useState(false)
+  const [iptvSearch, setIptvSearch] = useState('')
 
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
@@ -279,8 +274,8 @@ export function AdminChannels() {
   }
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
+    <div className="space-y-5">
+      {/* Header bar */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <div className="relative flex-1 max-w-sm">
@@ -289,13 +284,13 @@ export function AdminChannels() {
               placeholder="Search channels..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
+              className="pl-9 h-9"
             />
           </div>
           <select
             value={filterCategory}
             onChange={(e) => setFilterCategory(e.target.value)}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
           >
             <option value="all">All Categories</option>
             {categoryOptions.map(opt => (
@@ -306,28 +301,31 @@ export function AdminChannels() {
         <div className="flex gap-2">
           <Button
             variant="outline"
+            size="sm"
             onClick={() => setShowIptvImport(!showIptvImport)}
-            className="gap-2 btn-press"
+            className="gap-1.5 btn-press text-xs h-9"
           >
-            <Github className="h-4 w-4" />
+            <Github className="h-3.5 w-3.5" />
             IPTV Import
           </Button>
           <Button
             variant="outline"
+            size="sm"
             onClick={loadChannels}
-            className="gap-1.5 btn-press"
+            className="gap-1.5 btn-press h-9"
           >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           </Button>
           <Button
+            size="sm"
             onClick={() => {
               setEditingId(null)
               setForm(emptyForm)
               setShowForm(!showForm)
             }}
-            className="gap-2 btn-press"
+            className="gap-1.5 btn-press text-xs h-9"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
             Add Channel
           </Button>
         </div>
@@ -335,10 +333,10 @@ export function AdminChannels() {
 
       {/* IPTV Import Section */}
       {showIptvImport && (
-        <div className="bg-card rounded-2xl border border-border p-4 space-y-3">
+        <div className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-3">
           <div className="flex items-center gap-2">
-            <Github className="h-5 w-5 text-primary" />
-            <h3 className="text-base font-bold">Import from GitHub M3U</h3>
+            <Github className="h-4 w-4 text-primary" />
+            <h3 className="text-sm font-semibold">Import from GitHub M3U</h3>
           </div>
           <p className="text-xs text-muted-foreground">
             Paste a GitHub raw M3U file URL. The system will parse and extract all channels.
@@ -348,13 +346,13 @@ export function AdminChannels() {
               placeholder="https://raw.githubusercontent.com/.../playlist.m3u"
               value={iptvUrl}
               onChange={(e) => setIptvUrl(e.target.value)}
-              className="flex-1"
+              className="flex-1 h-9"
             />
-            <Button onClick={handleIptvParse} disabled={iptvLoading} className="btn-press gap-2">
+            <Button onClick={handleIptvParse} disabled={iptvLoading} size="sm" className="btn-press gap-1.5">
               {iptvLoading ? (
-                <RefreshCw className="h-4 w-4 animate-spin" />
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <Upload className="h-4 w-4" />
+                <Upload className="h-3.5 w-3.5" />
               )}
               {iptvLoading ? 'Parsing...' : 'Parse'}
             </Button>
@@ -363,22 +361,47 @@ export function AdminChannels() {
           {/* Parsed Results */}
           {iptvResults.length > 0 && (
             <div className="space-y-3">
+              {/* Search bar for parsed channels */}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  placeholder={`Search in ${iptvResults.length} channels...`}
+                  value={iptvSearch}
+                  onChange={(e) => setIptvSearch(e.target.value)}
+                  className="pl-8 h-8 text-xs"
+                />
+                {iptvSearch && (
+                  <button
+                    onClick={() => setIptvSearch('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-secondary"
+                  >
+                    <X className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                )}
+              </div>
               <div className="flex items-center justify-between">
-                <p className="text-sm font-medium">
-                  Found {iptvResults.length} channels ({selectedIptvChannels.size} selected)
+                <p className="text-xs font-medium">
+                  {iptvSearch
+                    ? `${iptvResults.filter(ch => ch.name.toLowerCase().includes(iptvSearch.toLowerCase()) || (ch.group || '').toLowerCase().includes(iptvSearch.toLowerCase())).length} of ${iptvResults.length} channels (${selectedIptvChannels.size} selected)`
+                    : `Found ${iptvResults.length} channels (${selectedIptvChannels.size} selected)`
+                  }
                 </p>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={selectAllIptv} className="text-xs">
+                  <Button variant="outline" size="sm" onClick={selectAllIptv} className="text-xs h-7">
                     {selectedIptvChannels.size === iptvResults.length ? 'Deselect All' : 'Select All'}
                   </Button>
-                  <Button size="sm" onClick={handleImportSelected} disabled={importing || selectedIptvChannels.size === 0} className="gap-1.5">
-                    <Upload className="h-3.5 w-3.5" />
+                  <Button size="sm" onClick={handleImportSelected} disabled={importing || selectedIptvChannels.size === 0} className="gap-1 text-xs h-7">
+                    <Upload className="h-3 w-3" />
                     {importing ? 'Importing...' : `Import ${selectedIptvChannels.size}`}
                   </Button>
                 </div>
               </div>
               <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
-                {iptvResults.map((ch, idx) => (
+                {iptvResults
+                  .filter(ch => !iptvSearch || ch.name.toLowerCase().includes(iptvSearch.toLowerCase()) || (ch.group || '').toLowerCase().includes(iptvSearch.toLowerCase()))
+                  .map((ch) => {
+                    const idx = iptvResults.indexOf(ch)
+                    return (
                   <label
                     key={idx}
                     className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
@@ -400,7 +423,7 @@ export function AdminChannels() {
                       {ch.url.includes('.m3u8') ? 'M3U8' : 'Other'}
                     </Badge>
                   </label>
-                ))}
+                )})}
               </div>
             </div>
           )}
@@ -409,17 +432,17 @@ export function AdminChannels() {
 
       {/* Add/Edit Channel Form */}
       {showForm && (
-        <div ref={formRef} className="bg-card rounded-2xl border border-border p-4 space-y-4 animate-fade-slide scroll-mt-4">
+        <div ref={formRef} className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-4 animate-fade-slide scroll-mt-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-bold">{editingId ? 'Edit Channel' : 'Add New Channel'}</h3>
-            <Button variant="ghost" size="icon" onClick={() => { setShowForm(false); setEditingId(null); setForm(emptyForm) }}>
+            <h3 className="text-sm font-semibold">{editingId ? 'Edit Channel' : 'Add New Channel'}</h3>
+            <Button variant="ghost" size="icon" onClick={() => { setShowForm(false); setEditingId(null); setForm(emptyForm) }} className="h-7 w-7">
               <X className="h-4 w-4" />
             </Button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium mb-1 block">Channel Name *</label>
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Channel Name *</label>
               <Input
                 placeholder="e.g. Sony SIX"
                 value={form.name}
@@ -427,7 +450,7 @@ export function AdminChannels() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">Logo URL</label>
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Logo URL</label>
               <div className="flex gap-2">
                 <Input
                   placeholder="https://..."
@@ -443,7 +466,7 @@ export function AdminChannels() {
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium mb-1.5 block">Categories</label>
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Categories</label>
               <p className="text-[10px] text-muted-foreground mb-2">Select all categories this channel belongs to. First selected is primary.</p>
               <div className="flex flex-wrap gap-2">
                 {categoryOptions.map(opt => {
@@ -454,7 +477,7 @@ export function AdminChannels() {
                       key={opt.value}
                       type="button"
                       onClick={() => toggleCategory(opt.value)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
                         isSelected
                           ? isFirst
                             ? 'bg-primary text-primary-foreground border-primary shadow-sm'
@@ -470,11 +493,11 @@ export function AdminChannels() {
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">Stream Type</label>
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Stream Type</label>
               <select
                 value={form.streamType}
                 onChange={(e) => setForm({ ...form, streamType: e.target.value })}
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                className="w-full h-9 rounded-lg border border-input bg-background px-3 text-sm"
               >
                 {streamTypeOptions.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -482,7 +505,7 @@ export function AdminChannels() {
               </select>
             </div>
             <div className={form.streamType === 'github_m3u' ? 'md:col-span-1' : 'md:col-span-2'}>
-              <label className="text-sm font-medium mb-1 block">Stream URL</label>
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Stream URL</label>
               <Input
                 placeholder={form.streamType === 'iframe' ? 'iFrame HTML or URL' : form.streamType === 'm3u' ? 'M3U8/HLS stream URL' : 'Stream URL'}
                 value={form.streamUrl}
@@ -491,7 +514,7 @@ export function AdminChannels() {
             </div>
             {form.streamType === 'github_m3u' && (
               <div>
-                <label className="text-sm font-medium mb-1 block">GitHub M3U Path</label>
+                <label className="text-xs font-medium mb-1.5 block text-muted-foreground">GitHub M3U Path</label>
                 <Input
                   placeholder="path/to/file.m3u in repo"
                   value={form.githubM3uPath}
@@ -500,7 +523,7 @@ export function AdminChannels() {
               </div>
             )}
             <div>
-              <label className="text-sm font-medium mb-1 block">Language</label>
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Language</label>
               <Input
                 placeholder="e.g. English, Hindi"
                 value={form.language}
@@ -508,7 +531,7 @@ export function AdminChannels() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">Country</label>
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Country</label>
               <Input
                 placeholder="e.g. India, USA"
                 value={form.country}
@@ -516,7 +539,7 @@ export function AdminChannels() {
               />
             </div>
             <div className="md:col-span-2">
-              <label className="text-sm font-medium mb-1 block">Tags (comma separated)</label>
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Tags (comma separated)</label>
               <Input
                 placeholder="e.g. hd, premium, live"
                 value={form.tags}
@@ -529,21 +552,21 @@ export function AdminChannels() {
                   checked={form.isActive}
                   onCheckedChange={(checked) => setForm({ ...form, isActive: checked })}
                 />
-                <label className="text-sm font-medium">Active</label>
+                <label className="text-xs font-medium">Active</label>
               </div>
               <div className="flex items-center gap-2">
                 <Switch
                   checked={form.isFeatured}
                   onCheckedChange={(checked) => setForm({ ...form, isFeatured: checked })}
                 />
-                <label className="text-sm font-medium">Featured</label>
+                <label className="text-xs font-medium">Featured</label>
               </div>
             </div>
           </div>
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); setForm(emptyForm) }}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving} className="btn-press gap-2">
-              {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+          <div className="flex gap-2 justify-end pt-2 border-t border-border">
+            <Button variant="outline" size="sm" onClick={() => { setShowForm(false); setEditingId(null); setForm(emptyForm) }}>Cancel</Button>
+            <Button size="sm" onClick={handleSave} disabled={saving} className="btn-press gap-1.5">
+              {saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
               {saving ? 'Saving...' : editingId ? 'Update Channel' : 'Create Channel'}
             </Button>
           </div>
@@ -552,37 +575,37 @@ export function AdminChannels() {
 
       {/* Channels Table */}
       {loading ? (
-        <div className="bg-card rounded-2xl border border-border p-8 text-center">
+        <div className="bg-card rounded-xl border border-border shadow-sm p-8 text-center">
           <RefreshCw className="h-8 w-8 text-muted-foreground mx-auto mb-3 animate-spin" />
           <p className="text-sm text-muted-foreground">Loading channels...</p>
         </div>
       ) : channels.length === 0 ? (
-        <div className="bg-card rounded-2xl border border-border p-8 text-center">
+        <div className="bg-card rounded-xl border border-border shadow-sm p-8 text-center">
           <Tv className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-          <h3 className="text-lg font-semibold mb-1">No channels found</h3>
-          <p className="text-sm text-muted-foreground">
+          <h3 className="text-sm font-semibold mb-1">No channels found</h3>
+          <p className="text-xs text-muted-foreground">
             {searchQuery || filterCategory !== 'all'
               ? 'Try adjusting your search or filters.'
               : 'Add your first channel or import from M3U.'}
           </p>
         </div>
       ) : (
-        <div className="bg-card rounded-2xl border border-border overflow-hidden">
+        <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-secondary/50">
                 <tr>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Channel</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Category</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Type</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Status</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Views</th>
-                  <th className="text-right p-3 text-xs font-medium text-muted-foreground">Actions</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Channel</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Category</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Type</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Views</th>
+                  <th className="text-right p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {channels.map((ch) => (
-                  <tr key={ch.id} className="border-t border-border hover:bg-secondary/20 transition-colors">
+                  <tr key={ch.id} className="border-t border-border hover:bg-secondary/30 transition-colors">
                     <td className="p-3 text-sm">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center overflow-hidden shrink-0 p-0.5">
@@ -593,31 +616,31 @@ export function AdminChannels() {
                           )}
                         </div>
                         <div className="min-w-0">
-                          <p className="font-medium truncate">{ch.name}</p>
-                          {ch.isFeatured && <span className="text-[9px] text-primary">★ Featured</span>}
+                          <p className="font-medium truncate text-sm">{ch.name}</p>
+                          {ch.isFeatured && <span className="text-[9px] text-amber-600 dark:text-amber-400">★ Featured</span>}
                         </div>
                       </div>
                     </td>
                     <td className="p-3 text-sm">
                       <div className="flex flex-wrap gap-1">
                         {parseCategories(ch.category).map((cat, i) => (
-                          <Badge key={i} variant="secondary" className={`capitalize text-[10px] ${i === 0 ? 'bg-primary/10 text-primary' : ''}`}>
+                          <Badge key={i} variant="secondary" className={`capitalize text-[10px] h-4 px-1.5 ${i === 0 ? 'bg-primary/10 text-primary' : ''}`}>
                             {cat}
                           </Badge>
                         ))}
                       </div>
                     </td>
-                    <td className="p-3 text-sm text-xs uppercase text-muted-foreground">{ch.streamType}</td>
+                    <td className="p-3 text-xs uppercase text-muted-foreground">{ch.streamType}</td>
                     <td className="p-3 text-sm">
                       <div className="flex items-center gap-2">
                         <button onClick={() => handleToggleActive(ch)} className="btn-press">
                           {ch.isActive ? (
-                            <ToggleRight className="h-5 w-5 text-green-500" />
+                            <ToggleRight className="h-5 w-5 text-emerald-500" />
                           ) : (
                             <ToggleLeft className="h-5 w-5 text-muted-foreground" />
                           )}
                         </button>
-                        <span className={`text-xs ${ch.isActive ? 'text-green-500' : 'text-muted-foreground'}`}>
+                        <span className={`text-xs ${ch.isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
                           {ch.isActive ? 'Active' : 'Inactive'}
                         </span>
                       </div>
@@ -635,7 +658,7 @@ export function AdminChannels() {
                           className="p-1.5 rounded-md hover:bg-secondary transition-colors btn-press"
                           title={ch.isFeatured ? 'Remove from featured' : 'Add to featured'}
                         >
-                          <Star className={`h-3.5 w-3.5 ${ch.isFeatured ? 'text-zeng-gold fill-zeng-gold' : 'text-muted-foreground'}`} />
+                          <Star className={`h-3.5 w-3.5 ${ch.isFeatured ? 'text-amber-500 fill-amber-500' : 'text-muted-foreground'}`} />
                         </button>
                         <button
                           onClick={() => handleEdit(ch)}

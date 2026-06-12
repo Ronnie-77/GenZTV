@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Tv, Trophy, Eye, Heart, Radio, Clock, TrendingUp, Plus, Database, RefreshCw, Bell, Send } from 'lucide-react'
+import { Tv, Trophy, Eye, Heart, Radio, Clock, TrendingUp, Plus, Database, RefreshCw, Bell, Send, ArrowRight, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useAppStore } from '@/lib/store'
@@ -91,33 +91,39 @@ export function AdminDashboard() {
   }
 
   const stats = [
-    { icon: Tv, label: 'Total Channels', value: channels.length, color: 'text-primary', bgColor: 'bg-primary/10' },
-    { icon: Radio, label: 'Live Now', value: liveMatches.length, color: 'text-zeng-live', bgColor: 'bg-red-500/10' },
-    { icon: Eye, label: 'Total Views', value: totalViews.toLocaleString(), color: 'text-zeng-accent2', bgColor: 'bg-cyan-500/10' },
-    { icon: Heart, label: 'Favorites', value: favCount, color: 'text-zeng-gold', bgColor: 'bg-yellow-500/10' },
+    { icon: Tv, label: 'Total Channels', value: channels.length, color: 'text-emerald-600', bgColor: 'bg-emerald-500/10', iconBg: 'bg-emerald-500/15' },
+    { icon: Radio, label: 'Live Now', value: liveMatches.length, color: 'text-red-500', bgColor: 'bg-red-500/10', iconBg: 'bg-red-500/15' },
+    { icon: Eye, label: 'Total Views', value: totalViews.toLocaleString(), color: 'text-violet-600', bgColor: 'bg-violet-500/10', iconBg: 'bg-violet-500/15' },
+    { icon: Heart, label: 'Favorites', value: favCount, color: 'text-amber-600', bgColor: 'bg-amber-500/10', iconBg: 'bg-amber-500/15' },
   ]
 
   const quickActions = [
-    { label: 'Add Channel', icon: Plus, page: 'channels' as const, color: 'text-primary' },
-    { label: 'Add Match', icon: Trophy, page: 'matches' as const, color: 'text-zeng-gold' },
-    { label: 'Manage Categories', icon: Database, page: 'categories' as const, color: 'text-zeng-accent2' },
+    { label: 'Add Channel', icon: Plus, page: 'channels' as const, color: 'text-emerald-600', bg: 'bg-emerald-500/10' },
+    { label: 'Add Match', icon: Trophy, page: 'matches' as const, color: 'text-amber-600', bg: 'bg-amber-500/10' },
+    { label: 'Manage Categories', icon: Database, page: 'categories' as const, color: 'text-violet-600', bg: 'bg-violet-500/10' },
   ]
 
   return (
     <div className="space-y-6">
+      {/* Page Title */}
+      <div>
+        <h2 className="text-xl font-bold tracking-tight">Dashboard</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">Overview of your GenZ TV platform</p>
+      </div>
+
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat) => {
           const Icon = stat.icon
           return (
-            <div key={stat.label} className="bg-card rounded-2xl border border-border p-4 card-hover">
-              <div className="flex items-center gap-3">
-                <div className={`p-2.5 rounded-xl ${stat.bgColor} ${stat.color}`}>
+            <div key={stat.label} className="bg-card rounded-xl border border-border shadow-sm p-5 hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-4">
+                <div className={`p-2.5 rounded-xl ${stat.iconBg} ${stat.color}`}>
                   <Icon className="h-5 w-5" />
                 </div>
-                <div>
-                  <p className="text-2xl font-bold">{loading ? '—' : stat.value}</p>
-                  <p className="text-xs text-muted-foreground">{stat.label}</p>
+                <div className="min-w-0">
+                  <p className="text-2xl font-bold tracking-tight">{loading ? '—' : stat.value}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
                 </div>
               </div>
             </div>
@@ -125,66 +131,80 @@ export function AdminDashboard() {
         })}
       </div>
 
-      {/* Notification Subscribers Card */}
-      <div className="bg-card rounded-2xl border border-border p-4 card-hover">
-        <div className="flex items-center justify-between">
+      {/* Quick Actions + Subscribers Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Quick Actions */}
+        <div className="bg-card rounded-xl border border-border shadow-sm p-5">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-primary" />
+            Quick Actions
+          </h3>
+          <div className="grid grid-cols-3 gap-2">
+            {quickActions.map((action) => {
+              const Icon = action.icon
+              return (
+                <button
+                  key={action.label}
+                  onClick={() => setAdminPage(action.page)}
+                  className="flex flex-col items-center gap-2 p-3 rounded-xl border border-border hover:border-primary/30 hover:bg-secondary/50 transition-all btn-press"
+                >
+                  <div className={`p-2 rounded-lg ${action.bg} ${action.color}`}>
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  <span className="text-[11px] font-medium text-center">{action.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Notification Subscribers */}
+        <div className="bg-card rounded-xl border border-border shadow-sm p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <Bell className="h-4 w-4 text-primary" />
+              Push Subscribers
+            </h3>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTestNotification}
+              disabled={sendingTest || (subscriberCount ?? 0) === 0}
+              className="gap-1.5 btn-press text-xs h-7"
+            >
+              <Send className={`h-3 w-3 ${sendingTest ? 'animate-pulse' : ''}`} />
+              {sendingTest ? 'Sending...' : 'Send Test'}
+            </Button>
+          </div>
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-primary/10 text-primary">
-              <Bell className="h-5 w-5" />
+              <Users className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-2xl font-bold">{subscriberCount ?? '—'}</p>
-              <p className="text-xs text-muted-foreground">Push Notification Subscribers</p>
+              <p className="text-2xl font-bold tracking-tight">{subscriberCount ?? '—'}</p>
+              <p className="text-xs text-muted-foreground">Active subscribers</p>
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleTestNotification}
-            disabled={sendingTest || (subscriberCount ?? 0) === 0}
-            className="gap-1.5 btn-press"
-          >
-            <Send className={`h-3.5 w-3.5 ${sendingTest ? 'animate-pulse' : ''}`} />
-            {sendingTest ? 'Sending...' : 'Send Test'}
-          </Button>
+          {(subscriberCount ?? 0) === 0 && (
+            <p className="text-xs text-muted-foreground mt-3 pl-11">
+              No subscribers yet. Users will be prompted to enable notifications when they visit the app.
+            </p>
+          )}
         </div>
-        {(subscriberCount ?? 0) === 0 && (
-          <p className="text-xs text-muted-foreground mt-2 ml-11">
-            No subscribers yet. Users will be prompted to enable notifications when they visit the app.
-          </p>
-        )}
-      </div>
-
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {quickActions.map((action) => {
-          const Icon = action.icon
-          return (
-            <Button
-              key={action.label}
-              variant="outline"
-              onClick={() => setAdminPage(action.page)}
-              className="h-auto py-4 flex flex-col gap-2 bg-card border-border hover:bg-secondary/50 btn-press"
-            >
-              <Icon className={`h-6 w-6 ${action.color}`} />
-              <span className="text-sm font-medium">{action.label}</span>
-            </Button>
-          )
-        })}
       </div>
 
       {/* Quick Stats Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="bg-card rounded-2xl border border-border p-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-card rounded-xl border border-border shadow-sm p-5">
           <div className="flex items-center gap-2 mb-3">
             <TrendingUp className="h-4 w-4 text-primary" />
             <span className="text-sm font-semibold">Categories</span>
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {categories.slice(0, 6).map(cat => (
               <div key={cat.id} className="flex items-center justify-between text-xs">
                 <span>{cat.icon} {cat.name}</span>
-                <Badge variant="secondary" className="text-[10px] px-1.5">
+                <Badge variant="secondary" className="text-[10px] px-1.5 h-4">
                   {channels.filter(ch => ch.category === cat.name.toLowerCase()).length}
                 </Badge>
               </div>
@@ -192,38 +212,38 @@ export function AdminDashboard() {
           </div>
         </div>
 
-        <div className="bg-card rounded-2xl border border-border p-4">
+        <div className="bg-card rounded-xl border border-border shadow-sm p-5">
           <div className="flex items-center gap-2 mb-3">
-            <Radio className="h-4 w-4 text-zeng-live" />
+            <Radio className="h-4 w-4 text-red-500" />
             <span className="text-sm font-semibold">Live Matches</span>
           </div>
           {liveMatches.length === 0 ? (
             <p className="text-xs text-muted-foreground">No live matches right now</p>
           ) : (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {liveMatches.map(match => (
                 <div key={match.id} className="flex items-center justify-between text-xs">
                   <span className="truncate flex-1">{match.teamA} vs {match.teamB}</span>
-                  <Badge className="bg-red-500/20 text-red-400 text-[10px] px-1.5 animate-live-pulse">LIVE</Badge>
+                  <Badge className="bg-red-500/20 text-red-400 text-[10px] px-1.5 h-4 animate-live-pulse">LIVE</Badge>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        <div className="bg-card rounded-2xl border border-border p-4">
+        <div className="bg-card rounded-xl border border-border shadow-sm p-5">
           <div className="flex items-center gap-2 mb-3">
-            <Clock className="h-4 w-4 text-zeng-gold" />
+            <Clock className="h-4 w-4 text-amber-500" />
             <span className="text-sm font-semibold">Upcoming</span>
           </div>
           {upcomingMatches.length === 0 ? (
             <p className="text-xs text-muted-foreground">No upcoming matches</p>
           ) : (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {upcomingMatches.slice(0, 4).map(match => (
                 <div key={match.id} className="flex items-center justify-between text-xs">
                   <span className="truncate flex-1">{match.teamA} vs {match.teamB}</span>
-                  <Badge className="bg-yellow-500/20 text-yellow-400 text-[10px] px-1.5">
+                  <Badge className="bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] px-1.5 h-4">
                     {new Date(match.startTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </Badge>
                 </div>
@@ -234,25 +254,26 @@ export function AdminDashboard() {
       </div>
 
       {/* Recent Matches Table */}
-      <div className="bg-card rounded-2xl border border-border overflow-hidden">
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <h3 className="text-lg font-bold">Recent Matches</h3>
+      <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <h3 className="text-sm font-semibold">Recent Matches</h3>
           <div className="flex gap-2">
             <Button
               variant="outline"
               size="sm"
               onClick={loadData}
-              className="gap-1.5 btn-press"
+              className="gap-1.5 btn-press text-xs h-7"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
             <Button
               size="sm"
               onClick={() => setAdminPage('matches')}
-              className="gap-1.5 btn-press"
+              className="gap-1.5 btn-press text-xs h-7"
             >
               View All
+              <ArrowRight className="h-3 w-3" />
             </Button>
           </div>
         </div>
@@ -272,11 +293,11 @@ export function AdminDashboard() {
             <table className="w-full">
               <thead className="bg-secondary/50">
                 <tr>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Match</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Sport</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">League</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Status</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Start Time</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Match</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sport</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">League</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Start Time</th>
                 </tr>
               </thead>
               <tbody>
@@ -290,7 +311,7 @@ export function AdminDashboard() {
                           <span className="text-base leading-none">{match.teamALogo}</span>
                         ) : null}
                         <span className="truncate">{match.teamA}</span>
-                        <span className="text-muted-foreground">vs</span>
+                        <span className="text-muted-foreground text-[10px] font-bold mx-0.5">vs</span>
                         {match.teamBLogo && match.teamBLogo.startsWith('http') ? (
                           <img src={match.teamBLogo} alt={match.teamB} className="w-5 h-5 object-contain rounded-full" />
                         ) : match.teamBLogo ? (
@@ -303,15 +324,15 @@ export function AdminDashboard() {
                     <td className="p-3 text-sm text-muted-foreground">{match.league || '—'}</td>
                     <td className="p-3 text-sm">
                       <Badge
-                        className={`text-[10px] ${
+                        className={`text-[10px] h-5 px-2 rounded-full font-medium ${
                           match.status === 'live'
-                            ? 'bg-red-500/20 text-red-400 animate-live-pulse'
+                            ? 'bg-red-500/15 text-red-500 dark:text-red-400 animate-live-pulse'
                             : match.status === 'upcoming'
-                            ? 'bg-yellow-500/20 text-yellow-400'
+                            ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                             : 'bg-secondary text-muted-foreground'
                         }`}
                       >
-                        {match.status === 'live' ? '● LIVE' : match.status === 'upcoming' ? 'Upcoming' : 'Ended'}
+                        {match.status === 'live' ? '● Live' : match.status === 'upcoming' ? 'Upcoming' : 'Ended'}
                       </Badge>
                     </td>
                     <td className="p-3 text-xs text-muted-foreground">

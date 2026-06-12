@@ -1631,58 +1631,157 @@ input[type="number"]::-webkit-outer-spin-button {
   }
 }
 
-/* ===== Admin Login Page — GenZ Brand Colors ===== */
-.admin-login-bg {
-  background:
-    radial-gradient(ellipse at 20% 50%, rgba(225, 29, 72, 0.06) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 30%, rgba(249, 115, 22, 0.06) 0%, transparent 50%),
-    radial-gradient(ellipse at 50% 80%, rgba(234, 179, 8, 0.04) 0%, transparent 45%),
-    linear-gradient(135deg, var(--background) 0%, var(--background) 100%);
-}
-.dark .admin-login-bg {
-  background:
-    radial-gradient(ellipse at 20% 50%, rgba(225, 29, 72, 0.05) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 30%, rgba(249, 115, 22, 0.04) 0%, transparent 50%),
-    radial-gradient(ellipse at 50% 80%, rgba(234, 179, 8, 0.03) 0%, transparent 45%),
-    linear-gradient(135deg, #0D0D12 0%, #111118 30%, #0e0e16 60%, #0D0D12 100%);
+/* ===== Admin Panel — Sidebar Layout ===== */
+
+/* Admin layout wrapper */
+.admin-layout {
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
 }
 
-/* GenZ brand text — same gradient animation as hero section */
-.admin-login-brand {
-  background: linear-gradient(135deg, #E11D48 0%, #F97316 30%, #EAB308 60%, #14B8A6 80%, #E11D48 100%);
-  background-size: 300% 300%;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: gradient-shift 5s ease infinite;
-}
-.dark .admin-login-brand {
-  background: linear-gradient(135deg, #FB7185 0%, #FDBA74 30%, #FDE047 60%, #5EEAD4 80%, #FB7185 100%);
-  background-size: 300% 300%;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: gradient-shift 5s ease infinite;
+/* Sidebar */
+.admin-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 240px;
+  background: var(--sidebar);
+  border-right: 1px solid var(--sidebar-border);
+  display: flex;
+  flex-direction: column;
+  z-index: 50;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Admin login button — gradient themed */
-.admin-login-btn {
-  background: linear-gradient(135deg, #E11D48 0%, #F97316 50%, #EAB308 100%);
-  background-size: 200% 200%;
-  color: #fff;
+/* Mobile: sidebar hidden by default */
+@media (max-width: 1023px) {
+  .admin-sidebar {
+    transform: translateX(-100%);
+  }
+  .admin-sidebar.admin-sidebar-open {
+    transform: translateX(0);
+  }
+}
+
+/* Sidebar header */
+.admin-sidebar-header {
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--sidebar-border);
+}
+
+/* Sidebar nav */
+.admin-sidebar-nav {
+  flex: 1;
+  padding: 16px 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Sidebar nav item */
+.admin-sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--sidebar-foreground);
+  transition: all 0.15s ease;
+  cursor: pointer;
   border: none;
-  animation: gradient-shift 5s ease infinite;
-  box-shadow: 0 4px 16px rgba(249, 115, 22, 0.25);
+  background: transparent;
+  width: 100%;
+  text-align: left;
 }
-.admin-login-btn:hover {
-  background-size: 200% 200%;
-  box-shadow: 0 6px 24px rgba(249, 115, 22, 0.35);
-  transform: translateY(-1px);
+
+.admin-sidebar-nav-item:hover {
+  background: var(--sidebar-accent);
+  color: var(--sidebar-accent-foreground);
 }
-.admin-login-btn:active {
-  transform: scale(0.97);
+
+/* Active nav item */
+.admin-sidebar-nav-item-active {
+  background: var(--sidebar-primary) !important;
+  color: var(--sidebar-primary-foreground) !important;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
-.admin-login-btn:disabled {
-  opacity: 0.7;
-  transform: none;
+
+.dark .admin-sidebar-nav-item-active {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.admin-sidebar-nav-item-active:hover {
+  background: var(--sidebar-primary) !important;
+  color: var(--sidebar-primary-foreground) !important;
+}
+
+/* Sidebar footer */
+.admin-sidebar-footer {
+  padding: 16px 20px 20px;
+  border-top: 1px solid var(--sidebar-border);
+}
+
+/* Content area */
+.admin-content {
+  flex: 1;
+  margin-left: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+}
+
+@media (min-width: 1024px) {
+  .admin-content {
+    margin-left: 240px;
+  }
+}
+
+/* Mobile header bar — hidden on desktop, shown on mobile */
+.admin-mobile-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--background);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+@media (min-width: 1024px) {
+  .admin-mobile-header {
+    display: none !important;
+  }
+}
+
+/* Page content */
+.admin-page-content {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+@media (min-width: 1024px) {
+  .admin-page-content {
+    padding: 24px 48px 24px 48px;
+  }
+}
+
+/* Admin table header styling */
+.admin-content table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }

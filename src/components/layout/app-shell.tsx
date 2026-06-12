@@ -309,6 +309,23 @@ export function AppShell() {
     }
   }
 
+  // Admin page has its own full layout — hide app chrome
+  const isAdmin = currentPage === 'admin'
+
+  if (isAdmin) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <main ref={mainRef} className="flex-1 min-w-0 flex flex-col overflow-y-auto">
+          <div className="flex-1">
+            <div key={currentPage}>
+              {renderPage()}
+            </div>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
       <div className="lg:hidden"><TopNav /></div>

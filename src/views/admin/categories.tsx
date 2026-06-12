@@ -147,27 +147,28 @@ export function AdminCategories() {
   }
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
+    <div className="space-y-5">
+      {/* Header bar */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold">Category Management</h2>
         <div className="flex gap-2">
           <Button
             variant="outline"
+            size="sm"
             onClick={loadData}
-            className="gap-1.5 btn-press"
+            className="gap-1.5 btn-press h-9"
           >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           </Button>
           <Button
+            size="sm"
             onClick={() => {
               setEditingId(null)
               setForm({ ...emptyForm, order: categories.length + 1 })
               setShowForm(!showForm)
             }}
-            className="gap-2 btn-press"
+            className="gap-1.5 btn-press text-xs h-9"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
             Add Category
           </Button>
         </div>
@@ -175,17 +176,17 @@ export function AdminCategories() {
 
       {/* Add/Edit Category Form */}
       {showForm && (
-        <div className="bg-card rounded-2xl border border-border p-4 space-y-4 animate-fade-slide">
+        <div className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-4 animate-fade-slide">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-bold">{editingId ? 'Edit Category' : 'Add New Category'}</h3>
-            <Button variant="ghost" size="icon" onClick={() => { setShowForm(false); setEditingId(null); setForm(emptyForm) }}>
+            <h3 className="text-sm font-semibold">{editingId ? 'Edit Category' : 'Add New Category'}</h3>
+            <Button variant="ghost" size="icon" onClick={() => { setShowForm(false); setEditingId(null); setForm(emptyForm) }} className="h-7 w-7">
               <X className="h-4 w-4" />
             </Button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium mb-1 block">Category Name *</label>
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Category Name *</label>
               <Input
                 placeholder="e.g. Sports"
                 value={form.name}
@@ -193,7 +194,7 @@ export function AdminCategories() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">Icon (Emoji)</label>
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Icon (Emoji)</label>
               <div className="flex gap-2">
                 <div className="w-9 h-9 rounded-lg border border-input bg-secondary flex items-center justify-center text-lg shrink-0">
                   {form.icon || '📁'}
@@ -208,7 +209,7 @@ export function AdminCategories() {
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">Color</label>
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Color</label>
               <div className="flex gap-2 flex-wrap">
                 {colorOptions.map(opt => (
                   <button
@@ -224,7 +225,7 @@ export function AdminCategories() {
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">Display Order</label>
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Display Order</label>
               <Input
                 type="number"
                 min={0}
@@ -236,7 +237,7 @@ export function AdminCategories() {
 
           {/* Preview */}
           <div className="bg-secondary/30 rounded-xl p-3">
-            <p className="text-xs text-muted-foreground mb-2">Preview:</p>
+            <p className="text-[10px] text-muted-foreground mb-2">Preview:</p>
             <div className="flex items-center gap-3">
               <div
                 className="w-10 h-10 rounded-xl flex items-center justify-center text-lg"
@@ -245,8 +246,8 @@ export function AdminCategories() {
                 {form.icon || '📁'}
               </div>
               <div>
-                <p className="font-medium">{form.name || 'Category Name'}</p>
-                <p className="text-xs text-muted-foreground">Order: {form.order}</p>
+                <p className="font-medium text-sm">{form.name || 'Category Name'}</p>
+                <p className="text-[10px] text-muted-foreground">Order: {form.order}</p>
               </div>
               <div
                 className="w-3 h-3 rounded-full ml-auto"
@@ -255,10 +256,10 @@ export function AdminCategories() {
             </div>
           </div>
 
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); setForm(emptyForm) }}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving} className="btn-press gap-2">
-              {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+          <div className="flex gap-2 justify-end pt-2 border-t border-border">
+            <Button variant="outline" size="sm" onClick={() => { setShowForm(false); setEditingId(null); setForm(emptyForm) }}>Cancel</Button>
+            <Button size="sm" onClick={handleSave} disabled={saving} className="btn-press gap-1.5">
+              {saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
               {saving ? 'Saving...' : editingId ? 'Update Category' : 'Create Category'}
             </Button>
           </div>
@@ -267,40 +268,40 @@ export function AdminCategories() {
 
       {/* Categories Grid */}
       {loading ? (
-        <div className="bg-card rounded-2xl border border-border p-8 text-center">
+        <div className="bg-card rounded-xl border border-border shadow-sm p-8 text-center">
           <RefreshCw className="h-8 w-8 text-muted-foreground mx-auto mb-3 animate-spin" />
           <p className="text-sm text-muted-foreground">Loading categories...</p>
         </div>
       ) : categories.length === 0 ? (
-        <div className="bg-card rounded-2xl border border-border p-8 text-center">
+        <div className="bg-card rounded-xl border border-border shadow-sm p-8 text-center">
           <FolderOpen className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-          <h3 className="text-lg font-semibold mb-1">No categories yet</h3>
-          <p className="text-sm text-muted-foreground">Add your first category to organize channels.</p>
+          <h3 className="text-sm font-semibold mb-1">No categories yet</h3>
+          <p className="text-xs text-muted-foreground">Add your first category to organize channels.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {categories.map((category, index) => {
             const channelCount = getChannelCount(category.name)
             return (
               <div
                 key={category.id}
-                className="bg-card rounded-2xl border border-border p-4 card-hover group"
+                className="bg-card rounded-xl border border-border shadow-sm p-4 hover:shadow-md transition-shadow group"
               >
                 <div className="flex items-start gap-3">
                   <div
-                    className="w-12 h-12 rounded-xl flex items-center justify-center text-xl shrink-0"
+                    className="w-11 h-11 rounded-xl flex items-center justify-center text-xl shrink-0"
                     style={{ backgroundColor: `${category.color}20` }}
                   >
                     {category.icon || '📁'}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <h4 className="font-semibold truncate">{category.name}</h4>
-                      <Badge variant="secondary" className="text-[10px] shrink-0">
+                      <h4 className="font-semibold truncate text-sm">{category.name}</h4>
+                      <Badge variant="secondary" className="text-[10px] shrink-0 h-4 px-1.5">
                         {channelCount} ch{channelCount !== 1 ? 's' : ''}
                       </Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">Order: {category.order}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Order: {category.order}</p>
                     <div className="flex items-center gap-1 mt-1.5">
                       <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: category.color }} />
                       <span className="text-[10px] text-muted-foreground">{category.color}</span>

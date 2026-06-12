@@ -266,27 +266,25 @@ export function AdminSettings() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Settings className="h-5 w-5 text-primary" />
-          <h2 className="text-lg font-bold">App Settings</h2>
-        </div>
-        <Button onClick={handleSave} disabled={saving} className="gap-2 btn-press">
-          {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+        <div></div>
+        <Button onClick={handleSave} disabled={saving} size="sm" className="gap-1.5 btn-press text-xs">
+          {saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
           {saving ? 'Saving...' : 'Save Settings'}
         </Button>
       </div>
 
       {/* General Settings */}
-      <div className="bg-card rounded-2xl border border-border p-4 space-y-4">
-        <div className="flex items-center gap-2 mb-2">
+      <div className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
           <Globe className="h-4 w-4 text-primary" />
-          <h3 className="font-semibold">General</h3>
+          <h3 className="text-sm font-semibold">General</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="text-sm font-medium mb-1 block">App Name</label>
+            <label className="text-xs font-medium mb-1.5 block text-muted-foreground">App Name</label>
             <Input
               value={appName}
               onChange={(e) => setAppName(e.target.value)}
@@ -294,7 +292,7 @@ export function AdminSettings() {
             />
           </div>
           <div>
-            <label className="text-sm font-medium mb-1 block">Logo URL</label>
+            <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Logo URL</label>
             <div className="flex gap-2">
               <Input
                 value={logoUrl}
@@ -310,7 +308,7 @@ export function AdminSettings() {
             </div>
           </div>
           <div className="md:col-span-2">
-            <label className="text-sm font-medium mb-1 block">Hero Banner Text</label>
+            <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Hero Banner Text</label>
             <Input
               value={heroBannerText}
               onChange={(e) => setHeroBannerText(e.target.value)}
@@ -321,17 +319,17 @@ export function AdminSettings() {
       </div>
 
       {/* Featured Channel */}
-      <div className="bg-card rounded-2xl border border-border p-4 space-y-4">
-        <div className="flex items-center gap-2 mb-2">
+      <div className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
           <Tv className="h-4 w-4 text-primary" />
-          <h3 className="font-semibold">Featured Channel</h3>
+          <h3 className="text-sm font-semibold">Featured Channel</h3>
         </div>
         <div>
-          <label className="text-sm font-medium mb-1 block">Select Featured Channel</label>
+          <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Select Featured Channel</label>
           <select
             value={featuredChannelId}
             onChange={(e) => setFeaturedChannelId(e.target.value)}
-            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+            className="w-full h-9 rounded-lg border border-input bg-background px-3 text-sm"
           >
             <option value="">None</option>
             {channels.filter(ch => ch.isFeatured).map(ch => (
@@ -349,17 +347,17 @@ export function AdminSettings() {
       </div>
 
       {/* Player Settings */}
-      <div className="bg-card rounded-2xl border border-border p-4 space-y-4">
-        <div className="flex items-center gap-2 mb-2">
+      <div className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
           <Monitor className="h-4 w-4 text-primary" />
-          <h3 className="font-semibold">Player</h3>
+          <h3 className="text-sm font-semibold">Player</h3>
         </div>
         <div>
-          <label className="text-sm font-medium mb-1 block">Default Quality</label>
+          <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Default Quality</label>
           <select
             value={defaultQuality}
             onChange={(e) => setDefaultQuality(e.target.value)}
-            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+            className="w-full h-9 rounded-lg border border-input bg-background px-3 text-sm"
           >
             <option value="auto">Auto</option>
             <option value="1080p">1080p</option>
@@ -371,27 +369,27 @@ export function AdminSettings() {
       </div>
 
       {/* APK Upload */}
-      <div className="bg-card rounded-2xl border border-border p-4 space-y-4">
-        <div className="flex items-center gap-2 mb-2">
+      <div className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
           <Download className="h-4 w-4 text-primary" />
-          <h3 className="font-semibold">APK Download</h3>
+          <h3 className="text-sm font-semibold">APK Download</h3>
         </div>
 
         {/* Current APK status */}
         {apkUrl ? (
           <div className="flex items-center gap-3 p-3 bg-secondary/50 rounded-xl border border-border">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center shrink-0">
-              <FileArchive className="h-5 w-5 text-green-600" />
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-500/20 to-emerald-500/10 flex items-center justify-center shrink-0">
+              <FileArchive className="h-5 w-5 text-emerald-600" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{apkFileName || 'app.apk'}</p>
-              <p className="text-xs text-muted-foreground">APK uploaded — users can download it</p>
+              <p className="text-[10px] text-muted-foreground">APK uploaded — users can download it</p>
             </div>
             <Button
               variant="ghost"
               size="icon"
               onClick={handleApkDelete}
-              className="shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+              className="shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -403,7 +401,7 @@ export function AdminSettings() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-muted-foreground">No APK uploaded</p>
-              <p className="text-xs text-muted-foreground">Upload an APK file for users to download</p>
+              <p className="text-[10px] text-muted-foreground">Upload an APK file for users to download</p>
             </div>
           </div>
         )}
@@ -419,18 +417,19 @@ export function AdminSettings() {
           />
           <Button
             variant="outline"
+            size="sm"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="w-full gap-2 btn-press"
+            className="w-full gap-2 btn-press text-xs"
           >
             {uploading ? (
               <>
-                <RefreshCw className="h-4 w-4 animate-spin" />
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                 Uploading... {uploadProgress}%
               </>
             ) : (
               <>
-                <Upload className="h-4 w-4" />
+                <Upload className="h-3.5 w-3.5" />
                 {apkUrl ? 'Replace APK' : 'Upload APK File'}
               </>
             )}
@@ -443,22 +442,22 @@ export function AdminSettings() {
               />
             </div>
           )}
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[10px] text-muted-foreground">
             Upload an APK file (max 200MB). The file will be served from the server and users can download it directly.
           </p>
         </div>
       </div>
 
       {/* Maintenance Mode */}
-      <div className="bg-card rounded-2xl border border-border p-4 space-y-4">
-        <div className="flex items-center gap-2 mb-2">
+      <div className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
           <Shield className="h-4 w-4 text-primary" />
-          <h3 className="font-semibold">Maintenance</h3>
+          <h3 className="text-sm font-semibold">Maintenance</h3>
         </div>
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium">Maintenance Mode</p>
-            <p className="text-xs text-muted-foreground">When enabled, users will see a maintenance page</p>
+            <p className="text-[10px] text-muted-foreground">When enabled, users will see a maintenance page</p>
           </div>
           <Switch
             checked={maintenanceMode}
@@ -466,18 +465,18 @@ export function AdminSettings() {
           />
         </div>
         {maintenanceMode && (
-          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3 text-sm text-yellow-400">
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-sm text-amber-600 dark:text-amber-400">
             ⚠️ Maintenance mode is enabled. Users cannot access the app.
           </div>
         )}
       </div>
 
       {/* Ad Controls */}
-      <div className="bg-card rounded-2xl border border-border p-4 space-y-4">
-        <div className="flex items-center justify-between mb-2">
+      <div className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-4">
+        <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2">
             <Megaphone className="h-4 w-4 text-primary" />
-            <h3 className="font-semibold">Ad Controls</h3>
+            <h3 className="text-sm font-semibold">Ad Controls</h3>
           </div>
           <Button
             variant="outline"
@@ -494,9 +493,9 @@ export function AdminSettings() {
               setEditingAdScript(newAd.id)
             }}
             disabled={!adsEnabled}
-            className="gap-1.5 text-xs"
+            className="gap-1.5 text-xs h-7"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-3 w-3" />
             Add Script
           </Button>
         </div>
@@ -505,7 +504,7 @@ export function AdminSettings() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium">All Ads</p>
-            <p className="text-xs text-muted-foreground">Master switch — disables all ads when off</p>
+            <p className="text-[10px] text-muted-foreground">Master switch — disables all ads when off</p>
           </div>
           <Switch
             checked={adsEnabled}
@@ -527,7 +526,7 @@ export function AdminSettings() {
           <div className="flex items-center justify-between py-2 border-t border-border">
             <div>
               <p className="text-sm font-medium">Home Page Ads</p>
-              <p className="text-xs text-muted-foreground">Banner ads on the home page</p>
+              <p className="text-[10px] text-muted-foreground">Banner ads on the home page</p>
             </div>
             <Switch
               checked={homeAdsEnabled}
@@ -540,7 +539,7 @@ export function AdminSettings() {
           <div className="flex items-center justify-between py-2 border-t border-border">
             <div>
               <p className="text-sm font-medium">Video Page Ads</p>
-              <p className="text-xs text-muted-foreground">Ads below the video player</p>
+              <p className="text-[10px] text-muted-foreground">Ads below the video player</p>
             </div>
             <Switch
               checked={videoAdsEnabled}
@@ -551,7 +550,7 @@ export function AdminSettings() {
         </div>
 
         {!adsEnabled && (
-          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-sm text-red-400">
+          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-sm text-red-500 dark:text-red-400">
             🔴 All ads are disabled. No ads will be shown anywhere.
           </div>
         )}
@@ -559,7 +558,7 @@ export function AdminSettings() {
         {/* Custom Ad Scripts List */}
         {adsEnabled && adScripts.length > 0 && (
           <div className="space-y-2 pt-2 border-t border-border">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Custom Ad Scripts</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Custom Ad Scripts</p>
             {adScripts.map((ad) => (
               <div key={ad.id} className={`rounded-xl border p-3 space-y-3 transition-all ${editingAdScript === ad.id ? 'border-primary/40 bg-primary/5' : ad.enabled ? 'border-border bg-secondary/20' : 'border-border/50 bg-secondary/10 opacity-60'}`}>
                 <div className="flex items-center gap-2">
@@ -568,14 +567,14 @@ export function AdminSettings() {
                     <Input
                       value={ad.name}
                       onChange={(e) => setAdScripts(adScripts.map(a => a.id === ad.id ? { ...a, name: e.target.value } : a))}
-                      className="h-7 text-sm font-medium"
+                      className="h-7 text-xs font-medium"
                       placeholder="Ad script name"
                     />
                   </div>
                   <select
                     value={ad.position}
                     onChange={(e) => setAdScripts(adScripts.map(a => a.id === ad.id ? { ...a, position: e.target.value as AdScript['position'] } : a))}
-                    className="h-7 rounded-md border border-input bg-background px-2 text-xs"
+                    className="h-7 rounded-md border border-input bg-background px-2 text-[10px]"
                   >
                     <option value="home-banner">🏠 Home Banner</option>
                     <option value="video-below">📺 Below Video</option>
@@ -587,11 +586,11 @@ export function AdminSettings() {
                     className="p-1 rounded-md hover:bg-secondary transition-colors"
                     title={ad.enabled ? 'Disable' : 'Enable'}
                   >
-                    {ad.enabled ? <Eye className="h-3.5 w-3.5 text-green-500" /> : <EyeOff className="h-3.5 w-3.5 text-muted-foreground" />}
+                    {ad.enabled ? <Eye className="h-3.5 w-3.5 text-emerald-500" /> : <EyeOff className="h-3.5 w-3.5 text-muted-foreground" />}
                   </button>
                   <button
                     onClick={() => setEditingAdScript(editingAdScript === ad.id ? null : ad.id)}
-                    className="p-1 rounded-md hover:bg-secondary transition-colors text-xs text-primary"
+                    className="p-1 rounded-md hover:bg-secondary transition-colors text-[10px] text-primary"
                   >
                     {editingAdScript === ad.id ? 'Done' : 'Edit'}
                   </button>
@@ -622,46 +621,48 @@ export function AdminSettings() {
         {adsEnabled && adScripts.length === 0 && (
           <div className="text-center py-4 border-t border-border">
             <Code className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">No custom ad scripts yet</p>
-            <p className="text-xs text-muted-foreground">Click "Add Script" to add your first ad script</p>
+            <p className="text-xs text-muted-foreground">No custom ad scripts yet</p>
+            <p className="text-[10px] text-muted-foreground">Click "Add Script" to add your first ad script</p>
           </div>
         )}
       </div>
 
       {/* Database Management */}
-      <div className="bg-card rounded-2xl border border-border p-4 space-y-4">
-        <div className="flex items-center gap-2 mb-2">
+      <div className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
           <Database className="h-4 w-4 text-primary" />
-          <h3 className="font-semibold">Database</h3>
+          <h3 className="text-sm font-semibold">Database</h3>
         </div>
         <div className="flex flex-col sm:flex-row gap-3">
           <Button
             variant="outline"
+            size="sm"
             onClick={handleSeed}
             disabled={seeding}
-            className="gap-2 btn-press"
+            className="gap-1.5 btn-press text-xs"
           >
-            {seeding ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+            {seeding ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
             {seeding ? 'Seeding...' : 'Seed Demo Data'}
           </Button>
           <Button
             variant="outline"
+            size="sm"
             onClick={handleResetData}
-            className="gap-2 btn-press border-destructive/30 text-destructive hover:bg-destructive/10"
+            className="gap-1.5 btn-press border-destructive/30 text-destructive hover:bg-destructive/10 text-xs"
           >
-            <Database className="h-4 w-4" />
+            <Database className="h-3.5 w-3.5" />
             Reset All Data
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-[10px] text-muted-foreground">
           Seed adds demo data without removing existing data. Reset deletes all data and re-seeds.
         </p>
       </div>
 
       {/* App Info */}
-      <div className="bg-card rounded-2xl border border-border p-4">
-        <h3 className="font-semibold mb-3">App Info</h3>
-        <div className="grid grid-cols-2 gap-2 text-sm">
+      <div className="bg-card rounded-xl border border-border shadow-sm p-5">
+        <h3 className="text-sm font-semibold mb-3">App Info</h3>
+        <div className="grid grid-cols-2 gap-2 text-xs">
           <p className="text-muted-foreground">Version</p>
           <p>1.0.0</p>
           <p className="text-muted-foreground">Framework</p>

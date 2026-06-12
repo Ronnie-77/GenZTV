@@ -170,7 +170,7 @@ function TeamInput({ label, value, logo, sport, onNameChange, onLogoChange }: {
 
   return (
     <div className="space-y-2">
-      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
+      <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
       <div className="flex gap-2">
         <div className="relative group">
           <TeamLogo logo={logo} name={value} size="md" />
@@ -440,7 +440,7 @@ function FormSection({ icon, title, description, children, badge }: { icon: Reac
             {icon}
           </div>
           <div>
-            <h4 className="text-sm font-bold leading-tight">{title}</h4>
+            <h4 className="text-xs font-bold leading-tight">{title}</h4>
             {description && <p className="text-[10px] text-muted-foreground mt-0.5">{description}</p>}
           </div>
         </div>
@@ -732,14 +732,14 @@ export function AdminMatches() {
   }
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
+    <div className="space-y-5">
+      {/* Header bar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
           <select
             value={filterSport}
             onChange={(e) => setFilterSport(e.target.value)}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
           >
             <option value="all">All Sports</option>
             <option value="cricket">🏏 Cricket</option>
@@ -748,7 +748,7 @@ export function AdminMatches() {
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
           >
             <option value="all">All Status</option>
             <option value="live">🔴 Live</option>
@@ -759,20 +759,22 @@ export function AdminMatches() {
         <div className="flex gap-2">
           <Button
             variant="outline"
+            size="sm"
             onClick={loadMatches}
-            className="gap-1.5 btn-press"
+            className="gap-1.5 btn-press h-9"
           >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           </Button>
           <Button
+            size="sm"
             onClick={() => {
               setEditingId(null)
               resetForm()
               setShowForm(!showForm)
             }}
-            className="gap-2 btn-press"
+            className="gap-1.5 btn-press text-xs h-9"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
             Add Match
           </Button>
         </div>
@@ -780,15 +782,15 @@ export function AdminMatches() {
 
       {/* Add/Edit Match Form */}
       {showForm && (
-        <div ref={formRef} className="bg-card rounded-2xl border border-border overflow-hidden animate-fade-slide scroll-mt-4">
+        <div ref={formRef} className="bg-card rounded-xl border border-border shadow-sm overflow-hidden animate-fade-slide scroll-mt-4">
           {/* Form Header */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-border bg-gradient-to-r from-secondary/40 to-secondary/20">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-secondary/30">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Trophy className="h-4.5 w-4.5 text-primary" />
+              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Trophy className="h-4 w-4 text-primary" />
               </div>
               <div>
-                <h3 className="text-sm font-bold">{editingId ? 'Edit Match' : 'Add New Match'}</h3>
+                <h3 className="text-xs font-bold">{editingId ? 'Edit Match' : 'Add New Match'}</h3>
                 <p className="text-[10px] text-muted-foreground">Fill in the details — preview updates live</p>
               </div>
             </div>
@@ -820,7 +822,7 @@ export function AdminMatches() {
             >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Sport Type</label>
+                  <label className="text-[11px] font-medium text-muted-foreground mb-1 block">Sport Type</label>
                   <div className="flex gap-1.5">
                     {[
                       { value: 'football', emoji: '⚽', label: 'Football' },
@@ -836,7 +838,7 @@ export function AdminMatches() {
                           setTeamBName('')
                           setTeamBLogo('')
                         }}
-                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium border transition-all ${
+                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium border transition-all ${
                           sportType === sport.value
                             ? 'bg-primary/10 text-primary border-primary/30 shadow-sm'
                             : 'bg-secondary/30 text-muted-foreground border-transparent hover:border-border'
@@ -849,7 +851,7 @@ export function AdminMatches() {
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">League / Competition</label>
+                  <label className="text-[11px] font-medium text-muted-foreground mb-1 block">League / Competition</label>
                   <Input
                     value={league}
                     onChange={(e) => setLeague(e.target.value)}
@@ -911,7 +913,7 @@ export function AdminMatches() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Status</label>
+                  <label className="text-[11px] font-medium text-muted-foreground mb-1 block">Status</label>
                   <div className="flex gap-1.5">
                     {(['upcoming', 'live', 'ended'] as const).map((s) => (
                       <button
@@ -923,7 +925,7 @@ export function AdminMatches() {
                             ? s === 'live'
                               ? 'bg-red-500/15 text-red-500 dark:text-red-400 border-red-500/30 shadow-sm'
                               : s === 'upcoming'
-                              ? 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/30 shadow-sm'
+                              ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 shadow-sm'
                               : 'bg-secondary text-muted-foreground border-border shadow-sm'
                             : 'bg-secondary/30 text-muted-foreground border-transparent hover:border-border'
                         }`}
@@ -941,7 +943,7 @@ export function AdminMatches() {
                       onCheckedChange={setFeatured}
                     />
                     <label className="text-xs font-medium flex items-center gap-1">
-                      <Star className="h-3 w-3 text-zeng-gold fill-zeng-gold" />
+                      <Star className="h-3 w-3 text-amber-500 fill-amber-500" />
                       Featured Match
                     </label>
                   </div>
@@ -986,12 +988,12 @@ export function AdminMatches() {
           </div>
 
           {/* Form Footer */}
-          <div className="flex gap-2 justify-end px-5 py-3.5 border-t border-border bg-gradient-to-r from-secondary/20 to-secondary/10">
-            <Button variant="outline" size="sm" onClick={() => { setShowForm(false); setEditingId(null); resetForm() }} className="gap-1.5">
+          <div className="flex gap-2 justify-end px-5 py-3 border-t border-border bg-secondary/20">
+            <Button variant="outline" size="sm" onClick={() => { setShowForm(false); setEditingId(null); resetForm() }} className="gap-1.5 text-xs">
               <X className="h-3.5 w-3.5" />
               Cancel
             </Button>
-            <Button size="sm" onClick={handleSave} disabled={saving} className="btn-press gap-2 min-w-[140px]">
+            <Button size="sm" onClick={handleSave} disabled={saving} className="btn-press gap-2 min-w-[140px] text-xs">
               {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               {saving ? 'Saving...' : editingId ? 'Update Match' : 'Create Match'}
             </Button>
@@ -1001,29 +1003,29 @@ export function AdminMatches() {
 
       {/* Matches Table */}
       {loading ? (
-        <div className="bg-card rounded-2xl border border-border p-8 text-center">
+        <div className="bg-card rounded-xl border border-border shadow-sm p-8 text-center">
           <RefreshCw className="h-8 w-8 text-muted-foreground mx-auto mb-3 animate-spin" />
           <p className="text-sm text-muted-foreground">Loading matches...</p>
         </div>
       ) : matches.length === 0 ? (
-        <div className="bg-card rounded-2xl border border-border p-8 text-center">
+        <div className="bg-card rounded-xl border border-border shadow-sm p-8 text-center">
           <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-          <h3 className="text-lg font-semibold mb-1">No matches found</h3>
-          <p className="text-sm text-muted-foreground">Add your first match to get started.</p>
+          <h3 className="text-sm font-semibold mb-1">No matches found</h3>
+          <p className="text-xs text-muted-foreground">Add your first match to get started.</p>
         </div>
       ) : (
-        <div className="bg-card rounded-2xl border border-border overflow-hidden">
+        <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-secondary/50">
                 <tr>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Match</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Sport</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">League</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Status</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Start Time <span className="text-emerald-500">(BST)</span></th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Streams</th>
-                  <th className="text-right p-3 text-xs font-medium text-muted-foreground">Actions</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Match</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sport</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">League</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Start Time <span className="text-emerald-500">(BST)</span></th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Streams</th>
+                  <th className="text-right p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1039,7 +1041,7 @@ export function AdminMatches() {
                       const info = m.status === 'live'
                         ? { label: 'Live Matches', icon: '🔴', className: 'bg-red-500/10 text-red-500 dark:text-red-400 border-red-500/20' }
                         : m.status === 'upcoming'
-                        ? { label: 'Upcoming Matches', icon: '🕐', className: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20' }
+                        ? { label: 'Upcoming Matches', icon: '🕐', className: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' }
                         : { label: 'Ended Matches', icon: '✅', className: 'bg-secondary text-muted-foreground border-border' }
                       sectionInfo[m.status] = { ...info, count: 0 }
                     }
@@ -1059,7 +1061,7 @@ export function AdminMatches() {
                           </td>
                         </tr>
                       )}
-                      <tr className="border-t border-border hover:bg-secondary/20 transition-colors">
+                      <tr className="border-t border-border hover:bg-secondary/30 transition-colors">
                     <td className="p-3 text-sm">
                       <div className="flex items-center gap-1.5">
                         <TeamLogo logo={match.teamALogo} name={match.teamA} size="xs" />
@@ -1067,7 +1069,7 @@ export function AdminMatches() {
                         <span className="text-muted-foreground text-[10px] font-bold mx-0.5">VS</span>
                         <span className="font-medium">{match.teamB}</span>
                         <TeamLogo logo={match.teamBLogo} name={match.teamB} size="xs" />
-                        {match.isFeatured && <Star className="h-3 w-3 text-zeng-gold fill-zeng-gold ml-1" />}
+                        {match.isFeatured && <Star className="h-3 w-3 text-amber-500 fill-amber-500 ml-1" />}
                       </div>
                     </td>
                     <td className="p-3 text-sm capitalize">
@@ -1076,15 +1078,15 @@ export function AdminMatches() {
                     <td className="p-3 text-sm text-muted-foreground">{match.league || '—'}</td>
                     <td className="p-3 text-sm">
                       <Badge
-                        className={`text-[10px] ${
+                        className={`text-[10px] h-5 px-2 rounded-full font-medium ${
                           match.status === 'live'
-                            ? 'bg-red-500/20 text-red-400 animate-live-pulse'
+                            ? 'bg-red-500/15 text-red-500 dark:text-red-400 animate-live-pulse'
                             : match.status === 'upcoming'
-                            ? 'bg-yellow-500/20 text-yellow-400'
+                            ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                             : 'bg-secondary text-muted-foreground'
                         }`}
                       >
-                        {match.status === 'live' ? '● LIVE' : match.status === 'upcoming' ? 'Upcoming' : 'Ended'}
+                        {match.status === 'live' ? '● Live' : match.status === 'upcoming' ? 'Upcoming' : 'Ended'}
                       </Badge>
                     </td>
                     <td className="p-3 text-xs text-muted-foreground">

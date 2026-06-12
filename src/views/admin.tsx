@@ -2,21 +2,22 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useAppStore } from '@/lib/store'
-import { Shield, Lock, Eye, EyeOff, LogOut, AlertCircle, Loader2, Fingerprint, ChevronRight, Tv } from 'lucide-react'
+import { Shield, Eye, EyeOff, LogOut, AlertCircle, Loader2, Tv, BarChart3, Radio, FolderOpen, Settings, Menu, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { AdminDashboard } from '@/views/admin/dashboard'
 import { AdminChannels } from '@/views/admin/channels'
 import { AdminMatches } from '@/views/admin/matches'
 import { AdminCategories } from '@/views/admin/categories'
 import { AdminSettings } from '@/views/admin/settings'
 
-const adminTabs = [
-  { id: 'dashboard' as const, label: 'Dashboard', icon: '📊' },
-  { id: 'channels' as const, label: 'Channels', icon: '📺' },
-  { id: 'matches' as const, label: 'Matches', icon: '🏆' },
-  { id: 'categories' as const, label: 'Categories', icon: '📁' },
-  { id: 'settings' as const, label: 'Settings', icon: '⚙️' },
+const sidebarNavItems = [
+  { id: 'dashboard' as const, label: 'Dashboard', icon: BarChart3 },
+  { id: 'channels' as const, label: 'Channels', icon: Tv },
+  { id: 'matches' as const, label: 'Matches', icon: Radio },
+  { id: 'categories' as const, label: 'Categories', icon: FolderOpen },
+  { id: 'settings' as const, label: 'Settings', icon: Settings },
 ]
 
 export function AdminPage() {
@@ -28,6 +29,8 @@ export function AdminPage() {
   const [verifying, setVerifying] = useState(true)
   const [failedAttempts, setFailedAttempts] = useState(0)
   const [shakeKey, setShakeKey] = useState(0)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+
   // Check server-side session on mount
   const verifySession = useCallback(async () => {
     try {
@@ -62,6 +65,11 @@ export function AdminPage() {
     window.addEventListener('admin:unauthorized' as string, handleApiError as EventListener)
     return () => window.removeEventListener('admin:unauthorized' as string, handleApiError as EventListener)
   }, [isAdminAuth, setIsAdminAuth])
+
+  // Close mobile sidebar when navigating
+  useEffect(() => {
+    setMobileSidebarOpen(false)
+  }, [adminPage])
 
   const handleLogin = async () => {
     if (!password.trim()) {
@@ -135,80 +143,42 @@ export function AdminPage() {
     const isRateLimited = failedAttempts >= 5
 
     return (
-      <div className="flex items-center justify-center min-h-[80vh] p-4 relative overflow-hidden">
-        {/* Animated background — same vibe as hero section */}
-        <div className="absolute inset-0 pointer-events-none">
-          {/* Gradient background */}
-          <div className="absolute inset-0 admin-login-bg" />
-          {/* Floating decorative orbs */}
-          <div className="absolute w-72 h-72 sm:w-96 sm:h-96 rounded-full opacity-[0.08] -top-20 -right-16 animate-pulse" style={{ background: 'linear-gradient(135deg, #E11D48, #F97316)' }} />
-          <div className="absolute w-56 h-56 sm:w-72 sm:h-72 rounded-full opacity-[0.08] -bottom-16 -left-12 animate-pulse" style={{ background: 'linear-gradient(135deg, #14B8A6, #7C8CF8)', animationDelay: '2s' }} />
-          <div className="absolute w-40 h-40 sm:w-52 sm:h-52 rounded-full opacity-[0.06] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" style={{ background: 'linear-gradient(135deg, #EAB308, #FB7185)', animationDelay: '4s' }} />
-        </div>
-
-        <div className="w-full max-w-[380px] relative z-10">
-          {/* Header with brand */}
-          <div className="text-center mb-8">
-            {/* Animated logo icon */}
-            <div className="relative mx-auto w-20 h-20 mb-6">
-              <div className="absolute inset-0 rounded-2xl animate-pulse" style={{ background: 'linear-gradient(135deg, rgba(225,29,72,0.25), rgba(249,115,22,0.2), rgba(234,179,8,0.15))' }} />
-              <div className="absolute inset-1 rounded-xl flex items-center justify-center backdrop-blur-sm" style={{ background: 'linear-gradient(135deg, rgba(225,29,72,0.15), rgba(249,115,22,0.1), transparent)' }}>
-                <Tv className="h-9 w-9" style={{ color: '#F97316' }} />
-              </div>
-              {/* Glow effect */}
-              <div className="absolute -inset-3 rounded-3xl blur-xl opacity-50" style={{ background: 'linear-gradient(135deg, rgba(225,29,72,0.15), rgba(249,115,22,0.1))' }} />
-            </div>
-
-            {/* GenZ TV — same gradient animation as hero section */}
+      <div className="flex items-center justify-center min-h-[80vh] p-4">
+        <div className="w-full max-w-[400px]">
+          {/* Brand */}
+          <div className="text-center mb-10">
             <h1 className="text-4xl font-black tracking-tight mb-1">
-              <span className="admin-login-brand">GenZ</span>
-              <span className="text-foreground/60 font-light"> TV</span>
+              <span className="text-foreground">GenZ</span>
+              <span className="text-muted-foreground font-light"> TV</span>
             </h1>
-            <p className="text-sm font-medium" style={{ color: '#F97316' }}>Admin Control Panel</p>
+            <p className="text-sm text-muted-foreground">Admin Control Panel</p>
           </div>
 
           {/* Login Card */}
           <div
             key={shakeKey}
-            className="rounded-2xl border border-border/60 bg-card/90 backdrop-blur-md p-6 shadow-2xl shadow-black/5 animate-fade-slide"
+            className="rounded-2xl border border-border bg-card p-6"
           >
-            {/* Card header */}
-            <div className="flex items-center gap-3 mb-5">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center border" style={{ background: 'linear-gradient(135deg, rgba(249,115,22,0.15), rgba(234,179,8,0.1))', borderColor: 'rgba(249,115,22,0.15)' }}>
-                <Fingerprint className="h-5 w-5" style={{ color: '#F97316' }} />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold tracking-tight">Secure Login</h2>
-                <p className="text-[11px] text-muted-foreground">Authenticate to access admin panel</p>
-              </div>
-            </div>
-
-            {/* Divider with gradient */}
-            <div className="h-px mb-5" style={{ background: 'linear-gradient(90deg, transparent, rgba(249,115,22,0.3), rgba(234,179,8,0.3), rgba(20,184,166,0.2), transparent)' }} />
-
-            {/* Form */}
             <div className="space-y-4">
               <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                  <Lock className="h-3 w-3" style={{ color: '#F97316' }} />
+                <label className="text-sm font-medium text-foreground">
                   Password
                 </label>
-                <div className="relative group">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                <div className="relative">
                   <Input
                     type={showPassword ? 'text' : 'password'}
                     placeholder="Enter admin password"
                     value={password}
                     onChange={(e) => { setPassword(e.target.value); setError('') }}
                     onKeyDown={(e) => e.key === 'Enter' && !loading && !isRateLimited && handleLogin()}
-                    className="pl-9 pr-10 h-12 text-sm transition-all"
+                    className="h-12 text-sm rounded-xl border-border focus-visible:border-foreground/25 focus-visible:ring-0 px-4"
                     autoFocus
                     disabled={loading || isRateLimited}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1 rounded-md hover:bg-secondary"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1 rounded-lg hover:bg-secondary"
                     tabIndex={-1}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -218,7 +188,7 @@ export function AdminPage() {
 
               {/* Error message */}
               {error && (
-                <div className="flex items-center gap-2.5 text-destructive text-xs bg-destructive/10 border border-destructive/20 px-3.5 py-2.5 rounded-xl">
+                <div className="flex items-center gap-2 text-destructive text-xs bg-destructive/10 border border-destructive/20 px-4 py-3 rounded-xl">
                   <AlertCircle className="h-4 w-4 shrink-0" />
                   <span className="font-medium">{error}</span>
                 </div>
@@ -226,38 +196,34 @@ export function AdminPage() {
 
               {/* Rate limit warning */}
               {isRateLimited && (
-                <div className="text-center text-xs text-muted-foreground bg-secondary/50 px-3 py-2 rounded-lg">
+                <div className="text-center text-xs text-muted-foreground bg-secondary/50 px-4 py-3 rounded-xl">
                   Too many failed attempts. Please refresh the page and try again later.
                 </div>
               )}
 
-              {/* Login button — gradient themed */}
-              <Button
+              {/* Login button */}
+              <button
                 onClick={handleLogin}
                 disabled={loading || !password.trim() || isRateLimited}
-                className="w-full h-12 btn-press font-bold gap-2.5 text-sm rounded-xl transition-all admin-login-btn"
+                className="w-full h-12 font-semibold text-sm rounded-xl transition-all focus-visible:outline-none disabled:opacity-80 disabled:pointer-events-none inline-flex items-center justify-center gap-2"
+                style={{ backgroundColor: '#1d1d1f', color: '#FFFFFF' }}
               >
                 {loading ? (
                   <>
-                    <Loader2 className="h-4.5 w-4.5 animate-spin" />
+                    <Loader2 className="h-4 w-4 animate-spin" />
                     Authenticating...
                   </>
                 ) : (
-                  <>
-                    Access Dashboard
-                    <ChevronRight className="h-4 w-4" />
-                  </>
+                  'Log In'
                 )}
-              </Button>
+              </button>
             </div>
 
-            {/* Session info — minimal */}
-            <div className="mt-5 pt-4 border-t border-border/50">
-              <div className="flex items-center justify-center text-[10px] text-muted-foreground">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>Secure connection</span>
-                </div>
+            {/* Secure connection indicator */}
+            <div className="mt-6 pt-4 border-t border-border">
+              <div className="flex items-center justify-center text-xs text-muted-foreground gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span>Secure connection</span>
               </div>
             </div>
           </div>
@@ -266,7 +232,7 @@ export function AdminPage() {
     )
   }
 
-  // Admin panel
+  // Admin panel with sidebar layout
   const renderAdminContent = () => {
     switch (adminPage) {
       case 'dashboard':
@@ -285,47 +251,95 @@ export function AdminPage() {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-            <Shield className="h-4.5 w-4.5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">Admin Panel</h1>
-            <p className="text-[10px] text-muted-foreground">Authenticated session active</p>
+    <div className="admin-layout">
+      {/* Mobile sidebar overlay */}
+      {mobileSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 lg:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside className={`admin-sidebar ${mobileSidebarOpen ? 'admin-sidebar-open' : ''}`}>
+        {/* Logo area */}
+        <div className="admin-sidebar-header">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <Tv className="h-5 w-5 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-base font-bold tracking-tight leading-none">GenZ TV</h1>
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 mt-1 font-medium">Admin</Badge>
+            </div>
+            <button
+              onClick={() => setMobileSidebarOpen(false)}
+              className="lg:hidden p-1.5 rounded-lg hover:bg-secondary transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleLogout}
-          className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-2"
-        >
-          <LogOut className="h-3.5 w-3.5" />
-          Logout
-        </Button>
-      </div>
 
-      {/* Admin Tabs */}
-      <div className="flex gap-2 overflow-x-auto scroll-row pb-2">
-        {adminTabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setAdminPage(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all btn-press ${
-              adminPage === tab.id
-                ? 'bg-foreground text-background'
-                : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-            }`}
+        {/* Navigation */}
+        <nav className="admin-sidebar-nav">
+          {sidebarNavItems.map((item) => {
+            const Icon = item.icon
+            const isActive = adminPage === item.id
+            return (
+              <button
+                key={item.id}
+                onClick={() => setAdminPage(item.id)}
+                className={`admin-sidebar-nav-item ${isActive ? 'admin-sidebar-nav-item-active' : ''}`}
+              >
+                <Icon className="h-[18px] w-[18px] shrink-0" />
+                <span>{item.label}</span>
+              </button>
+            )
+          })}
+        </nav>
+
+        {/* Sidebar footer */}
+        <div className="admin-sidebar-footer">
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground mb-3 px-1">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Session active</span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleLogout}
+            className="w-full text-destructive hover:text-destructive hover:bg-destructive/10 gap-2 h-9 text-xs"
           >
-            <span>{tab.icon}</span>
-            {tab.label}
-          </button>
-        ))}
-      </div>
+            <LogOut className="h-3.5 w-3.5" />
+            Logout
+          </Button>
+        </div>
+      </aside>
 
-      {renderAdminContent()}
+      {/* Main content area */}
+      <main className="admin-content">
+        {/* Mobile header bar */}
+        <div className="admin-mobile-header lg:hidden">
+          <button
+            onClick={() => setMobileSidebarOpen(true)}
+            className="p-2 rounded-lg hover:bg-secondary transition-colors"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="flex items-center gap-2">
+            <Tv className="h-4 w-4 text-primary" />
+            <span className="text-sm font-bold">GenZ TV</span>
+            <Badge variant="secondary" className="text-[9px] px-1.5 py-0">Admin</Badge>
+          </div>
+          <div className="w-9" /> {/* Spacer for centering */}
+        </div>
+
+        {/* Page content */}
+        <div className="admin-page-content">
+          {renderAdminContent()}
+        </div>
+      </main>
     </div>
   )
 }
