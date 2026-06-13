@@ -19,7 +19,24 @@ export function IframePlayer({ src, onReady, onError }: IframePlayerProps) {
     return input
   }
 
-  const url = getSrcUrl(src)
+  // Add autoplay parameters to URL if not already present
+  const addAutoplay = (url: string): string => {
+    if (!url) return url
+    try {
+      const parsed = new URL(url)
+      // Only add autoplay to external URLs (not our proxy URLs)
+      if (parsed.origin === window.location.origin) return url
+      // Don't add if already present
+      if (parsed.hash.includes('autoplay') || parsed.searchParams.has('autoplay')) return url
+      // Add autoplay=1 to hash (common for Clappr/video.js embeds)
+      parsed.hash = parsed.hash ? `${parsed.hash}&autoplay=1` : '#autoplay=1'
+      return parsed.toString()
+    } catch {
+      return url
+    }
+  }
+
+  const url = addAutoplay(getSrcUrl(src))
 
   // ── Popup / Ad Blocker (Parent-level) ──
   // Since the iframe is cross-origin, we can't inject scripts inside it.
@@ -118,7 +135,7 @@ export function IframePlayer({ src, onReady, onError }: IframePlayerProps) {
         // Ad blocking is handled via parent-level window.open override + focus management.
         allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
         allowFullScreen
-        referrerPolicy="no-referrer"
+        referrerPolicy="origin"
         onLoad={() => onReady?.()}
         onError={() => onError?.('Failed to load iframe')}
       />

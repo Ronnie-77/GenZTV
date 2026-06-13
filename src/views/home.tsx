@@ -165,8 +165,12 @@ export function HomePage() {
                     if (apkUrl) {
                       const a = document.createElement('a')
                       a.href = apkUrl
-                      a.download = ''
+                      // Extract filename from URL for proper download
+                      const fileName = apkUrl.split('/').pop() || 'app.apk'
+                      a.download = fileName
+                      document.body.appendChild(a)
                       a.click()
+                      document.body.removeChild(a)
                     }
                   }}
                 >

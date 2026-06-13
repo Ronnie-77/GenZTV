@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Settings, Save, RefreshCw, Globe, Tv, Monitor, Shield, Database, Download, Upload, X, FileArchive, Trash2, Megaphone, Plus, Code, Eye, EyeOff, GripVertical } from 'lucide-react'
+import { Settings, Save, RefreshCw, Globe, Tv, Monitor, Shield, Database, Download, Upload, X, FileArchive, Trash2, Megaphone, Plus, Code, Eye, EyeOff, GripVertical, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
@@ -26,6 +26,7 @@ export function AdminSettings() {
   const [seeding, setSeeding] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [loadFailed, setLoadFailed] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Form state
@@ -45,20 +46,38 @@ export function AdminSettings() {
   const [adScripts, setAdScripts] = useState<AdScript[]>([])
   const [editingAdScript, setEditingAdScript] = useState<string | null>(null)
 
+  // Retry-aware settings loader — the server might be compiling on first request
+  const loadSettings = async (retries = 2): Promise<AppSettings> => {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await fetchSettings()
+      } catch (err) {
+        if (attempt < retries) {
+          // Wait a bit and retry (server might still be compiling)
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+          continue
+        }
+        throw err
+      }
+    }
+    throw new Error('Failed after retries')
+  }
+
   useEffect(() => {
     async function load() {
       try {
         setLoading(true)
         // Load settings and channels independently — don't let one failure block the other
         const [sResult, chsResult] = await Promise.allSettled([
-          fetchSettings(),
+          loadSettings(),
           fetchChannels({ includeInactive: true }),
         ])
 
         if (sResult.status === 'rejected') {
           const reason = sResult.reason instanceof Error ? sResult.reason.message : String(sResult.reason)
           console.error('[AdminSettings] Failed to load settings:', reason)
-          toast.error('Error', { description: `Failed to load settings: ${reason}` })
+          toast.error('Failed to load settings', { description: `${reason}. Click the refresh button to try again.` })
+          setLoadFailed(true)
           setLoading(false)
           return
         }
@@ -97,7 +116,8 @@ export function AdminSettings() {
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error'
         console.error('[AdminSettings] Load error:', msg)
-        toast.error('Error', { description: `Failed to load settings: ${msg}` })
+        toast.error('Failed to load settings', { description: `${msg}. Click the refresh button to try again.` })
+        setLoadFailed(true)
       } finally {
         setLoading(false)
       }
@@ -108,7 +128,7 @@ export function AdminSettings() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      const updated = await updateSettings({
+      const data = {
         appName,
         logoUrl,
         maintenanceMode,
@@ -122,7 +142,28 @@ export function AdminSettings() {
         adsEnabled,
         homeAdsEnabled,
         videoAdsEnabled,
-      })
+      }
+
+      let updated: AppSettings | null = null
+      let lastError: Error | null = null
+
+      // Retry save up to 2 times (server might be compiling or temporarily unavailable)
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          updated = await updateSettings(data)
+          break
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err))
+          if (attempt < 2) {
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+          }
+        }
+      }
+
+      if (!updated) {
+        throw lastError || new Error('Failed to save settings')
+      }
+
       setSettings(updated)
       // Notify AppShell to re-check maintenance mode immediately
       localStorage.setItem('zeng-settings-updated', Date.now().toString())
@@ -271,6 +312,66 @@ export function AdminSettings() {
       <div className="flex flex-col items-center justify-center py-16">
         <RefreshCw className="h-8 w-8 text-muted-foreground animate-spin mb-3" />
         <p className="text-sm text-muted-foreground">Loading settings...</p>
+      </div>
+    )
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <AlertCircle className="h-8 w-8 text-destructive mb-3" />
+        <p className="text-sm font-medium mb-1">Failed to load settings</p>
+        <p className="text-xs text-muted-foreground mb-4">The server might be busy or starting up. Please try again.</p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setLoadFailed(false)
+            setLoading(true)
+            // Re-trigger the load
+            const reload = async () => {
+              try {
+                const s = await loadSettings()
+                setSettings(s)
+                setAppName(s.appName)
+                setLogoUrl(s.logoUrl)
+                setMaintenanceMode(s.maintenanceMode)
+                setFeaturedChannelId(s.featuredChannelId)
+                setHeroBannerText(s.heroBannerText)
+                setDefaultQuality(s.defaultQuality)
+                setApkUrl(s.apkUrl || '')
+                setAdsEnabled(s.adsEnabled ?? true)
+                setHomeAdsEnabled(s.homeAdsEnabled ?? true)
+                setVideoAdsEnabled(s.videoAdsEnabled ?? true)
+                try {
+                  const parsed = JSON.parse(s.customAdScripts || '[]')
+                  setAdScripts(Array.isArray(parsed) ? parsed : [])
+                } catch {
+                  setAdScripts([])
+                }
+                if (s.apkUrl) {
+                  const parts = s.apkUrl.split('/')
+                  setApkFileName(parts[parts.length - 1] || 'app.apk')
+                }
+                try {
+                  const chs = await fetchChannels({ includeInactive: true })
+                  setChannels(chs)
+                } catch {}
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : 'Unknown error'
+                toast.error('Failed to load settings', { description: msg })
+                setLoadFailed(true)
+              } finally {
+                setLoading(false)
+              }
+            }
+            reload()
+          }}
+          className="gap-1.5"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Retry
+        </Button>
       </div>
     )
   }

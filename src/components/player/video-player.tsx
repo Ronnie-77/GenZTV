@@ -84,10 +84,21 @@ interface TouchGesture {
   startVolume: number
 }
 
-// Route iframe/redirect URLs through our proxy for autoplay support
+// Route redirect URLs through our proxy for autoplay support
+// NOTE: iframe type now loads DIRECTLY (not through proxy) because many streaming
+// sites detect the proxy and show "Access Denied". The proxy breaks the page's
+// domain context — scripts inside the page use window.location.origin which
+// points to our domain instead of the original site, causing video CDN requests
+// to fail. Direct loading preserves the original domain context.
 function proxyIframeUrl(url: string): string {
   if (!url) return url
   return `/api/iframe-proxy?url=${encodeURIComponent(url)}`
+}
+
+// Load iframe URL directly — preserves original domain context so video players work
+function directIframeUrl(url: string): string {
+  if (!url) return url
+  return url
 }
 
 // Route all streams through Next.js stream-proxy.
@@ -108,7 +119,7 @@ function getInitialResolved(url: string, type: string): { resolvedUrl: string; r
   // Check for .ts URLs first — regardless of what type is stored
   if (type === 'mpegts' || isTsUrl(url)) return { resolvedUrl: proxyStreamUrl(url, 'mpegts'), resolvedType: 'mpegts' }
   if (type === 'redirect') return { resolvedUrl: proxyIframeUrl(url), resolvedType: 'iframe' }
-  if (type === 'iframe') return { resolvedUrl: proxyIframeUrl(url), resolvedType: 'iframe' }
+  if (type === 'iframe') return { resolvedUrl: directIframeUrl(url), resolvedType: 'iframe' }
   if (type === 'github_m3u') return { resolvedUrl: url, resolvedType: type } // resolved async
   if (type === 'direct' || type === 'm3u' || type === 'm3u8') {
     return { resolvedUrl: proxyStreamUrl(url, type), resolvedType: type === 'direct' ? 'm3u' : type }
@@ -253,8 +264,9 @@ export function VideoPlayer({
           setResolvedUrl(proxyStreamUrl(streamUrl, streamType))
           setResolvedType(streamType === 'direct' ? 'm3u' : streamType)
         } else if (streamType === 'iframe' && streamUrl) {
-          // Route iframe URLs through proxy for autoplay support
-          setResolvedUrl(proxyIframeUrl(streamUrl))
+          // Load iframe URLs directly — preserves original domain context
+          // (proxy causes "Access Denied" on sites that check origin)
+          setResolvedUrl(directIframeUrl(streamUrl))
           setResolvedType('iframe')
         } else {
           setResolvedUrl(streamUrl)
