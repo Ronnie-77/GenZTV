@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { HlsPlayer } from './hls-player'
 import type { QualityLevel, HlsStats, LiveStatus } from './hls-player'
 import { IframePlayer } from './iframe-player'
+import { TsPlayer } from './ts-player'
 import { PlayerControls } from './player-controls'
 import { RotateCw, Lock, Unlock } from 'lucide-react'
 
@@ -36,6 +37,19 @@ function IframeReloadHint() {
       Tap if video doesn&apos;t load
     </button>
   )
+}
+
+// Detect raw MPEG-TS stream URLs (.ts extension, not inside m3u8)
+function isTsUrl(url: string): boolean {
+  if (!url) return false
+  try {
+    const pathname = new URL(url).pathname
+    // Match .ts extension but NOT .m3u8 or playlist files
+    return /\.ts(\?.*)?$/.test(pathname) && !pathname.includes('.m3u8')
+  } catch {
+    // If URL parsing fails, do a simple check
+    return /\.ts(\?|$)/.test(url) && !url.includes('.m3u8')
+  }
 }
 
 interface VideoPlayerProps {
@@ -89,7 +103,7 @@ export function VideoPlayer({
   const [loading, setLoading] = useState(true)
   const [buffering, setBuffering] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [controlsVisible, setControlsVisible] = useState(streamType === 'iframe' ? false : true)
+  const [controlsVisible, setControlsVisible] = useState(streamType === 'iframe' || streamType === 'mpegts' ? false : true)
   const [controlsBusy, setControlsBusy] = useState(false)
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -99,6 +113,7 @@ export function VideoPlayer({
 
   // Determine player type early (derived from state, needed by hooks below)
   const isIframe = resolvedType === 'iframe'
+  const isMpegTs = resolvedType === 'mpegts'
   const isHls = resolvedType === 'm3u' || resolvedType === 'm3u8'
 
   // Auto-relock iframe after 10 seconds of being unlocked (prevents ongoing ad issues)
@@ -114,9 +129,9 @@ export function VideoPlayer({
     }
   }, [isIframe, iframeTouchLocked])
 
-  // For iframe: auto-hide controls after 3s desktop / 2.5s mobile if shown
+  // Auto-hide controls for iframe & mpegts after timeout
   useEffect(() => {
-    if (isIframe && controlsVisible && !controlsBusy) {
+    if ((isIframe || isMpegTs) && controlsVisible && !controlsBusy) {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
       const isMobile = typeof window !== 'undefined' && 'ontouchstart' in window
       hideTimerRef.current = setTimeout(() => {
@@ -126,7 +141,7 @@ export function VideoPlayer({
     return () => {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
     }
-  }, [isIframe, controlsVisible, controlsBusy])
+  }, [isIframe, isMpegTs, controlsVisible, controlsBusy])
 
   // HLS quality & stats state
   const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([])
@@ -155,7 +170,7 @@ export function VideoPlayer({
   const isIframeRef = useRef(isIframe)
   isIframeRef.current = isIframe
 
-  // Resolve GitHub M3U URLs
+  // Resolve stream URLs — detect .ts files and apply CORS proxy
   useEffect(() => {
     async function resolve() {
       if (streamType === 'github_m3u' && streamUrl) {
@@ -172,10 +187,16 @@ export function VideoPlayer({
           })
           const data = await res.json()
           if (data.channels && data.channels.length > 0) {
-            const streamUrl = data.channels[0].url
-            setResolvedUrl(streamUrl)
-            setResolvedType('m3u')
-            onStreamResolved?.(streamUrl)
+            const channelUrl = data.channels[0].url
+            // Detect if resolved URL is a .ts stream
+            if (isTsUrl(channelUrl)) {
+              setResolvedUrl(`/api/stream-proxy?url=${encodeURIComponent(channelUrl)}`)
+              setResolvedType('mpegts')
+            } else {
+              setResolvedUrl(channelUrl)
+              setResolvedType('m3u')
+            }
+            onStreamResolved?.(channelUrl)
           } else {
             setError('No streams found in M3U file')
           }
@@ -188,8 +209,18 @@ export function VideoPlayer({
         setResolvedType('iframe')
         setResolvedUrl(streamUrl)
       } else {
-        setResolvedUrl(streamUrl)
-        setResolvedType(streamType === 'direct' ? 'm3u' : streamType)
+        // Detect .ts URLs for MPEG-TS player
+        if (isTsUrl(streamUrl)) {
+          setResolvedUrl(`/api/stream-proxy?url=${encodeURIComponent(streamUrl)}`)
+          setResolvedType('mpegts')
+        } else if (streamType === 'direct' || streamType === 'm3u' || streamType === 'm3u8') {
+          // Use CORS proxy for HLS streams to bypass CORS
+          setResolvedUrl(`/api/stream-proxy?url=${encodeURIComponent(streamUrl)}`)
+          setResolvedType(streamType === 'direct' ? 'm3u' : streamType)
+        } else {
+          setResolvedUrl(streamUrl)
+          setResolvedType(streamType)
+        }
       }
     }
     resolve()
@@ -552,6 +583,21 @@ export function VideoPlayer({
             onLiveStatus={handleLiveStatus}
             seekToLive={seekToLive}
             onSeekedToLive={handleSeekedToLive}
+            onBuffering={handleBuffering}
+          />
+        </div>
+      )}
+
+      {/* MPEG-TS Player — for raw .ts streams using mpegts.js */}
+      {isMpegTs && resolvedUrl && (
+        <div className="absolute inset-0">
+          <TsPlayer
+            src={resolvedUrl}
+            onReady={handleReady}
+            onError={handleError}
+            onVideoRef={handleVideoRef}
+            volume={volume}
+            muted={muted}
             onBuffering={handleBuffering}
           />
         </div>
