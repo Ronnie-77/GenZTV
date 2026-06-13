@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 // GET /api/iframe-proxy?url=ENCODED_URL
-// Fetches an iframe URL, neutralizes ad scripts, injects popup-blocking &
-// auto-unmute scripts, then serves the sanitized HTML.
+// Fetches an iframe URL, neutralizes ad scripts, injects popup-blocking,
+// forced autoplay & auto-unmute scripts, then serves the sanitized HTML.
 export async function GET(req: NextRequest) {
   const url = req.nextUrl.searchParams.get('url')
   if (!url) {
@@ -16,8 +16,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid URL protocol' }, { status: 400 })
     }
 
-    // Fetch the original content
-    const response = await fetch(url, {
+    // Extract hash fragment from the original URL
+    const originalHash = parsedUrl.hash || ''
+
+    // Fetch the original content (hash is not sent to server, which is expected)
+    const fetchUrl = url.split('#')[0] // Remove hash for the actual fetch
+    const response = await fetch(fetchUrl, {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
@@ -40,7 +44,6 @@ export async function GET(req: NextRequest) {
     // ── Sanitize the HTML ──
 
     // 1. Neutralize aclib ad calls — replace the call with a no-op
-    //    Be careful to only target the specific script block containing aclib
     html = html.replace(
       /aclib\.runPop\s*\(\s*\{[^}]*\}\s*\)\s*;?/gi,
       '/* ad-blocked */'
@@ -83,14 +86,22 @@ export async function GET(req: NextRequest) {
       html = html.replace(/<head([^>]*)>/i, `<head$1>${baseTag}`)
     }
 
-    // 5. Inject our popup-blocking + auto-unmute script BEFORE </head>
+    // 5. Inject hash fragment restoration script at the VERY beginning of <head>
+    //    This ensures the embed page's JavaScript sees the correct hash (e.g. #player=clappr&autoplay=1)
+    const hashScript = originalHash ? `
+<script data-injected="genztv-hash">
+// Restore original URL hash so embed players can read their config (e.g. #player=clappr&autoplay=1)
+try { window.location.hash = ${JSON.stringify(originalHash)}; } catch(e) {}
+</script>
+` : ''
+
+    // 6. Inject our popup-blocking + forced autoplay + auto-unmute script BEFORE </head>
     const injectedScript = `
 <script data-injected="genztv">
 (function() {
   'use strict';
 
   // ── Block all popups from this page ──
-  // Override window.open before any other script runs
   window.open = function() { return null; };
   try {
     Object.defineProperty(window, 'open', {
@@ -153,21 +164,103 @@ export async function GET(req: NextRequest) {
     }
   }, true);
 
-  // ── Auto-unmute video elements ──
-  function tryUnmute() {
+  // ── Forced Autoplay + Auto-unmute ──
+  // Strategy: Start muted (browsers allow muted autoplay), then unmute on user interaction.
+  var hasUnmuted = false;
+
+  function forceAutoplay(video) {
+    if (!video || video._genzAutoplay) return;
+    video._genzAutoplay = true;
+
+    // Set attributes for autoplay
+    video.setAttribute('autoplay', '');
+    video.setAttribute('playsinline', '');
+    video.setAttribute('muted', '');
+    video.muted = true;
+    video.volume = 1;
+
+    // Try to play muted first (always allowed by browsers)
+    var playPromise = video.play();
+    if (playPromise !== undefined) {
+      playPromise.then(function() {
+        // Muted autoplay succeeded — now try to unmute
+        if (!hasUnmuted) {
+          tryUnmuteVideo(video);
+        }
+      }).catch(function() {
+        // Even muted autoplay failed — try again shortly
+        setTimeout(function() {
+          video.muted = true;
+          video.play().catch(function() {});
+        }, 500);
+      });
+    }
+
+    // Also listen for pause events and force resume (some embeds pause on load)
+    video.addEventListener('pause', function onPause() {
+      if (!hasUnmuted && video._genzAutoplay) {
+        setTimeout(function() {
+          if (video.paused && video._genzAutoplay) {
+            video.muted = true;
+            video.play().catch(function() {});
+          }
+        }, 200);
+      }
+    });
+
+    // Watch for when video actually starts playing
+    video.addEventListener('playing', function onPlaying() {
+      video.removeEventListener('playing', onPlaying);
+    });
+  }
+
+  function tryUnmuteVideo(video) {
+    if (hasUnmuted) return;
     try {
-      // Unmute videos in this document
+      video.muted = false;
+      video.volume = 1;
+      var p = video.play();
+      if (p !== undefined) {
+        p.then(function() {
+          hasUnmuted = true;
+        }).catch(function() {
+          // Browser requires interaction — stay muted, unmute on click
+          video.muted = true;
+          video.play().catch(function() {});
+        });
+      }
+    } catch(e) {
+      video.muted = true;
+    }
+  }
+
+  function tryAutoplayAndUnmute() {
+    try {
+      // Find and force-play all video elements
       var videos = document.querySelectorAll('video');
       videos.forEach(function(v) {
-        if (v.muted) {
-          v.muted = false;
-          v.volume = 1;
-          v.play().catch(function() {
-            // Browser requires interaction first — play muted, unmute on click
-            v.muted = true;
-            v.play().catch(function() {});
+        forceAutoplay(v);
+      });
+
+      // Click play buttons on embed players (Clappr, Video.js, etc.)
+      var playSelectors = [
+        '[class*="play"]', '[class*="Play"]',
+        '[aria-label*="play"]', '[aria-label*="Play"]',
+        '[title*="play"]', '[title*="Play"]',
+        '[data-play]', '.play-btn', '.vjs-big-play-button',
+        '.play-button', '[class*="play-btn"]',
+        '[class*="PlayBtn"]', '[class*="playButton"]',
+        'button[class*="play"]', 'div[class*="play-button"]'
+      ];
+      playSelectors.forEach(function(sel) {
+        try {
+          document.querySelectorAll(sel).forEach(function(btn) {
+            if (!btn._genzClicked) {
+              btn._genzClicked = true;
+              btn.click();
+            }
           });
-        }
+        } catch(e) {}
       });
 
       // Click unmute buttons
@@ -176,7 +269,8 @@ export async function GET(req: NextRequest) {
         '[aria-label*="unmute"]', '[aria-label*="Unmute"]',
         '[title*="unmute"]', '[title*="Unmute"]',
         '[data-unmute]', '.mute-btn', '.volume-btn', '.sound-btn',
-        '[class*="volume"]', '[class*="Volume"]'
+        '[class*="volume"]', '[class*="Volume"]',
+        '.vjs-mute-control', '.vjs-volume-menu-button'
       ];
       unmuteSelectors.forEach(function(sel) {
         try {
@@ -186,21 +280,24 @@ export async function GET(req: NextRequest) {
         } catch(e) {}
       });
 
-      // Try to unmute videos inside nested iframes (same-origin only)
+      // Try to autoplay/unmute videos inside nested iframes (same-origin only)
       var iframes = document.querySelectorAll('iframe');
       iframes.forEach(function(iframe) {
         try {
           var doc = iframe.contentDocument;
           if (doc) {
             doc.querySelectorAll('video').forEach(function(v) {
-              if (v.muted) {
-                v.muted = false;
-                v.volume = 1;
-                v.play().catch(function() {
-                  v.muted = true;
-                  v.play().catch(function() {});
+              forceAutoplay(v);
+            });
+            playSelectors.forEach(function(sel) {
+              try {
+                doc.querySelectorAll(sel).forEach(function(btn) {
+                  if (!btn._genzClicked) {
+                    btn._genzClicked = true;
+                    btn.click();
+                  }
                 });
-              }
+              } catch(e) {}
             });
             unmuteSelectors.forEach(function(sel) {
               try {
@@ -217,18 +314,99 @@ export async function GET(req: NextRequest) {
     } catch(e) {}
   }
 
-  // Try auto-unmute at intervals
-  setTimeout(tryUnmute, 1000);
-  setTimeout(tryUnmute, 2000);
-  setTimeout(tryUnmute, 3500);
-  setTimeout(tryUnmute, 5000);
-  setTimeout(tryUnmute, 8000);
+  // ── MutationObserver: force autoplay on dynamically added video elements ──
+  // Many embed players (Clappr, Video.js, etc.) create <video> elements dynamically.
+  // We watch for them and force autoplay as soon as they appear.
+  var autoplayObserver = new MutationObserver(function(mutations) {
+    var foundVideo = false;
+    mutations.forEach(function(mutation) {
+      mutation.addedNodes.forEach(function(node) {
+        if (node.nodeName === 'VIDEO') {
+          foundVideo = true;
+        } else if (node.querySelectorAll) {
+          if (node.querySelectorAll('video').length > 0) {
+            foundVideo = true;
+          }
+        }
+      });
+    });
+    if (foundVideo) {
+      // Small delay to let the player initialize the video element
+      setTimeout(tryAutoplayAndUnmute, 100);
+      setTimeout(tryAutoplayAndUnmute, 500);
+    }
+  });
 
-  // Also try on first user interaction
+  // Start observing as soon as DOM is ready
+  function startAutoplayObserver() {
+    if (document.body) {
+      autoplayObserver.observe(document.body, { childList: true, subtree: true });
+      // Also check for any existing videos
+      tryAutoplayAndUnmute();
+    } else {
+      document.addEventListener('DOMContentLoaded', function() {
+        autoplayObserver.observe(document.body, { childList: true, subtree: true });
+        tryAutoplayAndUnmute();
+      });
+    }
+  }
+  startAutoplayObserver();
+
+  // Try autoplay at intervals (catches delayed player initialization)
+  setTimeout(tryAutoplayAndUnmute, 500);
+  setTimeout(tryAutoplayAndUnmute, 1000);
+  setTimeout(tryAutoplayAndUnmute, 2000);
+  setTimeout(tryAutoplayAndUnmute, 3500);
+  setTimeout(tryAutoplayAndUnmute, 5000);
+  setTimeout(tryAutoplayAndUnmute, 8000);
+  setTimeout(tryAutoplayAndUnmute, 12000);
+
+  // On first user interaction: unmute all videos
   function onFirstInteraction() {
-    tryUnmute();
-    setTimeout(tryUnmute, 500);
-    setTimeout(tryUnmute, 1500);
+    hasUnmuted = true;
+    // Unmute all videos
+    document.querySelectorAll('video').forEach(function(v) {
+      v.muted = false;
+      v.volume = 1;
+      v.play().catch(function() {
+        // If unmuted play fails, keep muted
+        v.muted = true;
+        v.play().catch(function() {});
+      });
+    });
+    // Click unmute buttons
+    var unmuteSelectors = [
+      '[class*="unmute"]', '[class*="Unmute"]',
+      '[aria-label*="unmute"]', '[aria-label*="Unmute"]',
+      '[title*="unmute"]', '[title*="Unmute"]',
+      '[data-unmute]', '.mute-btn', '.volume-btn', '.sound-btn',
+      '[class*="volume"]', '[class*="Volume"]',
+      '.vjs-mute-control', '.vjs-volume-menu-button'
+    ];
+    unmuteSelectors.forEach(function(sel) {
+      try {
+        document.querySelectorAll(sel).forEach(function(btn) { btn.click(); });
+      } catch(e) {}
+    });
+    // Try nested iframes too
+    document.querySelectorAll('iframe').forEach(function(iframe) {
+      try {
+        var doc = iframe.contentDocument;
+        if (doc) {
+          doc.querySelectorAll('video').forEach(function(v) {
+            v.muted = false;
+            v.volume = 1;
+            v.play().catch(function() {});
+          });
+          unmuteSelectors.forEach(function(sel) {
+            try { doc.querySelectorAll(sel).forEach(function(btn) { btn.click(); }); } catch(e) {}
+          });
+        }
+      } catch(e) {}
+    });
+    tryAutoplayAndUnmute();
+    setTimeout(tryAutoplayAndUnmute, 500);
+    setTimeout(tryAutoplayAndUnmute, 1500);
     document.removeEventListener('click', onFirstInteraction);
     document.removeEventListener('touchstart', onFirstInteraction);
   }
@@ -259,15 +437,15 @@ export async function GET(req: NextRequest) {
   setTimeout(removeAds, 5000);
 
   // MutationObserver to remove dynamically added ad elements
-  var observer = new MutationObserver(function() {
+  var adObserver = new MutationObserver(function() {
     removeAds();
   });
 
   if (document.body) {
-    observer.observe(document.body, { childList: true, subtree: true });
+    adObserver.observe(document.body, { childList: true, subtree: true });
   } else {
     document.addEventListener('DOMContentLoaded', function() {
-      observer.observe(document.body, { childList: true, subtree: true });
+      adObserver.observe(document.body, { childList: true, subtree: true });
       removeAds();
     });
   }
@@ -275,6 +453,12 @@ export async function GET(req: NextRequest) {
 </script>
 `
 
+    // Inject hash script at the beginning of <head> (before any other scripts)
+    if (hashScript) {
+      html = html.replace(/<head([^>]*)>/i, `<head$1>${hashScript}`)
+    }
+
+    // Inject main script before </head>
     html = html.replace('</head>', injectedScript + '\n</head>')
 
     return new NextResponse(html, {

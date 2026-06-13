@@ -60,7 +60,7 @@ export function TsPlayer({
 
     let cancelled = false
     let retryCount = 0
-    const maxRetries = 3
+    const maxRetries = 5
 
     // Dynamically load mpegts.js (avoids SSR issues)
     loadMpegts().then((mpegtsLib) => {
@@ -84,24 +84,27 @@ export function TsPlayer({
         liveSyncDurationCount: 3,
         liveMaxLatencyDurationCount: 6,
 
-        // Buffer management
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        bufferSize: 60 * 1000 * 1000, // 60MB
+        // Buffer management — keep buffers small for live streams
+        maxBufferLength: 10,
+        maxMaxBufferLength: 30,
+        bufferSize: 30 * 1000 * 1000, // 30MB
 
         // Auto cleanup
         autoCleanupSourceBuffer: true,
-        autoCleanupMaxBackwardDuration: 30,
-        autoCleanupMinBackwardDuration: 10,
+        autoCleanupMaxBackwardDuration: 15,
+        autoCleanupMinBackwardDuration: 5,
 
         // Lazy load
         lazyLoad: true,
-        lazyLoadMaxDuration: 180,
+        lazyLoadMaxDuration: 60,
         lazyLoadRecoverDuration: 30,
 
         // Enable stash buffer for smoother playback
         enableStashBuffer: true,
-        stashInitialSize: 1024 * 384, // 384KB initial stash
+        stashInitialSize: 1024 * 256, // 256KB initial stash (smaller for live)
+
+        // Auto reconnection for live streams
+        liveStreamInfinity: true,
       })
 
       player.attachMediaElement(video)
@@ -156,7 +159,7 @@ export function TsPlayer({
         const errMsg = data?.info || data?.reason || 'MPEG-TS playback error'
 
         // Auto-retry for network/connection errors
-        if ((errorType === 'NetworkError' || errMsg.includes('network') || errMsg.includes('Network') || errMsg.includes('Early-EOF')) && retryCount < maxRetries) {
+        if ((errorType === 'NetworkError' || errMsg.includes('network') || errMsg.includes('Network') || errMsg.includes('Early-EOF') || errMsg.includes('timeout') || errMsg.includes('Interrupted')) && retryCount < maxRetries) {
           retryCount++
           console.log(`[TsPlayer] Auto-retry ${retryCount}/${maxRetries} after error: ${errMsg}`)
           const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 8000)
@@ -165,6 +168,7 @@ export function TsPlayer({
               try {
                 playerRef.current.unload()
                 playerRef.current.load()
+                playerRef.current.play()
               } catch {
                 onError?.(errMsg)
               }

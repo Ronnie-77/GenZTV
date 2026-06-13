@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, Fragment, useRef } from 'react'
-import { Plus, Trophy, Edit, Trash2, X, Check, RefreshCw, Play, Pencil, Tv, Calendar, Radio, Clock, Sparkles, Users, Settings2, ArrowDownUp, ChevronDown } from 'lucide-react'
+import { Plus, Trophy, Edit, Trash2, X, Check, RefreshCw, Play, Pencil, Tv, Calendar, Radio, Clock, Sparkles, Users, Settings2, ArrowDownUp, ChevronDown, GripVertical, ArrowUp, ArrowDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -262,16 +262,20 @@ interface StreamForm {
   name: string
   channel: string
   channelId: string
-  type: 'iframe' | 'direct' | 'redirect'
+  type: 'iframe' | 'direct' | 'redirect' | 'mpegts'
   url: string
 }
 
-function StreamInput({ stream, onUpdate, onRemove, channels, index }: {
+function StreamInput({ stream, onUpdate, onRemove, onMoveUp, onMoveDown, channels, index, isFirst, isLast }: {
   stream: StreamForm
   onUpdate: (s: StreamForm) => void
   onRemove: () => void
+  onMoveUp: () => void
+  onMoveDown: () => void
   channels: Channel[]
   index: number
+  isFirst: boolean
+  isLast: boolean
 }) {
   const [showChannelPicker, setShowChannelPicker] = useState(false)
   const [channelSearch, setChannelSearch] = useState('')
@@ -288,6 +292,7 @@ function StreamInput({ stream, onUpdate, onRemove, channels, index }: {
     if (ch.streamType === 'm3u') streamType = 'direct'
     else if (ch.streamType === 'iframe') streamType = 'iframe'
     else if (ch.streamType === 'redirect') streamType = 'redirect'
+    else if (ch.streamType === 'mpegts') streamType = 'mpegts'
 
     onUpdate({
       ...stream,
@@ -302,7 +307,39 @@ function StreamInput({ stream, onUpdate, onRemove, channels, index }: {
   }
 
   return (
-    <div className="relative p-3 bg-secondary/20 rounded-xl border border-border/50 hover:border-border transition-colors">
+    <div className="relative flex gap-1.5 p-3 bg-secondary/20 rounded-xl border border-border/50 hover:border-border transition-colors group">
+      {/* Grip handle + up/down buttons */}
+      <div className="flex flex-col items-center justify-center gap-0.5 shrink-0">
+        <div
+          className="cursor-grab active:cursor-grabbing p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+          title="Drag to reorder"
+        >
+          <GripVertical className="h-4 w-4" />
+        </div>
+        <div className="flex flex-col gap-px">
+          <button
+            type="button"
+            onClick={onMoveUp}
+            disabled={isFirst}
+            className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+            title="Move up"
+          >
+            <ArrowUp className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={onMoveDown}
+            disabled={isLast}
+            className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+            title="Move down"
+          >
+            <ArrowDown className="h-3 w-3" />
+          </button>
+        </div>
+      </div>
+
+      {/* Stream content */}
+      <div className="flex-1 min-w-0">
       {/* Stream header - Pick Channel on LEFT side */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2 flex-wrap">
@@ -390,6 +427,7 @@ function StreamInput({ stream, onUpdate, onRemove, channels, index }: {
                     <span className={`text-[9px] px-1.5 py-0.5 rounded capitalize ${
                       ch.streamType === 'iframe' ? 'bg-blue-500/10 text-blue-400' :
                       ch.streamType === 'm3u' ? 'bg-green-500/10 text-green-400' :
+                      ch.streamType === 'mpegts' ? 'bg-purple-500/10 text-purple-400' :
                       'bg-orange-500/10 text-orange-400'
                     }`}>
                       {ch.streamType}
@@ -417,6 +455,7 @@ function StreamInput({ stream, onUpdate, onRemove, channels, index }: {
         >
           <option value="iframe">iFrame</option>
           <option value="direct">Direct (M3U8)</option>
+          <option value="mpegts">MPEG-TS (.ts)</option>
           <option value="redirect">Redirect</option>
         </select>
         <Input
@@ -426,6 +465,7 @@ function StreamInput({ stream, onUpdate, onRemove, channels, index }: {
           className="h-8 text-xs"
         />
       </div>
+      </div>{/* end flex-1 min-w-0 */}
     </div>
   )
 }
@@ -551,14 +591,17 @@ export function AdminMatches() {
   const formRef = useRef<HTMLDivElement>(null)
 
   // Filter channels by sport type
+  // Categories are comma-separated strings like "sports,cricket", "sports,football", "sports"
   const sportFilteredChannels = allChannels.filter(ch => {
+    const cats = ch.category.split(',').map(c => c.trim().toLowerCase())
     if (sportType === 'football') {
-      return ch.category === 'football' || ch.category === 'sports'
+      return cats.includes('football') || cats.includes('sports')
     }
     if (sportType === 'cricket') {
-      return ch.category === 'cricket' || ch.category === 'sports'
+      return cats.includes('cricket') || cats.includes('sports')
     }
-    return ch.category === 'sports'
+    // For other sport types, include channels that match the sport or are general sports
+    return cats.includes(sportType) || cats.includes('sports')
   })
 
   // Sort matches: live first, then upcoming, then ended (within each group, earliest startTime first)
@@ -634,7 +677,7 @@ export function AdminMatches() {
       name: s.name,
       channel: s.channel,
       channelId: '',
-      type: s.type as 'iframe' | 'direct' | 'redirect',
+      type: s.type as 'iframe' | 'direct' | 'redirect' | 'mpegts',
       url: s.url,
     })))
     setShowForm(true)
@@ -729,6 +772,14 @@ export function AdminMatches() {
     if (streams.length > 1) {
       setStreams(streams.filter((_, i) => i !== index))
     }
+  }
+
+  const moveStream = (fromIndex: number, toIndex: number) => {
+    if (toIndex < 0 || toIndex >= streams.length) return
+    const newStreams = [...streams]
+    const [moved] = newStreams.splice(fromIndex, 1)
+    newStreams.splice(toIndex, 0, moved)
+    setStreams(newStreams)
   }
 
   return (
@@ -966,12 +1017,16 @@ export function AdminMatches() {
               <div className="space-y-2">
                 {streams.map((stream, index) => (
                   <StreamInput
-                    key={index}
+                    key={`stream-${index}-${streams.length}`}
                     stream={stream}
                     index={index}
                     onUpdate={(s) => updateStream(index, s)}
                     onRemove={() => removeStream(index)}
+                    onMoveUp={() => moveStream(index, index - 1)}
+                    onMoveDown={() => moveStream(index, index + 1)}
                     channels={sportFilteredChannels}
+                    isFirst={index === 0}
+                    isLast={index === streams.length - 1}
                   />
                 ))}
                 <Button

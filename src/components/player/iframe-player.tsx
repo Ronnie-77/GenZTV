@@ -15,7 +15,7 @@ export function IframePlayer({ src, onReady, onError }: IframePlayerProps) {
   const getSrcUrl = (input: string): string => {
     const srcMatch = input.match(/src=["']([^"']+)["']/)
     if (srcMatch) return srcMatch[1]
-    if (input.startsWith('http') || input.startsWith('/')) return input
+    if (input.startsWith('http') || input.startsWith('/') || input.startsWith('/api/')) return input
     return input
   }
 

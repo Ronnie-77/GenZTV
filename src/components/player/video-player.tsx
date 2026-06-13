@@ -84,14 +84,34 @@ interface TouchGesture {
   startVolume: number
 }
 
+// Route iframe/redirect URLs through our proxy for autoplay support
+function proxyIframeUrl(url: string): string {
+  if (!url) return url
+  return `/api/iframe-proxy?url=${encodeURIComponent(url)}`
+}
+
+// Route all streams through Next.js stream-proxy.
+// Previously, live .ts streams used a dedicated mini-service on port 3031,
+// but that caused dependency issues when the service wasn't running.
+// The Next.js stream-proxy handles all stream types reliably.
+function proxyStreamUrl(url: string, type: string): string {
+  if (!url) return url
+  // All streams (mpegts, m3u8, direct) → Next.js stream-proxy
+  return `/api/stream-proxy?url=${encodeURIComponent(url)}`
+}
+
 // Compute initial resolved URL & type synchronously to avoid flash of wrong URL
+// IMPORTANT: .ts URL detection must come BEFORE type-based routing, because
+// the stream type in the database might be incorrectly set (e.g. 'iframe' for a .ts URL)
 function getInitialResolved(url: string, type: string): { resolvedUrl: string; resolvedType: string } {
   if (!url) return { resolvedUrl: url, resolvedType: type }
-  if (type === 'redirect') return { resolvedUrl: url, resolvedType: 'iframe' }
+  // Check for .ts URLs first — regardless of what type is stored
+  if (type === 'mpegts' || isTsUrl(url)) return { resolvedUrl: proxyStreamUrl(url, 'mpegts'), resolvedType: 'mpegts' }
+  if (type === 'redirect') return { resolvedUrl: proxyIframeUrl(url), resolvedType: 'iframe' }
+  if (type === 'iframe') return { resolvedUrl: proxyIframeUrl(url), resolvedType: 'iframe' }
   if (type === 'github_m3u') return { resolvedUrl: url, resolvedType: type } // resolved async
-  if (isTsUrl(url)) return { resolvedUrl: `/api/stream-proxy?url=${encodeURIComponent(url)}`, resolvedType: 'mpegts' }
   if (type === 'direct' || type === 'm3u' || type === 'm3u8') {
-    return { resolvedUrl: `/api/stream-proxy?url=${encodeURIComponent(url)}`, resolvedType: type === 'direct' ? 'm3u' : type }
+    return { resolvedUrl: proxyStreamUrl(url, type), resolvedType: type === 'direct' ? 'm3u' : type }
   }
   return { resolvedUrl: url, resolvedType: type }
 }
@@ -222,16 +242,20 @@ export function VideoPlayer({
         }
       } else if (streamType === 'redirect' && streamUrl) {
         setResolvedType('iframe')
-        setResolvedUrl(streamUrl)
+        setResolvedUrl(proxyIframeUrl(streamUrl))
       } else {
-        // Detect .ts URLs for MPEG-TS player
-        if (isTsUrl(streamUrl)) {
-          setResolvedUrl(`/api/stream-proxy?url=${encodeURIComponent(streamUrl)}`)
+        // Detect .ts URLs for MPEG-TS player (or explicit mpegts type)
+        if (streamType === 'mpegts' || isTsUrl(streamUrl)) {
+          setResolvedUrl(proxyStreamUrl(streamUrl, 'mpegts'))
           setResolvedType('mpegts')
         } else if (streamType === 'direct' || streamType === 'm3u' || streamType === 'm3u8') {
           // Use CORS proxy for HLS streams to bypass CORS
-          setResolvedUrl(`/api/stream-proxy?url=${encodeURIComponent(streamUrl)}`)
+          setResolvedUrl(proxyStreamUrl(streamUrl, streamType))
           setResolvedType(streamType === 'direct' ? 'm3u' : streamType)
+        } else if (streamType === 'iframe' && streamUrl) {
+          // Route iframe URLs through proxy for autoplay support
+          setResolvedUrl(proxyIframeUrl(streamUrl))
+          setResolvedType('iframe')
         } else {
           setResolvedUrl(streamUrl)
           setResolvedType(streamType)
