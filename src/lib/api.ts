@@ -231,7 +231,10 @@ export async function deleteCategory(id: string): Promise<void> {
 
 export async function fetchSettings(): Promise<AppSettings> {
   const res = await fetch(`${BASE}/settings`)
-  if (!res.ok) throw new Error('Failed to fetch settings')
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Failed to fetch settings (HTTP ${res.status}): ${text || res.statusText}`)
+  }
   return res.json()
 }
 
@@ -241,7 +244,10 @@ export async function updateSettings(data: Partial<AppSettings>): Promise<AppSet
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
-  if (!res.ok) throw new Error('Failed to update settings')
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Failed to update settings (HTTP ${res.status}): ${text || res.statusText}`)
+  }
   return res.json()
 }
 

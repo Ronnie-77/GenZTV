@@ -56,7 +56,9 @@ export function AdminSettings() {
         ])
 
         if (sResult.status === 'rejected') {
-          toast.error('Error', { description: 'Failed to load settings — please refresh' })
+          const reason = sResult.reason instanceof Error ? sResult.reason.message : String(sResult.reason)
+          console.error('[AdminSettings] Failed to load settings:', reason)
+          toast.error('Error', { description: `Failed to load settings: ${reason}` })
           setLoading(false)
           return
         }
@@ -92,8 +94,10 @@ export function AdminSettings() {
           // Channels failed to load — still allow settings to work
           console.error('Failed to load channels:', chsResult.reason)
         }
-      } catch {
-        toast.error('Error', { description: 'Failed to load settings — please refresh' })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error'
+        console.error('[AdminSettings] Load error:', msg)
+        toast.error('Error', { description: `Failed to load settings: ${msg}` })
       } finally {
         setLoading(false)
       }
@@ -124,8 +128,14 @@ export function AdminSettings() {
       localStorage.setItem('zeng-settings-updated', Date.now().toString())
       window.dispatchEvent(new CustomEvent('zeng-settings-changed'))
       toast.success('Settings Saved', { description: 'App settings have been updated successfully' })
-    } catch {
-      toast.error('Error', { description: 'Failed to save settings' })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      console.error('[AdminSettings] Save error:', msg)
+      if (msg.includes('Unauthorized') || msg.includes('401')) {
+        toast.error('Session Expired', { description: 'Please log in again and try' })
+      } else {
+        toast.error('Error', { description: `Failed to save settings: ${msg}` })
+      }
     } finally {
       setSaving(false)
     }

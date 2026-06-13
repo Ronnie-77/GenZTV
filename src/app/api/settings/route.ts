@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { requireAdminAuth } from '@/lib/auth'
+import { isAdminAuthenticated } from '@/lib/auth'
 
-// GET /api/settings
+// GET /api/settings — public read (needed for maintenance mode check, app name, etc.)
 export async function GET() {
   try {
     let settings = await db.appSetting.findUnique({ where: { id: 'app' } })
@@ -11,16 +11,23 @@ export async function GET() {
     }
     return NextResponse.json(settings)
   } catch (error) {
-    console.error('Error fetching settings:', error)
+    console.error('[Settings] Error fetching settings:', error)
     return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 })
   }
 }
 
 // PUT /api/settings — update settings (admin only)
 export async function PUT(req: NextRequest) {
-  return requireAdminAuth(req, async () => {
   try {
+    // Check admin auth
+    const authenticated = await isAdminAuthenticated(req)
+    if (!authenticated) {
+      console.warn('[Settings] Unauthorized PUT attempt — session may have expired')
+      return NextResponse.json({ error: 'Unauthorized — please log in again' }, { status: 401 })
+    }
+
     const body = await req.json()
+
     const settings = await db.appSetting.upsert({
       where: { id: 'app' },
       update: {
@@ -57,8 +64,7 @@ export async function PUT(req: NextRequest) {
     })
     return NextResponse.json(settings)
   } catch (error) {
-    console.error('Error updating settings:', error)
+    console.error('[Settings] Error updating settings:', error)
     return NextResponse.json({ error: 'Failed to update settings' }, { status: 500 })
   }
-  })
 }

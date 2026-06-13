@@ -1,30 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { writeFile, unlink, mkdir } from 'fs/promises'
-import path from 'path'
+import { isAdminAuthenticated } from '@/lib/auth'
+import { writeFile, mkdir, unlink } from 'fs/promises'
+import { join } from 'path'
 import { existsSync } from 'fs'
-import { db } from '@/lib/db'
-import { requireAdminAuth } from '@/lib/auth'
 
-// Allow large file uploads for APK files
-export const runtime = 'nodejs'
-export const maxDuration = 300 // 5 minutes timeout for large uploads
-
-// POST /api/upload/apk (admin only)
+// POST /api/upload/apk — upload APK file (admin only)
 export async function POST(req: NextRequest) {
-  return requireAdminAuth(req, async () => {
   try {
-    // Parse form data with error handling
-    let formData: FormData
-    try {
-      formData = await req.formData()
-    } catch {
-      return NextResponse.json({ error: 'Failed to parse upload data' }, { status: 400 })
+    // Check admin auth
+    const authenticated = await isAdminAuthenticated(req)
+    if (!authenticated) {
+      return NextResponse.json({ error: 'Unauthorized — please log in again' }, { status: 401 })
     }
 
+    const formData = await req.formData()
     const file = formData.get('apk') as File | null
 
     if (!file) {
-      return NextResponse.json({ error: 'No file uploaded' }, { status: 400 })
+      return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
 
     // Validate file type
@@ -33,42 +26,28 @@ export async function POST(req: NextRequest) {
     }
 
     // Validate file size (max 200MB)
-    if (file.size > 200 * 1024 * 1024) {
+    const MAX_SIZE = 200 * 1024 * 1024
+    if (file.size > MAX_SIZE) {
       return NextResponse.json({ error: 'File too large (max 200MB)' }, { status: 400 })
     }
 
     // Ensure uploads directory exists
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads')
+    const uploadsDir = join(process.cwd(), 'public', 'uploads')
     if (!existsSync(uploadsDir)) {
       await mkdir(uploadsDir, { recursive: true })
     }
 
-    // Delete old APK files
-    try {
-      const { readdir } = await import('fs/promises')
-      const existingFiles = await readdir(uploadsDir)
-      for (const f of existingFiles) {
-        if (f.endsWith('.apk')) {
-          await unlink(path.join(uploadsDir, f))
-        }
-      }
-    } catch {
-      // ignore errors
-    }
+    // Generate safe filename
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const fileName = `${Date.now()}-${safeName}`
+    const filePath = join(uploadsDir, fileName)
 
-    // Save new file
-    const fileName = `app-${Date.now()}.apk`
-    const filePath = path.join(uploadsDir, fileName)
-    const buffer = Buffer.from(await file.arrayBuffer())
-    await writeFile(filePath, buffer)
+    // Write file
+    const bytes = await file.arrayBuffer()
+    await writeFile(filePath, Buffer.from(bytes))
 
-    // Update settings with the new APK URL
+    // Return the public URL
     const apkUrl = `/uploads/${fileName}`
-    await db.appSetting.upsert({
-      where: { id: 'app' },
-      update: { apkUrl },
-      create: { id: 'app', apkUrl },
-    })
 
     return NextResponse.json({
       success: true,
@@ -77,41 +56,41 @@ export async function POST(req: NextRequest) {
       size: file.size,
     })
   } catch (error) {
-    console.error('Error uploading APK:', error)
+    console.error('[Upload/APK] Error:', error)
     return NextResponse.json({ error: 'Failed to upload APK' }, { status: 500 })
   }
-  })
 }
 
-// DELETE /api/upload/apk (admin only)
+// DELETE /api/upload/apk — delete the uploaded APK (admin only)
 export async function DELETE(req: NextRequest) {
-  return requireAdminAuth(req, async () => {
   try {
-    // Remove APK from settings and delete file
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads')
-    try {
-      const { readdir } = await import('fs/promises')
-      const existingFiles = await readdir(uploadsDir)
-      for (const f of existingFiles) {
-        if (f.endsWith('.apk')) {
-          await unlink(path.join(uploadsDir, f))
-        }
-      }
-    } catch {
-      // ignore errors
+    const authenticated = await isAdminAuthenticated(req)
+    if (!authenticated) {
+      return NextResponse.json({ error: 'Unauthorized — please log in again' }, { status: 401 })
     }
 
-    // Clear APK URL in settings
-    await db.appSetting.upsert({
-      where: { id: 'app' },
-      update: { apkUrl: '' },
-      create: { id: 'app', apkUrl: '' },
-    })
+    // Get the current APK URL from settings to find the file
+    const { db } = await import('@/lib/db')
+    const settings = await db.appSetting.findUnique({ where: { id: 'app' } })
 
-    return NextResponse.json({ success: true })
+    if (settings?.apkUrl) {
+      const fileName = settings.apkUrl.split('/').pop()
+      if (fileName) {
+        const filePath = join(process.cwd(), 'public', 'uploads', fileName)
+        if (existsSync(filePath)) {
+          await unlink(filePath)
+        }
+      }
+      // Clear the APK URL in settings
+      await db.appSetting.update({
+        where: { id: 'app' },
+        data: { apkUrl: '' },
+      })
+    }
+
+    return NextResponse.json({ success: true, message: 'APK deleted' })
   } catch (error) {
-    console.error('Error deleting APK:', error)
+    console.error('[Upload/APK] Delete error:', error)
     return NextResponse.json({ error: 'Failed to delete APK' }, { status: 500 })
   }
-  })
 }
