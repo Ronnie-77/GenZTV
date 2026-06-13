@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useAppStore } from '@/lib/store'
-import { Shield, Eye, EyeOff, LogOut, AlertCircle, Loader2, Tv, BarChart3, Radio, FolderOpen, Settings, Menu, X } from 'lucide-react'
+import { Shield, Eye, EyeOff, LogOut, AlertCircle, Loader2, Tv, BarChart3, Radio, FolderOpen, Settings, Menu, X, Activity } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -11,9 +11,11 @@ import { AdminChannels } from '@/views/admin/channels'
 import { AdminMatches } from '@/views/admin/matches'
 import { AdminCategories } from '@/views/admin/categories'
 import { AdminSettings } from '@/views/admin/settings'
+import { AdminAnalytics } from '@/views/admin/analytics'
 
 const sidebarNavItems = [
   { id: 'dashboard' as const, label: 'Dashboard', icon: BarChart3 },
+  { id: 'analytics' as const, label: 'Analytics', icon: Activity },
   { id: 'channels' as const, label: 'Channels', icon: Tv },
   { id: 'matches' as const, label: 'Matches', icon: Radio },
   { id: 'categories' as const, label: 'Categories', icon: FolderOpen },
@@ -237,6 +239,8 @@ export function AdminPage() {
     switch (adminPage) {
       case 'dashboard':
         return <AdminDashboard />
+      case 'analytics':
+        return <AdminAnalytics />
       case 'channels':
         return <AdminChannels />
       case 'matches':

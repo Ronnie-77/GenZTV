@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useAppStore } from '@/lib/store'
+import { useAnalytics } from '@/lib/analytics'
 import { TopNav } from './top-nav'
 import { Sidebar } from './sidebar'
 import { BottomNav } from './bottom-nav'
@@ -221,6 +222,9 @@ function MaintenanceMode() {
 export function AppShell() {
   const { currentPage } = useAppStore()
   const mainRef = useRef<HTMLDivElement>(null)
+
+  // Track page views for analytics
+  useAnalytics()
   const [maintenanceMode, setMaintenanceMode] = useState(false)
 
   // Check maintenance mode on mount and periodically

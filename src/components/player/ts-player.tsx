@@ -13,6 +13,17 @@ async function loadMpegts() {
   return mpegts
 }
 
+// Detect if a URL is an HLS/m3u8 stream
+function isHlsUrl(url: string): boolean {
+  if (!url) return false
+  try {
+    const pathname = new URL(url).pathname
+    return pathname.includes('.m3u8') || pathname.includes('.m3u')
+  } catch {
+    return url.includes('.m3u8') || url.includes('.m3u')
+  }
+}
+
 interface TsPlayerProps {
   src: string
   onReady?: () => void
@@ -68,6 +79,19 @@ export function TsPlayer({
     let retryCount = 0
     const maxRetries = 5
 
+    // Determine stream type based on URL
+    const streamType = isHlsUrl(src) ? 'hls' : 'mpegts'
+    console.log(`[TsPlayer] Loading stream as ${streamType}: ${src}`)
+
+    // Startup timeout — if no video data after 25s, report error
+    const startupTimer = setTimeout(() => {
+      if (!cancelled && !readyFiredRef.current) {
+        console.error(`[TsPlayer] Startup timeout — no video data received after 25s`)
+        onError?.('Stream could not be loaded. The server may be offline or blocking connections.')
+        cleanup()
+      }
+    }, 25000)
+
     // Dynamically load mpegts.js (avoids SSR issues)
     loadMpegts().then((mpegtsLib) => {
       if (cancelled || !mpegtsLib) return
@@ -79,7 +103,7 @@ export function TsPlayer({
       }
 
       const player = mpegtsLib.createPlayer({
-        type: 'mpegts', // For .ts streams
+        type: streamType, // 'mpegts' for .ts streams, 'hls' for m3u8 streams
         url: src,
         isLive: true,
         cors: true,
@@ -114,6 +138,12 @@ export function TsPlayer({
 
         // Deinterlace
         ...(deinterlace ? { deinterlace: true } : {}),
+
+        // For HLS streams, add custom headers via XHR
+        ...(streamType === 'hls' ? {
+          // Custom loader for adding headers to HLS requests
+          customSeekHandler: undefined,
+        } : {}),
       })
 
       player.attachMediaElement(video)
@@ -127,6 +157,7 @@ export function TsPlayer({
       player.on(mpegtsLib.Events.METADATA_ARRIVED, () => {
         if (!readyFiredRef.current) {
           readyFiredRef.current = true
+          clearTimeout(startupTimer)
           onReady?.()
         }
       })
@@ -135,6 +166,7 @@ export function TsPlayer({
       const handleLoadedData = () => {
         if (!readyFiredRef.current) {
           readyFiredRef.current = true
+          clearTimeout(startupTimer)
           onReady?.()
         }
         video.removeEventListener('loadeddata', handleLoadedData)
@@ -165,7 +197,7 @@ export function TsPlayer({
         console.error('[TsPlayer] mpegts.js ERROR:', JSON.stringify(data))
 
         const errorType = data?.type
-        const errMsg = data?.info || data?.reason || 'MPEG-TS playback error'
+        const errMsg = data?.info || data?.reason || `${streamType.toUpperCase()} playback error`
 
         // Auto-retry for network/connection errors
         if ((errorType === 'NetworkError' || errMsg.includes('network') || errMsg.includes('Network') || errMsg.includes('Early-EOF') || errMsg.includes('timeout') || errMsg.includes('Interrupted')) && retryCount < maxRetries) {
@@ -191,7 +223,7 @@ export function TsPlayer({
 
       const handleVideoError = () => {
         const err = video.error
-        let msg = 'MPEG-TS playback error'
+        let msg = `${streamType.toUpperCase()} playback error`
         if (err) {
           switch (err.code) {
             case MediaError.MEDIA_ERR_ABORTED: msg = 'Playback aborted'; break
@@ -215,6 +247,7 @@ export function TsPlayer({
 
     return () => {
       cancelled = true
+      clearTimeout(startupTimer)
       cleanup()
     }
   }, [src, cleanup, onReady, onError, onVideoRef, onBuffering])

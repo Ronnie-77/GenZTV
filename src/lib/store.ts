@@ -16,6 +16,7 @@ export type PageName =
 
 export type AdminPage = 
   | 'dashboard' 
+  | 'analytics'
   | 'channels' 
   | 'matches' 
   | 'categories' 

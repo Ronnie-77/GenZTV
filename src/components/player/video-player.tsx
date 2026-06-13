@@ -158,6 +158,11 @@ export function VideoPlayer({
   const isMpegTs = resolvedType === 'mpegts'
   const isHls = resolvedType === 'm3u' || resolvedType === 'm3u8'
 
+  // HLS load mode tracking (proxy → direct → mpegts fallback chain)
+  const [hlsLoadMode, setHlsLoadMode] = useState<'proxy' | 'direct' | 'mpegts'>('proxy')
+  // When HLS falls back to mpegts mode, switch the player type
+  const [hlsFallbackMpegts, setHlsFallbackMpegts] = useState(false)
+
   // Auto-relock iframe after 10 seconds of being unlocked (prevents ongoing ad issues)
   useEffect(() => {
     if (isIframe && !iframeTouchLocked) {
@@ -217,6 +222,10 @@ export function VideoPlayer({
 
   // Screenshot toast
   const [screenshotFlash, setScreenshotFlash] = useState(false)
+
+  // Cursor visibility in fullscreen — show on mouse move, hide after inactivity
+  const [cursorVisible, setCursorVisible] = useState(true)
+  const cursorHideTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   // Swipe gesture state
   const [gestureIndicator, setGestureIndicator] = useState<{
@@ -300,13 +309,21 @@ export function VideoPlayer({
   // Show controls with auto-hide timer
   const showControls = useCallback(() => {
     setControlsVisible(true)
+    // Also show cursor in fullscreen when controls appear
+    if (fullscreen) {
+      setCursorVisible(true)
+      if (cursorHideTimerRef.current) clearTimeout(cursorHideTimerRef.current)
+      cursorHideTimerRef.current = setTimeout(() => {
+        setCursorVisible(false)
+      }, 3000)
+    }
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
     const isMobile = typeof window !== 'undefined' && 'ontouchstart' in window
     const hideDelay = isIframe ? (isMobile ? 2500 : 3000) : 3000
     hideTimerRef.current = setTimeout(() => {
       if ((isIframe || playing) && !controlsBusy) setControlsVisible(false)
     }, hideDelay)
-  }, [playing, controlsBusy, isIframe])
+  }, [playing, controlsBusy, isIframe, fullscreen])
 
   const toggleControlsVisibility = useCallback(() => {
     if (controlsVisible) {
@@ -319,7 +336,15 @@ export function VideoPlayer({
 
   const handleMouseMove = useCallback(() => {
     showControls()
-  }, [showControls])
+    // Show cursor in fullscreen mode, then hide after inactivity
+    if (fullscreen) {
+      setCursorVisible(true)
+      if (cursorHideTimerRef.current) clearTimeout(cursorHideTimerRef.current)
+      cursorHideTimerRef.current = setTimeout(() => {
+        setCursorVisible(false)
+      }, 3000)
+    }
+  }, [showControls, fullscreen])
 
   // ── Native touch event listeners for HLS swipe gestures (passive: false to prevent scroll) ──
   // React's synthetic onTouchMove is passive by default — e.preventDefault() doesn't work.
@@ -421,7 +446,17 @@ export function VideoPlayer({
     function handleFullscreenChange() {
       const isFullscreen = !!document.fullscreenElement
       setFullscreen(isFullscreen)
-      if (!isFullscreen) {
+      if (isFullscreen) {
+        // Entering fullscreen — start cursor hide timer
+        setCursorVisible(true)
+        if (cursorHideTimerRef.current) clearTimeout(cursorHideTimerRef.current)
+        cursorHideTimerRef.current = setTimeout(() => {
+          setCursorVisible(false)
+        }, 3000)
+      } else {
+        // Exiting fullscreen — show cursor and cancel timer
+        setCursorVisible(true)
+        if (cursorHideTimerRef.current) clearTimeout(cursorHideTimerRef.current)
         try {
           const screen = window.screen as ExtendedScreen
           screen.orientation.unlock?.()
@@ -495,6 +530,9 @@ export function VideoPlayer({
     setQualityLevels([])
     setHlsStats(null)
     setCurrentQuality(-1)
+    // Reset HLS fallback state
+    setHlsLoadMode('proxy')
+    setHlsFallbackMpegts(false)
     // Force player re-creation by toggling the URL
     const currentUrl = resolvedUrl
     setResolvedUrl('')
@@ -555,6 +593,25 @@ export function VideoPlayer({
 
   const handleBackToLive = useCallback(() => {
     setSeekToLive(true)
+  }, [])
+
+  // HLS load mode change handler — tracks proxy → direct → mpegts fallback
+  const handleHlsLoadModeChange = useCallback((mode: 'proxy' | 'direct' | 'mpegts') => {
+    console.log(`[video-player] HLS load mode changed: ${mode}`)
+    setHlsLoadMode(mode)
+    if (mode === 'direct') {
+      // Show loading indicator for direct connection attempt
+      setLoading(true)
+      setBuffering(true)
+    }
+  }, [])
+
+  // HLS requests mpegts.js fallback — switch player type
+  const handleRequestMpegts = useCallback(() => {
+    console.log('[video-player] Switching to mpegts.js for m3u8 stream')
+    setHlsFallbackMpegts(true)
+    // The original URL will be used directly via mpegts.js
+    // mpegts.js can handle m3u8 streams too (HLS format)
   }, [])
 
   // Screenshot handler
@@ -868,7 +925,7 @@ export function VideoPlayer({
     <div
       ref={containerRef}
       className={`relative bg-black overflow-hidden group ${
-        fullscreen ? 'fixed inset-0 z-50 cursor-none' : 'rounded-none md:rounded-2xl'
+        fullscreen ? `fixed inset-0 z-50 ${cursorVisible ? 'cursor-default' : 'cursor-none'}` : 'rounded-none md:rounded-2xl'
       }`}
       onMouseMove={handleMouseMove}
       onMouseLeave={() => {
@@ -897,8 +954,8 @@ export function VideoPlayer({
         </div>
       )}
 
-      {/* HLS Player — Native with hls.js + ABR + direct fallback */}
-      {isHls && resolvedUrl && (
+      {/* HLS Player — Native with hls.js + ABR + direct/mpegts fallback */}
+      {isHls && resolvedUrl && !hlsFallbackMpegts && (
         <div
           className="absolute inset-0 overflow-hidden"
           style={{
@@ -927,13 +984,15 @@ export function VideoPlayer({
             selectedAudioTrack={currentAudioTrack}
             onAudioTracks={handleAudioTracks}
             selectedSubtitleTrack={currentSubtitleTrack}
+            onLoadModeChange={handleHlsLoadModeChange}
+            onRequestMpegts={handleRequestMpegts}
             onSubtitleTracks={handleSubtitleTracks}
           />
         </div>
       )}
 
       {/* MPEG-TS Player — for raw .ts streams using mpegts.js */}
-      {isMpegTs && resolvedUrl && (
+      {(isMpegTs || hlsFallbackMpegts) && resolvedUrl && (
         <div
           className="absolute inset-0 overflow-hidden"
           style={{
@@ -943,7 +1002,7 @@ export function VideoPlayer({
           }}
         >
           <TsPlayer
-            src={resolvedUrl}
+            src={hlsFallbackMpegts ? streamUrl : resolvedUrl}
             onReady={handleReady}
             onError={handleError}
             onVideoRef={handleVideoRef}
@@ -1042,7 +1101,18 @@ export function VideoPlayer({
         </div>
       )}
 
-      {/* Loading/buffering indicator removed — no spinner animation */}
+      {/* Loading/buffering indicator with fallback mode info */}
+      {(loading || buffering) && !error && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none">
+          <div className="w-10 h-10 border-3 border-white/30 border-t-white rounded-full animate-spin mb-3" />
+          {isHls && hlsLoadMode !== 'proxy' && (
+            <div className="px-3 py-1.5 rounded-lg bg-black/60 backdrop-blur-sm text-white/80 text-xs">
+              {hlsLoadMode === 'direct' && '🔄 Trying direct connection...'}
+              {hlsLoadMode === 'mpegts' && '🔄 Trying alternative player...'}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Iframe reload hint — shows briefly for iframe mode */}
       {isIframe && !loading && !error && (
@@ -1072,6 +1142,7 @@ export function VideoPlayer({
         onBackToLive={handleBackToLive}
         isLoading={loading}
         hasError={!!error}
+        errorMessage={error || undefined}
         onRetry={handleRetry}
         visible={controlsVisible}
         onControlsBusy={setControlsBusy}

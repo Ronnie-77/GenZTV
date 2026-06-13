@@ -81,6 +81,7 @@ interface PlayerControlsProps {
   onBackToLive?: () => void
   isLoading?: boolean
   hasError?: boolean
+  errorMessage?: string
   onRetry?: () => void
   visible: boolean
   onControlsBusy?: (busy: boolean) => void
@@ -172,6 +173,7 @@ export function PlayerControls({
   onBackToLive,
   isLoading,
   hasError,
+  errorMessage,
   onRetry,
   visible,
   onControlsBusy,
@@ -659,9 +661,9 @@ export function PlayerControls({
         {/* Error overlay */}
         {hasError && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 pointer-events-auto">
-            <div className="flex flex-col items-center gap-2">
+            <div className="flex flex-col items-center gap-2 max-w-xs text-center">
               <AlertCircle className="h-8 w-8 text-red-400" />
-              <p className="text-white text-sm">Stream error</p>
+              <p className="text-white text-sm">{errorMessage || 'Stream error'}</p>
               {onRetry && (
                 <Button variant="outline" size="sm" onClick={onRetry} className="gap-1">
                   <RefreshCw className="h-3 w-3" />
@@ -703,9 +705,9 @@ export function PlayerControls({
       {/* Center play/pause button */}
       <div className="absolute inset-0 flex items-center justify-center">
         {hasError ? (
-          <div className="flex flex-col items-center gap-2">
+          <div className="flex flex-col items-center gap-2 max-w-xs text-center">
             <AlertCircle className="h-8 w-8 text-red-400" />
-            <p className="text-white text-sm">Stream error</p>
+            <p className="text-white text-sm">{errorMessage || 'Stream error'}</p>
             {onRetry && (
               <Button variant="outline" size="sm" onClick={onRetry} className="gap-1">
                 <RefreshCw className="h-3 w-3" />
@@ -846,6 +848,24 @@ export function PlayerControls({
               title="Screenshot (Shift+S)"
             >
               <Camera className="h-4.5 w-4.5 text-white" />
+            </button>
+          )}
+
+          {/* Subtitle toggle button */}
+          {hasSubtitleTracks && (
+            <button
+              onClick={() => {
+                // Toggle: if off → first track, if on → off
+                if (currentSubtitleTrack === -1) {
+                  onSubtitleTrackChange?.(0)
+                } else {
+                  onSubtitleTrackChange?.(-1)
+                }
+              }}
+              className={`p-1.5 rounded-full hover:bg-white/10 transition-colors ${currentSubtitleTrack >= 0 ? 'bg-white/20' : ''}`}
+              title={currentSubtitleTrack >= 0 ? 'Subtitles On — Click to turn off' : 'Subtitles Off — Click to turn on'}
+            >
+              <Subtitles className={`h-4.5 w-4.5 ${currentSubtitleTrack >= 0 ? 'text-primary' : 'text-white'}`} />
             </button>
           )}
 

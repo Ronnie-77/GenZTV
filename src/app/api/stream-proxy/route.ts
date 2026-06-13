@@ -15,12 +15,16 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const maxDuration = 300 // 5 minute timeout for live streams
 
-// Upstream request timeout (ms) — increased for slow/remote servers
-const UPSTREAM_TIMEOUT = 60000
+// Upstream request timeout (ms)
+// For m3u8 manifests, use very short timeout so player can fallback to direct mode quickly
+const UPSTREAM_TIMEOUT_MANIFEST = 6000 // 6s for m3u8 manifests (fail fast → fallback to direct)
+const UPSTREAM_TIMEOUT_SEGMENT = 60000 // 60s for segments (slower is ok)
+const UPSTREAM_TIMEOUT_LIVE = 60000 // 60s for live .ts streams
 
 // Retry configuration
-const MAX_RETRIES = 2
-const RETRY_DELAY_MS = 1500
+const MAX_RETRIES_MANIFEST = 0 // No retries for manifests (fail fast → let player fallback)
+const MAX_RETRIES_SEGMENT = 2 // 2 retries for segments
+const RETRY_DELAY_MS = 1000
 
 // Detect if a .ts URL is a live stream (not a VOD segment)
 function isLiveTsUrl(pathname: string): boolean {
@@ -32,11 +36,16 @@ function isLiveTsUrl(pathname: string): boolean {
 }
 
 // Helper: fetch with retry + timeout
-async function fetchWithRetry(fetchUrl: string, opts: RequestInit): Promise<Response> {
+async function fetchWithRetry(
+  fetchUrl: string,
+  opts: RequestInit,
+  timeoutMs: number = UPSTREAM_TIMEOUT_SEGMENT,
+  maxRetries: number = MAX_RETRIES_SEGMENT
+): Promise<Response> {
   let lastError: Error | null = null
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT)
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
     try {
       const res = await fetch(fetchUrl, { ...opts, signal: controller.signal })
       clearTimeout(timeout)
@@ -44,9 +53,9 @@ async function fetchWithRetry(fetchUrl: string, opts: RequestInit): Promise<Resp
     } catch (err) {
       clearTimeout(timeout)
       lastError = err instanceof Error ? err : new Error('Unknown error')
-      if (attempt < MAX_RETRIES) {
+      if (attempt < maxRetries) {
         const delay = RETRY_DELAY_MS * (attempt + 1)
-        console.log(`[stream-proxy] Retry ${attempt + 1}/${MAX_RETRIES} for ${fetchUrl} (waiting ${delay}ms)`)
+        console.log(`[stream-proxy] Retry ${attempt + 1}/${maxRetries} for ${fetchUrl} (waiting ${delay}ms)`)
         await new Promise(r => setTimeout(r, delay))
       }
     }
@@ -99,13 +108,13 @@ export async function GET(req: NextRequest) {
         response = await fetchWithRetry(url, {
           headers: fetchHeaders,
           redirect: 'follow',
-        })
+        }, UPSTREAM_TIMEOUT_LIVE, MAX_RETRIES_SEGMENT)
       } catch (fetchErr) {
         const msg = fetchErr instanceof Error ? fetchErr.message : 'Unknown fetch error'
         console.error(`[stream-proxy] Live TS fetch failed: ${msg}`)
         if (fetchErr instanceof DOMException && fetchErr.name === 'AbortError') {
           return NextResponse.json(
-            { error: `Upstream request timed out after ${UPSTREAM_TIMEOUT / 1000}s` },
+            { error: `Upstream request timed out after ${UPSTREAM_TIMEOUT_LIVE / 1000}s` },
             { status: 504 }
           )
         }
@@ -167,19 +176,22 @@ export async function GET(req: NextRequest) {
     }
 
     // Non-live requests: m3u8, VOD .ts segments, and other content
-    console.log(`[stream-proxy] Fetching: ${url} (m3u8=${isM3u8}, ts=${isTs})`)
+    // Use shorter timeout and fewer retries for m3u8 manifests to enable faster fallback
+    const fetchTimeout = isM3u8 ? UPSTREAM_TIMEOUT_MANIFEST : UPSTREAM_TIMEOUT_SEGMENT
+    const fetchRetries = isM3u8 ? MAX_RETRIES_MANIFEST : MAX_RETRIES_SEGMENT
+    console.log(`[stream-proxy] Fetching: ${url} (m3u8=${isM3u8}, ts=${isTs}, timeout=${fetchTimeout / 1000}s, retries=${fetchRetries})`)
     let response: Response
     try {
       response = await fetchWithRetry(url, {
         headers: fetchHeaders,
         redirect: 'follow',
-      })
+      }, fetchTimeout, fetchRetries)
     } catch (fetchErr) {
       const msg = fetchErr instanceof Error ? fetchErr.message : 'Unknown fetch error'
       console.error(`[stream-proxy] Fetch failed for ${url}: ${msg}`)
       if (fetchErr instanceof DOMException && fetchErr.name === 'AbortError') {
         return NextResponse.json(
-          { error: `Upstream request timed out after ${UPSTREAM_TIMEOUT / 1000}s` },
+          { error: `Upstream request timed out after ${fetchTimeout / 1000}s` },
           { status: 504 }
         )
       }

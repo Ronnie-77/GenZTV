@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Tv, Trophy, Eye, Heart, Radio, Clock, TrendingUp, Plus, Database, RefreshCw, Bell, Send, ArrowRight, Users } from 'lucide-react'
+import { Tv, Trophy, Eye, Heart, Radio, Clock, TrendingUp, Plus, Database, RefreshCw, Bell, Send, ArrowRight, Users, Wifi, BarChart3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useAppStore } from '@/lib/store'
@@ -17,6 +17,9 @@ export function AdminDashboard() {
   const [seeding, setSeeding] = useState(false)
   const [subscriberCount, setSubscriberCount] = useState<number | null>(null)
   const [sendingTest, setSendingTest] = useState(false)
+  const [onlineNow, setOnlineNow] = useState<number>(0)
+  const [todayViews, setTodayViews] = useState<number>(0)
+  const [todayVisitors, setTodayVisitors] = useState<number>(0)
 
   const loadData = async () => {
     try {
@@ -33,6 +36,17 @@ export function AdminDashboard() {
       fetch('/api/push/subscribers')
         .then(r => r.json())
         .then(data => setSubscriberCount(data.count))
+        .catch(() => {})
+      // Load real analytics data
+      fetch('/api/analytics/dashboard')
+        .then(r => r.json())
+        .then(data => {
+          if (data.today) {
+            setTodayViews(data.today.views || 0)
+            setTodayVisitors(data.today.uniqueVisitors || 0)
+          }
+          setOnlineNow(data.onlineNow || 0)
+        })
         .catch(() => {})
     } catch {
       // ignore
@@ -90,14 +104,15 @@ export function AdminDashboard() {
     }
   }
 
-  const stats = [
-    { icon: Tv, label: 'Total Channels', value: channels.length, color: 'text-emerald-600', bgColor: 'bg-emerald-500/10', iconBg: 'bg-emerald-500/15' },
-    { icon: Radio, label: 'Live Now', value: liveMatches.length, color: 'text-red-500', bgColor: 'bg-red-500/10', iconBg: 'bg-red-500/15' },
-    { icon: Eye, label: 'Total Views', value: totalViews.toLocaleString(), color: 'text-violet-600', bgColor: 'bg-violet-500/10', iconBg: 'bg-violet-500/15' },
-    { icon: Heart, label: 'Favorites', value: favCount, color: 'text-amber-600', bgColor: 'bg-amber-500/10', iconBg: 'bg-amber-500/15' },
+  const stats: Array<{ icon: typeof Tv; label: string; value: string | number; color: string; bgColor: string; iconBg: string; pulse?: boolean }> = [
+    { icon: Wifi, label: 'Online Now', value: onlineNow, color: 'text-emerald-600', bgColor: 'bg-emerald-500/10', iconBg: 'bg-emerald-500/15', pulse: onlineNow > 0 },
+    { icon: Eye, label: "Today's Views", value: todayViews.toLocaleString(), color: 'text-teal-600', bgColor: 'bg-teal-500/10', iconBg: 'bg-teal-500/15' },
+    { icon: Users, label: "Today's Visitors", value: todayVisitors.toLocaleString(), color: 'text-violet-600', bgColor: 'bg-violet-500/10', iconBg: 'bg-violet-500/15' },
+    { icon: Tv, label: 'Total Channels', value: channels.length, color: 'text-amber-600', bgColor: 'bg-amber-500/10', iconBg: 'bg-amber-500/15' },
   ]
 
   const quickActions = [
+    { label: 'Analytics', icon: BarChart3, page: 'analytics' as const, color: 'text-teal-600', bg: 'bg-teal-500/10' },
     { label: 'Add Channel', icon: Plus, page: 'channels' as const, color: 'text-emerald-600', bg: 'bg-emerald-500/10' },
     { label: 'Add Match', icon: Trophy, page: 'matches' as const, color: 'text-amber-600', bg: 'bg-amber-500/10' },
     { label: 'Manage Categories', icon: Database, page: 'categories' as const, color: 'text-violet-600', bg: 'bg-violet-500/10' },
@@ -122,7 +137,15 @@ export function AdminDashboard() {
                   <Icon className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-2xl font-bold tracking-tight">{loading ? '—' : stat.value}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-2xl font-bold tracking-tight">{loading ? '—' : stat.value}</p>
+                    {stat.pulse && (
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
                 </div>
               </div>
