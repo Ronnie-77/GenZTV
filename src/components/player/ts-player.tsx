@@ -20,6 +20,8 @@ interface TsPlayerProps {
   onVideoRef?: (video: HTMLVideoElement | null) => void
   volume?: number
   muted?: boolean
+  playbackRate?: number
+  aspectMode?: 'fit' | 'stretch' | 'crop' | '16:9' | '4:3'
   onBuffering?: (isBuffering: boolean) => void
 }
 
@@ -30,6 +32,8 @@ export function TsPlayer({
   onVideoRef,
   volume = 1,
   muted = false,
+  playbackRate = 1,
+  aspectMode = 'fit',
   onBuffering,
 }: TsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -210,18 +214,37 @@ export function TsPlayer({
     }
   }, [src, cleanup, onReady, onError, onVideoRef, onBuffering])
 
-  // Apply volume and muted
+  // Apply volume, muted, and playback rate
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
     video.volume = volume
     video.muted = muted
-  }, [volume, muted])
+    video.playbackRate = playbackRate
+  }, [volume, muted, playbackRate])
+
+  // Compute video style based on aspect mode
+  const videoStyle: React.CSSProperties = (() => {
+    switch (aspectMode) {
+      case 'stretch':
+        return { objectFit: 'fill' }
+      case 'crop':
+        return { objectFit: 'cover' }
+      case '16:9':
+        return { objectFit: 'contain', aspectRatio: '16/9' }
+      case '4:3':
+        return { objectFit: 'contain', aspectRatio: '4/3' }
+      case 'fit':
+      default:
+        return { objectFit: 'contain' }
+    }
+  })()
 
   return (
     <video
       ref={videoRef}
       className="w-full h-full"
+      style={videoStyle}
       playsInline
       autoPlay
     />

@@ -35,6 +35,8 @@ interface HlsPlayerProps {
   selectedQuality?: number // -1 = auto, 0+ = specific level index
   volume?: number
   muted?: boolean
+  playbackRate?: number // Playback speed: 0.5, 0.75, 1, 1.25, 1.5, 2
+  aspectMode?: 'fit' | 'stretch' | 'crop' | '16:9' | '4:3' // Video aspect ratio mode
   onLiveStatus?: (status: LiveStatus) => void
   seekToLive?: boolean // When true, seek to live edge
   onSeekedToLive?: () => void // Called after seeking to live
@@ -51,6 +53,8 @@ export function HlsPlayer({
   selectedQuality = -1,
   volume = 1,
   muted = false,
+  playbackRate = 1,
+  aspectMode = 'fit',
   onLiveStatus,
   seekToLive,
   onSeekedToLive,
@@ -292,13 +296,14 @@ export function HlsPlayer({
     }
   }, [selectedQuality])
 
-  // Apply volume and muted to video element
+  // Apply volume, muted, and playback rate to video element
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
     video.volume = volume
     video.muted = muted
-  }, [volume, muted])
+    video.playbackRate = playbackRate
+  }, [volume, muted, playbackRate])
 
   // Report live status periodically
   useEffect(() => {
@@ -333,10 +338,28 @@ export function HlsPlayer({
     onSeekedToLive?.()
   }, [seekToLive, onSeekedToLive])
 
+  // Compute video style based on aspect mode
+  const videoStyle: React.CSSProperties = (() => {
+    switch (aspectMode) {
+      case 'stretch':
+        return { objectFit: 'fill' } // Stretch to fill container
+      case 'crop':
+        return { objectFit: 'cover' } // Crop to fill, maintain aspect
+      case '16:9':
+        return { objectFit: 'contain', aspectRatio: '16/9' }
+      case '4:3':
+        return { objectFit: 'contain', aspectRatio: '4/3' }
+      case 'fit':
+      default:
+        return { objectFit: 'contain' } // Default: fit within container
+    }
+  })()
+
   return (
     <video
       ref={videoRef}
       className="w-full h-full"
+      style={videoStyle}
       playsInline
       autoPlay
     />

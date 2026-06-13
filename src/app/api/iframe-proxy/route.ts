@@ -3,11 +3,24 @@ import { NextRequest, NextResponse } from 'next/server'
 // GET /api/iframe-proxy?url=ENCODED_URL
 // Fetches an iframe URL, neutralizes ad scripts, injects popup-blocking,
 // forced autoplay & auto-unmute scripts, then serves the sanitized HTML.
+//
+// Improvements:
+// - Origin header sent matching upstream origin for better CDN compatibility
+// - AbortController with 15s timeout for upstream requests
+// - Better error handling and logging
+
+// Upstream request timeout (ms)
+const UPSTREAM_TIMEOUT = 15000
+
 export async function GET(req: NextRequest) {
   const url = req.nextUrl.searchParams.get('url')
   if (!url) {
     return NextResponse.json({ error: 'Missing url parameter' }, { status: 400 })
   }
+
+  // Create AbortController for upstream timeout
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT)
 
   try {
     // Validate URL
@@ -21,25 +34,49 @@ export async function GET(req: NextRequest) {
 
     // Fetch the original content (hash is not sent to server, which is expected)
     const fetchUrl = url.split('#')[0] // Remove hash for the actual fetch
-    const response = await fetch(fetchUrl, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        Referer: parsedUrl.origin + '/',
-      },
-      redirect: 'follow',
-    })
+    console.log(`[iframe-proxy] Fetching: ${fetchUrl}`)
+
+    let response: Response
+    try {
+      response = await fetch(fetchUrl, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          // Send Referer and Origin matching the upstream — many CDNs/streaming sites require these
+          Referer: parsedUrl.origin + '/',
+          Origin: parsedUrl.origin,
+        },
+        redirect: 'follow',
+        signal: controller.signal,
+      })
+    } catch (fetchErr) {
+      const msg = fetchErr instanceof Error ? fetchErr.message : 'Unknown fetch error'
+      console.error(`[iframe-proxy] Fetch failed for ${fetchUrl}: ${msg}`)
+      if (fetchErr instanceof DOMException && fetchErr.name === 'AbortError') {
+        return NextResponse.json(
+          { error: `Upstream request timed out after ${UPSTREAM_TIMEOUT / 1000}s` },
+          { status: 504 }
+        )
+      }
+      return NextResponse.json(
+        { error: `Failed to connect to upstream: ${msg}` },
+        { status: 502 }
+      )
+    }
 
     if (!response.ok) {
+      const bodyText = await response.text().catch(() => '')
+      console.error(`[iframe-proxy] Upstream error ${response.status} for ${fetchUrl}: ${bodyText.slice(0, 200)}`)
       return NextResponse.json(
-        { error: `Failed to fetch: ${response.status}` },
+        { error: `Failed to fetch: ${response.status}`, detail: bodyText.slice(0, 500) },
         { status: response.status }
       )
     }
 
     let html = await response.text()
+    console.log(`[iframe-proxy] Fetched ${html.length} bytes from ${fetchUrl}`)
 
     // ── Sanitize the HTML ──
 
@@ -466,16 +503,19 @@ try { window.location.hash = ${JSON.stringify(originalHash)}; } catch(e) {}
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'public, max-age=30, s-maxage=30',
+        // Override X-Frame-Options and CSP to allow embedding in our iframe
         'X-Frame-Options': 'ALLOWALL',
         'Content-Security-Policy':
           "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-src *; frame-ancestors *;",
       },
     })
   } catch (error) {
-    console.error('Iframe proxy error:', error)
+    console.error('[iframe-proxy] Unhandled error:', error)
     return NextResponse.json(
-      { error: 'Failed to proxy iframe content' },
+      { error: 'Failed to proxy iframe content', detail: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
+  } finally {
+    clearTimeout(timeout)
   }
 }

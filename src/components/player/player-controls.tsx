@@ -15,10 +15,35 @@ import {
   ChevronRight,
   Lock,
   Unlock,
+  Gauge,
+  Maximize2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import type { QualityLevel, HlsStats } from './hls-player'
+
+// Playback speed options (VLC-like)
+const PLAYBACK_SPEEDS = [
+  { value: 0.25, label: '0.25x' },
+  { value: 0.5, label: '0.5x' },
+  { value: 0.75, label: '0.75x' },
+  { value: 1, label: 'Normal' },
+  { value: 1.25, label: '1.25x' },
+  { value: 1.5, label: '1.5x' },
+  { value: 1.75, label: '1.75x' },
+  { value: 2, label: '2x' },
+]
+
+// Aspect ratio options
+const ASPECT_MODES = [
+  { value: 'fit' as const, label: 'Fit (Default)' },
+  { value: 'stretch' as const, label: 'Stretch' },
+  { value: 'crop' as const, label: 'Crop / Fill' },
+  { value: '16:9' as const, label: '16:9' },
+  { value: '4:3' as const, label: '4:3' },
+]
+
+type AspectMode = 'fit' | 'stretch' | 'crop' | '16:9' | '4:3'
 
 interface PlayerControlsProps {
   isPlaying: boolean
@@ -45,6 +70,11 @@ interface PlayerControlsProps {
   currentQuality?: number
   onQualityChange?: (level: number) => void
   hlsStats?: HlsStats | null
+  // VLC-like controls
+  playbackRate?: number
+  onPlaybackRateChange?: (rate: number) => void
+  aspectMode?: AspectMode
+  onAspectModeChange?: (mode: AspectMode) => void
   // Iframe mode — simplified controls
   isIframe?: boolean
   // Iframe touch lock (mobile) — blocks ad clicks
@@ -82,6 +112,10 @@ export function PlayerControls({
   currentQuality = -1,
   onQualityChange,
   hlsStats,
+  playbackRate = 1,
+  onPlaybackRateChange,
+  aspectMode = 'fit',
+  onAspectModeChange,
   isIframe = false,
   iframeTouchLocked = false,
   onToggleIframeTouchLock,
@@ -92,7 +126,7 @@ export function PlayerControls({
 
   // YouTube-style settings menu state
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsPage, setSettingsPage] = useState<'main' | 'quality' | 'stats'>('main')
+  const [settingsPage, setSettingsPage] = useState<'main' | 'quality' | 'speed' | 'aspect' | 'stats'>('main')
 
   // Effective settings visibility — auto-close when controls hide
   const effectiveSettingsOpen = visible && settingsOpen
@@ -136,18 +170,17 @@ export function PlayerControls({
     ? 'Auto'
     : qualityLevels.find(q => q.index === currentQuality)?.label.split(' · ')[0] || 'Auto'
 
+  // Speed label
+  const speedLabel = playbackRate === 1 ? 'Normal' : `${playbackRate}x`
+
+  // Aspect label
+  const aspectLabel = ASPECT_MODES.find(a => a.value === aspectMode)?.label || 'Fit'
+
   // ── Iframe Mode: Minimal Controls with auto-hide ──
-  // For iframe videos:
-  // - NO overlay covering the iframe (so iframe's own unmute/play buttons work)
-  // - ALL controls (gear, fullscreen, settings) auto-hide after 3s desktop / 2.5s mobile
-  // - Mouse move / tap on video area shows controls
-  // - Mouse leave / auto-timer hides controls
-  // - When hidden: pointer-events-none so ALL clicks pass through to iframe
   if (isIframe) {
     return (
       <>
         {/* Controls overlay — fades in/out based on visibility */}
-        {/* pointer-events-none on container so clicks pass through to iframe; only interactive elements have pointer-events-auto */}
         <div
           className={`absolute inset-0 z-10 transition-opacity duration-300 pointer-events-none ${
             visible ? 'opacity-100' : 'opacity-0'
@@ -206,9 +239,7 @@ export function PlayerControls({
             className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-8 pointer-events-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Main control buttons — fullscreen & settings */}
             <div className="flex items-center gap-1">
-              {/* Touch lock/unlock button (mobile iframe only) */}
               {iframeTouchLocked && onToggleIframeTouchLock && (
                 <button
                   onClick={onToggleIframeTouchLock}
@@ -229,11 +260,7 @@ export function PlayerControls({
                   <span className="text-[11px] text-green-400 font-medium">Lock</span>
                 </button>
               )}
-
-              {/* Spacer */}
               <div className="flex-1" />
-
-              {/* Settings gear */}
               {hlsStats && (
                 <button
                   onClick={() => {
@@ -246,8 +273,6 @@ export function PlayerControls({
                   <Settings className="h-5 w-5 text-white" />
                 </button>
               )}
-
-              {/* PiP */}
               {onTogglePiP && 'pictureInPictureEnabled' in document && (
                 <button
                   onClick={onTogglePiP}
@@ -257,8 +282,6 @@ export function PlayerControls({
                   <PictureInPicture2 className="h-5 w-5 text-white" />
                 </button>
               )}
-
-              {/* Fullscreen */}
               <button
                 onClick={onToggleFullscreen}
                 className="p-1.5 rounded-full hover:bg-white/10 transition-colors"
@@ -274,7 +297,7 @@ export function PlayerControls({
           </div>
         </div>
 
-        {/* Error overlay — always visible even when controls are hidden */}
+        {/* Error overlay */}
         {hasError && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 pointer-events-auto">
             <div className="flex flex-col items-center gap-2">
@@ -293,14 +316,13 @@ export function PlayerControls({
     )
   }
 
-  // ── Normal (HLS) Mode: Full Controls ──
+  // ── Normal (HLS) Mode: Full Controls with VLC-like features ──
   return (
     <div
       className={`absolute inset-0 z-10 transition-opacity duration-300 ${
         visible ? 'opacity-100 cursor-pointer' : 'opacity-0 pointer-events-none'
       }`}
       onClick={(e) => {
-        // Don't toggle play when settings is open
         if (effectiveSettingsOpen) {
           setSettingsOpen(false)
           setSettingsPage('main')
@@ -319,7 +341,7 @@ export function PlayerControls({
         <p className="text-white text-[13px] font-medium truncate">{title}</p>
       </div>
 
-      {/* Center play/pause button — smaller, YouTube-style */}
+      {/* Center play/pause button */}
       <div className="absolute inset-0 flex items-center justify-center">
         {hasError ? (
           <div className="flex flex-col items-center gap-2">
@@ -346,12 +368,12 @@ export function PlayerControls({
         )}
       </div>
 
-      {/* Bottom controls bar — YouTube style */}
+      {/* Bottom controls bar */}
       <div
         className="absolute bottom-0 left-0 right-0 player-controls-bottom"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* YouTube-style settings popup — positioned right above the buttons row */}
+        {/* YouTube-style settings popup */}
         {effectiveSettingsOpen && (
           <div
             className="absolute bottom-[52px] right-2 w-56 bg-[#121212]/95 backdrop-blur-md rounded-lg overflow-hidden shadow-2xl border border-white/[0.08] animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
@@ -374,6 +396,36 @@ export function PlayerControls({
                   </button>
                 )}
 
+                {/* Playback speed */}
+                <button
+                  onClick={() => setSettingsPage('speed')}
+                  className="w-full flex items-center justify-between px-4 py-2.5 text-[13px] text-white/90 hover:bg-white/[0.08] transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <Gauge className="h-3.5 w-3.5 text-white/60" />
+                    <span>Speed</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-white/50">
+                    <span className="text-[12px]">{speedLabel}</span>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </div>
+                </button>
+
+                {/* Aspect ratio */}
+                <button
+                  onClick={() => setSettingsPage('aspect')}
+                  className="w-full flex items-center justify-between px-4 py-2.5 text-[13px] text-white/90 hover:bg-white/[0.08] transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <Maximize2 className="h-3.5 w-3.5 text-white/60" />
+                    <span>Aspect</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-white/50">
+                    <span className="text-[12px]">{aspectLabel}</span>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </div>
+                </button>
+
                 {/* Stats for nerds */}
                 {hlsStats && (
                   <button
@@ -390,7 +442,6 @@ export function PlayerControls({
             {/* Quality sub-page */}
             {settingsPage === 'quality' && hasQualityLevels && (
               <div>
-                {/* Back header */}
                 <button
                   onClick={() => setSettingsPage('main')}
                   className="w-full flex items-center gap-2 px-4 py-2.5 text-[13px] text-white/90 hover:bg-white/[0.08] transition-colors border-b border-white/[0.06] cursor-pointer"
@@ -399,7 +450,6 @@ export function PlayerControls({
                   <span className="font-medium">Quality</span>
                 </button>
                 <div className="py-1 max-h-56 overflow-y-auto">
-                  {/* Auto option */}
                   <button
                     onClick={() => {
                       onQualityChange?.(-1)
@@ -417,7 +467,6 @@ export function PlayerControls({
                       <span className="text-white/40 text-[11px] ml-1.5">(Adaptive)</span>
                     )}
                   </button>
-                  {/* Quality levels sorted high → low */}
                   {[...qualityLevels].reverse().map((level) => {
                     const shortLabel = level.label.split(' · ')[0]
                     return (
@@ -441,6 +490,73 @@ export function PlayerControls({
                       </button>
                     )
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* Speed sub-page */}
+            {settingsPage === 'speed' && (
+              <div>
+                <button
+                  onClick={() => setSettingsPage('main')}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-[13px] text-white/90 hover:bg-white/[0.08] transition-colors border-b border-white/[0.06] cursor-pointer"
+                >
+                  <ChevronRight className="h-3.5 w-3.5 rotate-180" />
+                  <span className="font-medium">Playback Speed</span>
+                </button>
+                <div className="py-1 max-h-64 overflow-y-auto">
+                  {PLAYBACK_SPEEDS.map((speed) => (
+                    <button
+                      key={speed.value}
+                      onClick={() => {
+                        onPlaybackRateChange?.(speed.value)
+                        setSettingsOpen(false)
+                        setSettingsPage('main')
+                      }}
+                      className={`w-full text-left px-6 py-2 text-[13px] transition-colors cursor-pointer ${
+                        playbackRate === speed.value
+                          ? 'text-primary font-medium'
+                          : 'text-white/80 hover:bg-white/[0.08]'
+                      }`}
+                    >
+                      {speed.label}
+                      {speed.value === 1 && playbackRate !== 1 && (
+                        <span className="text-white/30 text-[11px] ml-1.5">(Default)</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Aspect ratio sub-page */}
+            {settingsPage === 'aspect' && (
+              <div>
+                <button
+                  onClick={() => setSettingsPage('main')}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-[13px] text-white/90 hover:bg-white/[0.08] transition-colors border-b border-white/[0.06] cursor-pointer"
+                >
+                  <ChevronRight className="h-3.5 w-3.5 rotate-180" />
+                  <span className="font-medium">Aspect Ratio</span>
+                </button>
+                <div className="py-1">
+                  {ASPECT_MODES.map((mode) => (
+                    <button
+                      key={mode.value}
+                      onClick={() => {
+                        onAspectModeChange?.(mode.value)
+                        setSettingsOpen(false)
+                        setSettingsPage('main')
+                      }}
+                      className={`w-full text-left px-6 py-2 text-[13px] transition-colors cursor-pointer ${
+                        aspectMode === mode.value
+                          ? 'text-primary font-medium'
+                          : 'text-white/80 hover:bg-white/[0.08]'
+                      }`}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
@@ -480,6 +596,10 @@ export function PlayerControls({
                     <span>ABR Mode</span>
                     <span className="text-white/90 font-medium">{hlsStats.autoLevelEnabled ? 'Auto' : 'Manual'}</span>
                   </div>
+                  <div className="flex justify-between">
+                    <span>Speed</span>
+                    <span className="text-white/90 font-medium">{speedLabel}</span>
+                  </div>
                 </div>
               </div>
             )}
@@ -505,13 +625,18 @@ export function PlayerControls({
                 BACK TO LIVE
               </button>
             )}
-            {/* Stream health — compact */}
             {hlsStats && hlsStats.bufferLength < 2 && hlsStats.bufferLength >= 0 && (
               <span className="text-[10px] text-yellow-400/80">⚠ Buffering</span>
             )}
+            {/* Speed indicator when not 1x */}
+            {playbackRate !== 1 && (
+              <span className="text-[10px] text-white/60 bg-white/10 px-1.5 py-0.5 rounded font-medium">
+                {playbackRate}x
+              </span>
+            )}
           </div>
 
-          {/* Main control buttons — YouTube layout */}
+          {/* Main control buttons */}
           <div className="flex items-center gap-1">
             {/* Play/Pause */}
             <button
@@ -537,7 +662,6 @@ export function PlayerControls({
                   <Volume2 className="h-5 w-5 text-white" />
                 )}
               </button>
-              {/* Volume slider — always visible, compact width */}
               <div className="w-16 sm:w-20 ml-0.5">
                 <Slider
                   value={[isMuted ? 0 : volume * 100]}
@@ -553,18 +677,16 @@ export function PlayerControls({
             <div className="flex-1" />
 
             {/* Settings gear — YouTube style */}
-            {(hasQualityLevels || hlsStats) && (
-              <button
-                onClick={() => {
-                  setSettingsOpen(!settingsOpen)
-                  setSettingsPage('main')
-                }}
-                className={`p-1.5 rounded-full hover:bg-white/10 transition-all ${effectiveSettingsOpen ? 'rotate-45' : ''}`}
-                title="Settings"
-              >
-                <Settings className="h-5 w-5 text-white" />
-              </button>
-            )}
+            <button
+              onClick={() => {
+                setSettingsOpen(!settingsOpen)
+                setSettingsPage('main')
+              }}
+              className={`p-1.5 rounded-full hover:bg-white/10 transition-all ${effectiveSettingsOpen ? 'rotate-45' : ''}`}
+              title="Settings"
+            >
+              <Settings className="h-5 w-5 text-white" />
+            </button>
 
             {/* PiP */}
             {onTogglePiP && 'pictureInPictureEnabled' in document && (

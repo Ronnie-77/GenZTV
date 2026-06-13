@@ -84,18 +84,14 @@ interface TouchGesture {
   startVolume: number
 }
 
-// Route redirect URLs through our proxy for autoplay support
-// NOTE: iframe type now loads DIRECTLY (not through proxy) because many streaming
-// sites detect the proxy and show "Access Denied". The proxy breaks the page's
-// domain context — scripts inside the page use window.location.origin which
-// points to our domain instead of the original site, causing video CDN requests
-// to fail. Direct loading preserves the original domain context.
+// Route redirect URLs through our iframe proxy (used for 'redirect' type which always proxies)
 function proxyIframeUrl(url: string): string {
   if (!url) return url
   return `/api/iframe-proxy?url=${encodeURIComponent(url)}`
 }
 
-// Load iframe URL directly — preserves original domain context so video players work
+// Load iframe URL directly — preserves original domain context so video players work.
+// If the direct load fails, IframePlayer will auto-switch to proxy mode (dual-mode approach).
 function directIframeUrl(url: string): string {
   if (!url) return url
   return url
@@ -194,6 +190,10 @@ export function VideoPlayer({
   const [currentQuality, setCurrentQuality] = useState(-1) // -1 = auto
   const [hlsStats, setHlsStats] = useState<HlsStats | null>(null)
 
+  // VLC-like controls
+  const [playbackRate, setPlaybackRate] = useState(1) // 1 = normal speed
+  const [aspectMode, setAspectMode] = useState<'fit' | 'stretch' | 'crop' | '16:9' | '4:3'>('fit')
+
   // Live status & Back to Live
   const [isBehindLive, setIsBehindLive] = useState(false)
   const [seekToLive, setSeekToLive] = useState(false)
@@ -264,8 +264,8 @@ export function VideoPlayer({
           setResolvedUrl(proxyStreamUrl(streamUrl, streamType))
           setResolvedType(streamType === 'direct' ? 'm3u' : streamType)
         } else if (streamType === 'iframe' && streamUrl) {
-          // Load iframe URLs directly — preserves original domain context
-          // (proxy causes "Access Denied" on sites that check origin)
+          // Load iframe URLs directly first — IframePlayer will auto-fallback
+          // to proxy mode if direct loading fails (dual-mode approach)
           setResolvedUrl(directIframeUrl(streamUrl))
           setResolvedType('iframe')
         } else {
@@ -439,12 +439,50 @@ export function VideoPlayer({
             }
           }
           break
+        case 's':
+          e.preventDefault()
+          // Cycle through playback speeds
+          {
+            const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
+            const currentIdx = speeds.indexOf(playbackRate)
+            const nextIdx = currentIdx === -1 ? 2 : (currentIdx + 1) % speeds.length
+            setPlaybackRate(speeds[nextIdx])
+          }
+          break
+        case '>':
+        case '.':
+          e.preventDefault()
+          // Increase speed
+          {
+            const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
+            const currentIdx = speeds.indexOf(playbackRate)
+            if (currentIdx < speeds.length - 1) {
+              setPlaybackRate(speeds[currentIdx + 1])
+            } else if (currentIdx === -1) {
+              setPlaybackRate(1.25)
+            }
+          }
+          break
+        case '<':
+        case ',':
+          e.preventDefault()
+          // Decrease speed
+          {
+            const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
+            const currentIdx = speeds.indexOf(playbackRate)
+            if (currentIdx > 0) {
+              setPlaybackRate(speeds[currentIdx - 1])
+            } else if (currentIdx === -1) {
+              setPlaybackRate(0.75)
+            }
+          }
+          break
       }
       showControls()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [fullscreen, showControls, qualityLevels, currentQuality])
+  }, [fullscreen, showControls, qualityLevels, currentQuality, playbackRate])
 
   // Fullscreen change listener
   useEffect(() => {
@@ -636,6 +674,8 @@ export function VideoPlayer({
             selectedQuality={currentQuality}
             volume={volume}
             muted={muted}
+            playbackRate={playbackRate}
+            aspectMode={aspectMode}
             onLiveStatus={handleLiveStatus}
             seekToLive={seekToLive}
             onSeekedToLive={handleSeekedToLive}
@@ -654,17 +694,27 @@ export function VideoPlayer({
             onVideoRef={handleVideoRef}
             volume={volume}
             muted={muted}
+            playbackRate={playbackRate}
+            aspectMode={aspectMode}
             onBuffering={handleBuffering}
           />
         </div>
       )}
 
       {/* iFrame Player — for embed streams */}
+      {/* originalUrl is the raw URL before any proxy — needed for dual-mode fallback */}
       {isIframe && resolvedUrl && (
         <IframePlayer
           src={resolvedUrl}
+          originalUrl={streamUrl}
           onReady={handleReady}
           onError={handleError}
+          onSwitchToProxy={() => {
+            // When IframePlayer switches from direct to proxy mode,
+            // update our resolvedUrl so retry/reload uses the proxy URL
+            console.log('[video-player] IframePlayer switched to proxy mode')
+            setResolvedUrl(`/api/iframe-proxy?url=${encodeURIComponent(streamUrl)}`)
+          }}
         />
       )}
 
@@ -768,6 +818,10 @@ export function VideoPlayer({
         currentQuality={currentQuality}
         onQualityChange={handleQualityChange}
         hlsStats={isHls ? hlsStats : null}
+        playbackRate={playbackRate}
+        onPlaybackRateChange={setPlaybackRate}
+        aspectMode={aspectMode}
+        onAspectModeChange={setAspectMode}
         isIframe={isIframe}
         iframeTouchLocked={isIframe && isMobileDevice && iframeTouchLocked}
         onToggleIframeTouchLock={() => setIframeTouchLocked(prev => !prev)}
@@ -786,7 +840,7 @@ export function VideoPlayer({
 
       {/* Keyboard shortcut hint */}
       <div className="absolute bottom-16 left-1/2 -translate-x-1/2 opacity-0 pointer-events-none text-[10px] text-white/60 bg-black/50 px-2 py-1 rounded whitespace-nowrap">
-        Space: Play/Pause • F: Fullscreen • M: Mute • Q: Quality
+        Space: Play/Pause • F: Fullscreen • M: Mute • Q: Quality • S: Speed
       </div>
     </div>
   )
