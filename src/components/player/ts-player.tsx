@@ -34,13 +34,18 @@ export function TsPlayer({
 }: TsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerRef = useRef<any>(null) // mpegts.Player type not available at import time
+  const readyFiredRef = useRef(false)
 
   const cleanup = useCallback(() => {
     if (playerRef.current) {
-      playerRef.current.pause()
-      playerRef.current.unload()
-      playerRef.current.detachMediaElement()
-      playerRef.current.destroy()
+      try {
+        playerRef.current.pause()
+        playerRef.current.unload()
+        playerRef.current.detachMediaElement()
+        playerRef.current.destroy()
+      } catch {
+        // Ignore cleanup errors
+      }
       playerRef.current = null
     }
   }, [])
@@ -51,8 +56,11 @@ export function TsPlayer({
 
     onVideoRef?.(video)
     cleanup()
+    readyFiredRef.current = false
 
     let cancelled = false
+    let retryCount = 0
+    const maxRetries = 3
 
     // Dynamically load mpegts.js (avoids SSR issues)
     loadMpegts().then((mpegtsLib) => {
@@ -68,6 +76,7 @@ export function TsPlayer({
         type: 'mpegts', // For .ts streams
         url: src,
         isLive: true,
+        cors: true,
       }, {
         // Live stream optimization
         liveBufferLatencyChasing: true,
@@ -89,29 +98,42 @@ export function TsPlayer({
         lazyLoad: true,
         lazyLoadMaxDuration: 180,
         lazyLoadRecoverDuration: 30,
+
+        // Enable stash buffer for smoother playback
+        enableStashBuffer: true,
+        stashInitialSize: 1024 * 384, // 384KB initial stash
       })
 
       player.attachMediaElement(video)
-      player.loadSource(src)
+      player.load()
 
       // Events
       player.on(mpegtsLib.Events.LOADING_COMPLETE, () => {
-        // Stream loaded
+        // Stream loaded (VOD only, not for live)
       })
 
       player.on(mpegtsLib.Events.METADATA_ARRIVED, () => {
-        onReady?.()
+        if (!readyFiredRef.current) {
+          readyFiredRef.current = true
+          onReady?.()
+        }
       })
 
       // Use video events for ready state as fallback
       const handleLoadedData = () => {
-        onReady?.()
+        if (!readyFiredRef.current) {
+          readyFiredRef.current = true
+          onReady?.()
+        }
         video.removeEventListener('loadeddata', handleLoadedData)
       }
       video.addEventListener('loadeddata', handleLoadedData)
 
       const handlePlaying = () => {
-        onReady?.()
+        if (!readyFiredRef.current) {
+          readyFiredRef.current = true
+          onReady?.()
+        }
         onBuffering?.(false)
       }
       video.addEventListener('playing', handlePlaying)
@@ -126,9 +148,31 @@ export function TsPlayer({
       }
       video.addEventListener('canplay', handleCanPlay)
 
-      // Error handling
-      player.on(mpegtsLib.Events.ERROR, (_event: string, data: { info?: string; reason?: string }) => {
+      // Error handling with auto-retry for network errors
+      player.on(mpegtsLib.Events.ERROR, (_event: string, data: { info?: string; reason?: string; type?: string }) => {
+        console.error('[TsPlayer] mpegts.js ERROR:', JSON.stringify(data))
+
+        const errorType = data?.type
         const errMsg = data?.info || data?.reason || 'MPEG-TS playback error'
+
+        // Auto-retry for network/connection errors
+        if ((errorType === 'NetworkError' || errMsg.includes('network') || errMsg.includes('Network') || errMsg.includes('Early-EOF')) && retryCount < maxRetries) {
+          retryCount++
+          console.log(`[TsPlayer] Auto-retry ${retryCount}/${maxRetries} after error: ${errMsg}`)
+          const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 8000)
+          setTimeout(() => {
+            if (!cancelled && playerRef.current) {
+              try {
+                playerRef.current.unload()
+                playerRef.current.load()
+              } catch {
+                onError?.(errMsg)
+              }
+            }
+          }, delay)
+          return
+        }
+
         onError?.(errMsg)
       })
 
@@ -143,13 +187,15 @@ export function TsPlayer({
             case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED: msg = 'Stream format not supported by browser'; break
           }
         }
+        console.error('[TsPlayer] Video element error:', msg)
         onError?.(msg)
       }
       video.addEventListener('error', handleVideoError)
 
       playerRef.current = player
-    }).catch(() => {
+    }).catch((e) => {
       if (!cancelled) {
+        console.error('[TsPlayer] Failed to load mpegts.js:', e)
         onError?.('Failed to load MPEG-TS player')
       }
     })

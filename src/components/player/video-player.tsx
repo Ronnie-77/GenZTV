@@ -84,6 +84,18 @@ interface TouchGesture {
   startVolume: number
 }
 
+// Compute initial resolved URL & type synchronously to avoid flash of wrong URL
+function getInitialResolved(url: string, type: string): { resolvedUrl: string; resolvedType: string } {
+  if (!url) return { resolvedUrl: url, resolvedType: type }
+  if (type === 'redirect') return { resolvedUrl: url, resolvedType: 'iframe' }
+  if (type === 'github_m3u') return { resolvedUrl: url, resolvedType: type } // resolved async
+  if (isTsUrl(url)) return { resolvedUrl: `/api/stream-proxy?url=${encodeURIComponent(url)}`, resolvedType: 'mpegts' }
+  if (type === 'direct' || type === 'm3u' || type === 'm3u8') {
+    return { resolvedUrl: `/api/stream-proxy?url=${encodeURIComponent(url)}`, resolvedType: type === 'direct' ? 'm3u' : type }
+  }
+  return { resolvedUrl: url, resolvedType: type }
+}
+
 export function VideoPlayer({
   streamUrl,
   streamType,
@@ -94,8 +106,11 @@ export function VideoPlayer({
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
-  const [resolvedUrl, setResolvedUrl] = useState(streamUrl)
-  const [resolvedType, setResolvedType] = useState(streamType)
+
+  // Compute initial state synchronously — prevents TsPlayer from briefly receiving the raw URL
+  const initial = getInitialResolved(streamUrl, streamType)
+  const [resolvedUrl, setResolvedUrl] = useState(initial.resolvedUrl)
+  const [resolvedType, setResolvedType] = useState(initial.resolvedType)
   const [playing, setPlaying] = useState(false)
   const [volume, setVolume] = useState(1)
   const [muted, setMuted] = useState(false)
@@ -474,8 +489,13 @@ export function VideoPlayer({
     setQualityLevels([])
     setHlsStats(null)
     setCurrentQuality(-1)
-    setResolvedUrl(prev => prev)
-  }, [])
+    // Force player re-creation by toggling the URL
+    const currentUrl = resolvedUrl
+    setResolvedUrl('')
+    requestAnimationFrame(() => {
+      setResolvedUrl(currentUrl)
+    })
+  }, [resolvedUrl])
 
   const handleReady = useCallback(() => {
     setLoading(false)
