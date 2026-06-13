@@ -25,8 +25,24 @@ export interface LiveStatus {
   isBehindLive: boolean // Whether playback is behind live edge
 }
 
+export interface AudioTrack {
+  id: number
+  lang: string
+  name: string
+  default: boolean
+}
+
+export interface SubtitleTrack {
+  id: number
+  lang: string
+  name: string
+  default: boolean
+}
+
 interface HlsPlayerProps {
   src: string
+  /** The original unproxied URL — used for direct load fallback */
+  originalUrl?: string
   onReady?: () => void
   onError?: (error: string) => void
   onQualityLevels?: (levels: QualityLevel[]) => void
@@ -41,10 +57,17 @@ interface HlsPlayerProps {
   seekToLive?: boolean // When true, seek to live edge
   onSeekedToLive?: () => void // Called after seeking to live
   onBuffering?: (isBuffering: boolean) => void // Called when video starts/stops buffering
+  // Audio track selection
+  selectedAudioTrack?: number // -1 = default, 0+ = specific track index
+  onAudioTracks?: (tracks: AudioTrack[]) => void
+  // Subtitle track selection
+  selectedSubtitleTrack?: number // -1 = off, 0+ = specific track index
+  onSubtitleTracks?: (tracks: SubtitleTrack[]) => void
 }
 
 export function HlsPlayer({
   src,
+  originalUrl,
   onReady,
   onError,
   onQualityLevels,
@@ -59,12 +82,18 @@ export function HlsPlayer({
   seekToLive,
   onSeekedToLive,
   onBuffering,
+  selectedAudioTrack = -1,
+  onAudioTracks,
+  selectedSubtitleTrack = -1,
+  onSubtitleTracks,
 }: HlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const statsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const retryCountRef = useRef(0)
-  const maxRetries = 5
+  const maxRetries = 8
+  // Track whether we've tried direct loading as fallback
+  const triedDirectRef = useRef(false)
 
   // Cleanup helper
   const cleanup = useCallback(() => {
@@ -108,10 +137,10 @@ export function HlsPlayer({
         lowLatencyMode: true,
         backBufferLength: 30,
 
-        // Buffer management
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        maxBufferSize: 60 * 1000000, // 60MB
+        // Buffer management — generous for unreliable streams
+        maxBufferLength: 60,
+        maxMaxBufferLength: 120,
+        maxBufferSize: 120 * 1000000, // 120MB
         maxBufferHole: 0.5,
 
         // ABR (Adaptive Bitrate) settings
@@ -122,20 +151,35 @@ export function HlsPlayer({
 
         // Live stream optimization
         liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 6,
+        liveMaxLatencyDurationCount: 10,
         liveDurationInfinity: true,
         progressive: true,
 
-        // Error recovery
-        fragLoadingMaxRetry: 6,
+        // Aggressive retry and timeout settings for unreliable servers
+        fragLoadingMaxRetry: 10,
         fragLoadingMaxRetryTimeout: 64000,
-        manifestLoadingMaxRetry: 4,
+        fragLoadingTimeOut: 60000, // 60s timeout for fragment loading
+        manifestLoadingMaxRetry: 6,
         manifestLoadingMaxRetryTimeout: 32000,
-        levelLoadingMaxRetry: 4,
+        manifestLoadingTimeOut: 60000, // 60s timeout for manifest loading
+        levelLoadingMaxRetry: 6,
         levelLoadingMaxRetryTimeout: 32000,
+        levelLoadingTimeOut: 60000, // 60s timeout for level loading
+
+        // Key loading retry — not all HLS.js versions support these
+        // keyLoadingMaxRetry and keyLoadingMaxRetryTimeout are handled via fragLoading* settings
 
         // Start from lowest quality for fast initial load
         startLevel: -1, // Auto
+
+        // XHR customization — set custom headers for each request
+        xhrSetup: (xhr: XMLHttpRequest, url: string) => {
+          // For proxied URLs, no special headers needed (proxy already handles them)
+          // For direct URLs, add VLC-like headers for better server compatibility
+          if (!url.includes('/api/stream-proxy')) {
+            xhr.setRequestHeader('User-Agent', 'VLC/3.0.18 LibVLC/3.0.18')
+          }
+        },
       })
       hlsRef.current = hls
 
@@ -175,6 +219,29 @@ export function HlsPlayer({
         })
 
         onQualityLevels?.(levels)
+
+        // Report initial audio tracks
+        if (hls.audioTracks && hls.audioTracks.length > 0) {
+          const audioTracks: AudioTrack[] = hls.audioTracks.map((t, i) => ({
+            id: i,
+            lang: t.lang || '',
+            name: t.name || t.lang || `Track ${i + 1}`,
+            default: t.default || false,
+          }))
+          onAudioTracks?.(audioTracks)
+        }
+
+        // Report initial subtitle tracks
+        if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
+          const subtitleTracks: SubtitleTrack[] = hls.subtitleTracks.map((t, i) => ({
+            id: i,
+            lang: t.lang || '',
+            name: t.name || t.lang || `Subtitle ${i + 1}`,
+            default: t.default || false,
+          }))
+          onSubtitleTracks?.(subtitleTracks)
+        }
+
         onReady?.()
       })
 
@@ -188,8 +255,40 @@ export function HlsPlayer({
         updateStats()
       })
 
+      // Audio tracks updated
+      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
+        if (!hlsRef.current) return
+        const hlsInstance = hlsRef.current
+        if (hlsInstance.audioTracks && hlsInstance.audioTracks.length > 0) {
+          const audioTracks: AudioTrack[] = hlsInstance.audioTracks.map((t: { lang?: string; name?: string; default?: boolean }, i: number) => ({
+            id: i,
+            lang: t.lang || '',
+            name: t.name || t.lang || `Track ${i + 1}`,
+            default: t.default || false,
+          }))
+          onAudioTracks?.(audioTracks)
+        }
+      })
+
+      // Subtitle tracks updated
+      hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
+        if (!hlsRef.current) return
+        const hlsInstance = hlsRef.current
+        if (hlsInstance.subtitleTracks && hlsInstance.subtitleTracks.length > 0) {
+          const subtitleTracks: SubtitleTrack[] = hlsInstance.subtitleTracks.map((t: { lang?: string; name?: string; default?: boolean }, i: number) => ({
+            id: i,
+            lang: t.lang || '',
+            name: t.name || t.lang || `Subtitle ${i + 1}`,
+            default: t.default || false,
+          }))
+          onSubtitleTracks?.(subtitleTracks)
+        }
+      })
+
       // Error handling with smart recovery
       hls.on(Hls.Events.ERROR, (_event, data) => {
+        console.error(`[hls-player] Error: type=${data.type}, details=${data.details}, fatal=${data.fatal}`, data)
+
         if (data.fatal) {
           retryCountRef.current += 1
 
@@ -198,20 +297,34 @@ export function HlsPlayer({
               if (retryCountRef.current <= maxRetries) {
                 // Exponential backoff retry
                 const delay = Math.min(1000 * Math.pow(2, retryCountRef.current - 1), 16000)
+                console.log(`[hls-player] Network error retry ${retryCountRef.current}/${maxRetries} in ${delay}ms`)
                 setTimeout(() => {
-                  hls.startLoad()
+                  if (hlsRef.current) {
+                    hls.startLoad()
+                  }
                 }, delay)
+              } else if (!triedDirectRef.current && originalUrl) {
+                // All proxy retries exhausted — try loading the URL directly
+                console.log('[hls-player] Proxy failed, trying direct load fallback')
+                triedDirectRef.current = true
+                cleanup()
+                // Set video src directly (bypass proxy)
+                video.src = originalUrl
+                video.play().catch(() => {})
+                onReady?.()
               } else {
-                onError?.('Network error — stream unavailable after multiple retries')
+                onError?.('Network error — stream unavailable after multiple retries. Try refreshing.')
                 cleanup()
               }
               break
 
             case Hls.ErrorTypes.MEDIA_ERROR:
-              if (retryCountRef.current <= 3) {
+              if (retryCountRef.current <= 4) {
+                console.log(`[hls-player] Media error recovery attempt ${retryCountRef.current}`)
                 hls.recoverMediaError()
               } else {
                 // Try full recovery: destroy and recreate
+                console.log('[hls-player] Full recovery attempt after media errors')
                 const currentTime = video.currentTime
                 cleanup()
                 // Re-initialize will happen via the useEffect
@@ -221,10 +334,13 @@ export function HlsPlayer({
               break
 
             default:
-              onError?.('Fatal stream error')
+              onError?.('Fatal stream error — try a different channel')
               cleanup()
               break
           }
+        } else {
+          // Non-fatal errors — log but don't interrupt playback
+          console.warn(`[hls-player] Non-fatal error: ${data.details}`)
         }
       })
 
@@ -281,7 +397,7 @@ export function HlsPlayer({
       video.removeEventListener('canplay', handleCanPlay)
       cleanup()
     }
-  }, [src, cleanup, onReady, onError, onQualityLevels, onStatsUpdate, onVideoRef, onBuffering])
+  }, [src, cleanup, onReady, onError, onQualityLevels, onStatsUpdate, onVideoRef, onBuffering, originalUrl, onAudioTracks, onSubtitleTracks])
 
   // Handle quality level changes from parent
   useEffect(() => {
@@ -295,6 +411,26 @@ export function HlsPlayer({
       hls.currentLevel = selectedQuality
     }
   }, [selectedQuality])
+
+  // Handle audio track changes from parent
+  useEffect(() => {
+    if (!hlsRef.current) return
+    const hls = hlsRef.current
+    if (selectedAudioTrack >= 0 && hls.audioTracks && hls.audioTracks.length > 0) {
+      hls.audioTrack = selectedAudioTrack
+    }
+  }, [selectedAudioTrack])
+
+  // Handle subtitle track changes from parent
+  useEffect(() => {
+    if (!hlsRef.current) return
+    const hls = hlsRef.current
+    if (selectedSubtitleTrack >= 0) {
+      hls.subtitleTrack = selectedSubtitleTrack
+    } else {
+      hls.subtitleTrack = -1
+    }
+  }, [selectedSubtitleTrack])
 
   // Apply volume, muted, and playback rate to video element
   useEffect(() => {

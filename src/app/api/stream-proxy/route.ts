@@ -4,17 +4,23 @@ import { NextRequest, NextResponse } from 'next/server'
 // Proxies HLS/m3u8, MPEG-TS segments, and live MPEG-TS streams to bypass CORS restrictions.
 // Live .ts streams are streamed incrementally via ReadableStream.
 //
-// Improvements:
-// - AbortController with 30s timeout for upstream requests
+// Features:
+// - AbortController with configurable timeout for upstream requests
+// - VLC User-Agent for better IPTV server compatibility
 // - Origin header sent alongside Referer for better compatibility
 // - Enhanced m3u8 rewriting: handles #EXT-X-STREAM-INF (variant playlists),
 //   #EXT-X-KEY URI attributes, and #EXT-X-MAP URI attributes
 // - Detailed error logging and responses
+// - Retry logic for failed upstream requests (2 retries with exponential backoff)
 
 export const maxDuration = 300 // 5 minute timeout for live streams
 
-// Upstream request timeout (ms)
-const UPSTREAM_TIMEOUT = 30000
+// Upstream request timeout (ms) — increased for slow/remote servers
+const UPSTREAM_TIMEOUT = 60000
+
+// Retry configuration
+const MAX_RETRIES = 2
+const RETRY_DELAY_MS = 1500
 
 // Detect if a .ts URL is a live stream (not a VOD segment)
 function isLiveTsUrl(pathname: string): boolean {
@@ -25,32 +31,56 @@ function isLiveTsUrl(pathname: string): boolean {
   return true
 }
 
+// Helper: fetch with retry + timeout
+async function fetchWithRetry(fetchUrl: string, opts: RequestInit): Promise<Response> {
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT)
+    try {
+      const res = await fetch(fetchUrl, { ...opts, signal: controller.signal })
+      clearTimeout(timeout)
+      return res
+    } catch (err) {
+      clearTimeout(timeout)
+      lastError = err instanceof Error ? err : new Error('Unknown error')
+      if (attempt < MAX_RETRIES) {
+        const delay = RETRY_DELAY_MS * (attempt + 1)
+        console.log(`[stream-proxy] Retry ${attempt + 1}/${MAX_RETRIES} for ${fetchUrl} (waiting ${delay}ms)`)
+        await new Promise(r => setTimeout(r, delay))
+      }
+    }
+  }
+  throw lastError || new Error('All retries failed')
+}
+
 export async function GET(req: NextRequest) {
   const url = req.nextUrl.searchParams.get('url')
   if (!url) {
     return NextResponse.json({ error: 'Missing url parameter' }, { status: 400 })
   }
 
-  // Create AbortController for upstream timeout
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT)
-
   try {
     // Validate URL
-    const parsedUrl = new URL(url)
+    let parsedUrl: URL
+    try {
+      parsedUrl = new URL(url)
+    } catch {
+      return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 })
+    }
     if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
       return NextResponse.json({ error: 'Invalid URL protocol' }, { status: 400 })
     }
 
     // Determine content type based on URL path
-    const isM3u8 = url.includes('.m3u8') || parsedUrl.pathname.endsWith('.m3u8')
-    const isTs = /\.ts(\?.*)?$/.test(parsedUrl.pathname) && !parsedUrl.pathname.includes('.m3u8')
+    const isM3u8 = url.includes('.m3u8') || url.includes('.m3u') || parsedUrl.pathname.endsWith('.m3u8') || parsedUrl.pathname.endsWith('.m3u')
+    const isTs = /\.ts(\?.*)?$/.test(parsedUrl.pathname) && !parsedUrl.pathname.includes('.m3u8') && !parsedUrl.pathname.includes('.m3u')
     const isLiveTs = isTs && isLiveTsUrl(parsedUrl.pathname)
 
-    // Build upstream request headers — mimic a mobile browser
+    // Build upstream request headers — use VLC User-Agent for better IPTV server compatibility
+    // Many IPTV/streaming servers block browser User-Agents but allow VLC
     const fetchHeaders: Record<string, string> = {
-      'User-Agent':
-        'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+      'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18',
       Accept: isM3u8
         ? 'application/vnd.apple.mpegurl,application/x-mpegurl,*/*'
         : isTs
@@ -66,10 +96,9 @@ export async function GET(req: NextRequest) {
       console.log(`[stream-proxy] Live TS stream: ${url}`)
       let response: Response
       try {
-        response = await fetch(url, {
+        response = await fetchWithRetry(url, {
           headers: fetchHeaders,
           redirect: 'follow',
-          signal: controller.signal,
         })
       } catch (fetchErr) {
         const msg = fetchErr instanceof Error ? fetchErr.message : 'Unknown fetch error'
@@ -141,10 +170,9 @@ export async function GET(req: NextRequest) {
     console.log(`[stream-proxy] Fetching: ${url} (m3u8=${isM3u8}, ts=${isTs})`)
     let response: Response
     try {
-      response = await fetch(url, {
+      response = await fetchWithRetry(url, {
         headers: fetchHeaders,
         redirect: 'follow',
-        signal: controller.signal,
       })
     } catch (fetchErr) {
       const msg = fetchErr instanceof Error ? fetchErr.message : 'Unknown fetch error'
@@ -173,6 +201,11 @@ export async function GET(req: NextRequest) {
     // For m3u8 files, rewrite relative URLs to go through this proxy
     if (isM3u8) {
       const text = await response.text()
+
+      // Log first few lines of the manifest for debugging
+      const firstLines = text.split('\n').slice(0, 10).join('\n')
+      console.log(`[stream-proxy] m3u8 content preview:\n${firstLines}`)
+
       const baseUrl = url.substring(0, url.lastIndexOf('/') + 1)
       const originalQuery = parsedUrl.search
       const rewritten = rewriteM3u8Urls(text, baseUrl, originalQuery)
@@ -211,8 +244,6 @@ export async function GET(req: NextRequest) {
       { error: 'Failed to proxy stream', detail: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
-  } finally {
-    clearTimeout(timeout)
   }
 }
 

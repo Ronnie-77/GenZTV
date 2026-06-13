@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { HlsPlayer } from './hls-player'
-import type { QualityLevel, HlsStats, LiveStatus } from './hls-player'
+import type { QualityLevel, HlsStats, LiveStatus, AudioTrack, SubtitleTrack } from './hls-player'
 import { IframePlayer } from './iframe-player'
 import { TsPlayer } from './ts-player'
 import { PlayerControls } from './player-controls'
@@ -197,6 +197,26 @@ export function VideoPlayer({
   // Live status & Back to Live
   const [isBehindLive, setIsBehindLive] = useState(false)
   const [seekToLive, setSeekToLive] = useState(false)
+
+  // Audio tracks
+  const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
+  const [currentAudioTrack, setCurrentAudioTrack] = useState(-1)
+
+  // Subtitle tracks
+  const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([])
+  const [currentSubtitleTrack, setCurrentSubtitleTrack] = useState(-1)
+
+  // Zoom
+  const [zoomLevel, setZoomLevel] = useState(1) // 1 = 100%, 0 = Fit
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 })
+  const isPanningRef = useRef(false)
+  const panStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 })
+
+  // Deinterlace
+  const [deinterlace, setDeinterlace] = useState(false)
+
+  // Screenshot toast
+  const [screenshotFlash, setScreenshotFlash] = useState(false)
 
   // Swipe gesture state
   const [gestureIndicator, setGestureIndicator] = useState<{
@@ -396,94 +416,6 @@ export function VideoPlayer({
     }
   }, [isIframe]) // Re-attach when player type changes
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      switch (e.key.toLowerCase()) {
-        case ' ':
-        case 'k':
-          e.preventDefault()
-          togglePlay()
-          break
-        case 'f':
-          e.preventDefault()
-          toggleFullscreen()
-          break
-        case 'm':
-          e.preventDefault()
-          setMuted(m => !m)
-          break
-        case 'arrowup':
-          e.preventDefault()
-          setVolume(v => Math.min(1, v + 0.1))
-          break
-        case 'arrowdown':
-          e.preventDefault()
-          setVolume(v => Math.max(0, v - 0.1))
-          break
-        case 'escape':
-          if (fullscreen) toggleFullscreen()
-          break
-        case 'q':
-          e.preventDefault()
-          if (qualityLevels.length > 0) {
-            if (currentQuality === -1) {
-              setCurrentQuality(0)
-            } else {
-              const nextIdx = currentQuality + 1
-              if (nextIdx >= qualityLevels.length) {
-                setCurrentQuality(-1)
-              } else {
-                setCurrentQuality(nextIdx)
-              }
-            }
-          }
-          break
-        case 's':
-          e.preventDefault()
-          // Cycle through playback speeds
-          {
-            const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
-            const currentIdx = speeds.indexOf(playbackRate)
-            const nextIdx = currentIdx === -1 ? 2 : (currentIdx + 1) % speeds.length
-            setPlaybackRate(speeds[nextIdx])
-          }
-          break
-        case '>':
-        case '.':
-          e.preventDefault()
-          // Increase speed
-          {
-            const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
-            const currentIdx = speeds.indexOf(playbackRate)
-            if (currentIdx < speeds.length - 1) {
-              setPlaybackRate(speeds[currentIdx + 1])
-            } else if (currentIdx === -1) {
-              setPlaybackRate(1.25)
-            }
-          }
-          break
-        case '<':
-        case ',':
-          e.preventDefault()
-          // Decrease speed
-          {
-            const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
-            const currentIdx = speeds.indexOf(playbackRate)
-            if (currentIdx > 0) {
-              setPlaybackRate(speeds[currentIdx - 1])
-            } else if (currentIdx === -1) {
-              setPlaybackRate(0.75)
-            }
-          }
-          break
-      }
-      showControls()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [fullscreen, showControls, qualityLevels, currentQuality, playbackRate])
-
   // Fullscreen change listener
   useEffect(() => {
     function handleFullscreenChange() {
@@ -625,8 +557,312 @@ export function VideoPlayer({
     setSeekToLive(true)
   }, [])
 
+  // Screenshot handler
+  const handleScreenshot = useCallback(() => {
+    const video = videoRef.current || containerRef.current?.querySelector('video')
+    if (!video) return
+
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth || 1280
+      canvas.height = video.videoHeight || 720
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+      // Flash effect
+      setScreenshotFlash(true)
+      setTimeout(() => setScreenshotFlash(false), 300)
+
+      // Download
+      const link = document.createElement('a')
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+      link.download = `screenshot-${timestamp}.png`
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+    } catch (e) {
+      console.error('[video-player] Screenshot failed:', e)
+    }
+  }, [])
+
+  // Skip forward/backward handlers
+  const handleSkipBack = useCallback(() => {
+    const video = videoRef.current || containerRef.current?.querySelector('video')
+    if (!video) return
+    video.currentTime = Math.max(0, video.currentTime - 10)
+    showControls()
+  }, [showControls])
+
+  const handleSkipForward = useCallback(() => {
+    const video = videoRef.current || containerRef.current?.querySelector('video')
+    if (!video) return
+    if (video.duration && isFinite(video.duration)) {
+      video.currentTime = Math.min(video.duration, video.currentTime + 10)
+    } else {
+      // For live/DVR streams
+      video.currentTime += 10
+    }
+    showControls()
+  }, [showControls])
+
+  // Check if seeking is possible (for showing skip buttons)
+  // For VOD: always seekable. For live: check seekable range (DVR window).
+  // For mpegts: usually live with no DVR, so default to not seekable.
+  const [seekable, setSeekable] = useState(!isLive)
+  useEffect(() => {
+    if (isMpegTs) {
+      // mpegts is always live — skip buttons don't make sense
+      setSeekable(false)
+      return
+    }
+    const video = videoRef.current || containerRef.current?.querySelector('video')
+    if (!video) return
+    const check = () => {
+      try {
+        const seekableRanges = video.seekable
+        if (seekableRanges && seekableRanges.length > 0) {
+          const seekableDuration = seekableRanges.end(seekableRanges.length - 1) - seekableRanges.start(0)
+          setSeekable(seekableDuration > 1) // At least 1 second of seekable range
+        } else {
+          setSeekable(false)
+        }
+      } catch {
+        setSeekable(!isLive) // Default: seekable for VOD, not for live
+      }
+    }
+    const timer = setInterval(check, 2000)
+    check()
+    return () => clearInterval(timer)
+  }, [resolvedUrl, isLive, isMpegTs])
+
+  // Audio track handlers
+  const handleAudioTracks = useCallback((tracks: AudioTrack[]) => {
+    setAudioTracks(tracks)
+    // Set current to default track if available
+    const defaultTrack = tracks.find(t => t.default)
+    if (defaultTrack) setCurrentAudioTrack(defaultTrack.id)
+    else if (tracks.length > 0) setCurrentAudioTrack(0)
+  }, [])
+
+  const handleAudioTrackChange = useCallback((trackId: number) => {
+    setCurrentAudioTrack(trackId)
+  }, [])
+
+  // Subtitle track handlers
+  const handleSubtitleTracks = useCallback((tracks: SubtitleTrack[]) => {
+    setSubtitleTracks(tracks)
+  }, [])
+
+  const handleSubtitleTrackChange = useCallback((trackId: number) => {
+    setCurrentSubtitleTrack(trackId)
+  }, [])
+
+  // Zoom handler
+  const handleZoomChange = useCallback((level: number) => {
+    setZoomLevel(level)
+    // Reset pan when zoom changes
+    if (level <= 1) setPanOffset({ x: 0, y: 0 })
+  }, [])
+
+  // Zoom pan handlers — mouse drag when zoomed in
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    const handleMouseDown = (e: MouseEvent) => {
+      if (zoomLevel <= 1) return
+      // Only pan when clicking on the video area (not controls)
+      const target = e.target as HTMLElement
+      if (target.closest('.player-controls-bottom') || target.closest('[data-settings]')) return
+
+      isPanningRef.current = true
+      panStartRef.current = { x: e.clientX, y: e.clientY, panX: panOffset.x, panY: panOffset.y }
+      e.preventDefault()
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isPanningRef.current) return
+      const dx = e.clientX - panStartRef.current.x
+      const dy = e.clientY - panStartRef.current.y
+      const scale = zoomLevel
+      // Limit pan range based on zoom level
+      const maxPanX = (scale - 1) * el.clientWidth / 2
+      const maxPanY = (scale - 1) * el.clientHeight / 2
+      setPanOffset({
+        x: Math.max(-maxPanX, Math.min(maxPanX, panStartRef.current.panX + dx)),
+        y: Math.max(-maxPanY, Math.min(maxPanY, panStartRef.current.panY + dy)),
+      })
+    }
+
+    const handleMouseUp = () => {
+      isPanningRef.current = false
+    }
+
+    el.addEventListener('mousedown', handleMouseDown)
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      el.removeEventListener('mousedown', handleMouseDown)
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [zoomLevel, panOffset.x, panOffset.y])
+
+  // Touch pan for zoom on mobile
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (zoomLevel <= 1) return
+      if (e.touches.length !== 1) return
+      const target = e.target as HTMLElement
+      if (target.closest('.player-controls-bottom') || target.closest('[data-settings]')) return
+
+      isPanningRef.current = true
+      const touch = e.touches[0]
+      panStartRef.current = { x: touch.clientX, y: touch.clientY, panX: panOffset.x, panY: panOffset.y }
+    }
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!isPanningRef.current || e.touches.length !== 1) return
+      e.preventDefault()
+      const touch = e.touches[0]
+      const dx = touch.clientX - panStartRef.current.x
+      const dy = touch.clientY - panStartRef.current.y
+      const scale = zoomLevel
+      const maxPanX = (scale - 1) * el.clientWidth / 2
+      const maxPanY = (scale - 1) * el.clientHeight / 2
+      setPanOffset({
+        x: Math.max(-maxPanX, Math.min(maxPanX, panStartRef.current.panX + dx)),
+        y: Math.max(-maxPanY, Math.min(maxPanY, panStartRef.current.panY + dy)),
+      })
+    }
+
+    const handleTouchEnd = () => {
+      isPanningRef.current = false
+    }
+
+    el.addEventListener('touchstart', handleTouchStart, { passive: true })
+    el.addEventListener('touchmove', handleTouchMove, { passive: false })
+    el.addEventListener('touchend', handleTouchEnd, { passive: true })
+
+    return () => {
+      el.removeEventListener('touchstart', handleTouchStart)
+      el.removeEventListener('touchmove', handleTouchMove)
+      el.removeEventListener('touchend', handleTouchEnd)
+    }
+  }, [zoomLevel, panOffset.x, panOffset.y])
+
   // Check if device is mobile/touch
   const isMobileDevice = typeof window !== 'undefined' && 'ontouchstart' in window
+
+  // Keyboard shortcuts — placed after all handler definitions to avoid TDZ errors
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      switch (e.key.toLowerCase()) {
+        case ' ':
+        case 'k':
+          e.preventDefault()
+          togglePlay()
+          break
+        case 'f':
+          e.preventDefault()
+          toggleFullscreen()
+          break
+        case 'm':
+          e.preventDefault()
+          setMuted(m => !m)
+          break
+        case 'arrowup':
+          e.preventDefault()
+          setVolume(v => Math.min(1, v + 0.1))
+          break
+        case 'arrowdown':
+          e.preventDefault()
+          setVolume(v => Math.max(0, v - 0.1))
+          break
+        case 'escape':
+          if (fullscreen) toggleFullscreen()
+          break
+        case 'q':
+          e.preventDefault()
+          if (qualityLevels.length > 0) {
+            if (currentQuality === -1) {
+              setCurrentQuality(0)
+            } else {
+              const nextIdx = currentQuality + 1
+              if (nextIdx >= qualityLevels.length) {
+                setCurrentQuality(-1)
+              } else {
+                setCurrentQuality(nextIdx)
+              }
+            }
+          }
+          break
+        case 's':
+          if (e.shiftKey) {
+            // Shift+S = Screenshot
+            e.preventDefault()
+            handleScreenshot()
+          } else {
+            e.preventDefault()
+            // Cycle through playback speeds
+            {
+              const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
+              const currentIdx = speeds.indexOf(playbackRate)
+              const nextIdx = currentIdx === -1 ? 2 : (currentIdx + 1) % speeds.length
+              setPlaybackRate(speeds[nextIdx])
+            }
+          }
+          break
+        case 'arrowleft':
+          if (seekable) {
+            e.preventDefault()
+            handleSkipBack()
+          }
+          break
+        case 'arrowright':
+          if (seekable) {
+            e.preventDefault()
+            handleSkipForward()
+          }
+          break
+        case '>':
+        case '.':
+          e.preventDefault()
+          // Increase speed
+          {
+            const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
+            const currentIdx = speeds.indexOf(playbackRate)
+            if (currentIdx < speeds.length - 1) {
+              setPlaybackRate(speeds[currentIdx + 1])
+            } else if (currentIdx === -1) {
+              setPlaybackRate(1.25)
+            }
+          }
+          break
+        case '<':
+        case ',':
+          e.preventDefault()
+          // Decrease speed
+          {
+            const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
+            const currentIdx = speeds.indexOf(playbackRate)
+            if (currentIdx > 0) {
+              setPlaybackRate(speeds[currentIdx - 1])
+            } else if (currentIdx === -1) {
+              setPlaybackRate(0.75)
+            }
+          }
+          break
+      }
+      showControls()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [fullscreen, showControls, qualityLevels, currentQuality, playbackRate, handleScreenshot, handleSkipBack, handleSkipForward, seekable])
 
   return (
     <div
@@ -661,11 +897,19 @@ export function VideoPlayer({
         </div>
       )}
 
-      {/* HLS Player — Native with hls.js + ABR */}
+      {/* HLS Player — Native with hls.js + ABR + direct fallback */}
       {isHls && resolvedUrl && (
-        <div className="absolute inset-0">
+        <div
+          className="absolute inset-0 overflow-hidden"
+          style={{
+            transform: zoomLevel > 1 ? `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)` : undefined,
+            transformOrigin: 'center center',
+            transition: isPanningRef.current ? 'none' : 'transform 0.2s ease-out',
+          }}
+        >
           <HlsPlayer
             src={resolvedUrl}
+            originalUrl={streamUrl}
             onReady={handleReady}
             onError={handleError}
             onQualityLevels={handleQualityLevels}
@@ -680,13 +924,24 @@ export function VideoPlayer({
             seekToLive={seekToLive}
             onSeekedToLive={handleSeekedToLive}
             onBuffering={handleBuffering}
+            selectedAudioTrack={currentAudioTrack}
+            onAudioTracks={handleAudioTracks}
+            selectedSubtitleTrack={currentSubtitleTrack}
+            onSubtitleTracks={handleSubtitleTracks}
           />
         </div>
       )}
 
       {/* MPEG-TS Player — for raw .ts streams using mpegts.js */}
       {isMpegTs && resolvedUrl && (
-        <div className="absolute inset-0">
+        <div
+          className="absolute inset-0 overflow-hidden"
+          style={{
+            transform: zoomLevel > 1 ? `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)` : undefined,
+            transformOrigin: 'center center',
+            transition: isPanningRef.current ? 'none' : 'transform 0.2s ease-out',
+          }}
+        >
           <TsPlayer
             src={resolvedUrl}
             onReady={handleReady}
@@ -697,6 +952,7 @@ export function VideoPlayer({
             playbackRate={playbackRate}
             aspectMode={aspectMode}
             onBuffering={handleBuffering}
+            deinterlace={deinterlace}
           />
         </div>
       )}
@@ -793,6 +1049,11 @@ export function VideoPlayer({
         <IframeReloadHint />
       )}
 
+      {/* Screenshot flash effect */}
+      {screenshotFlash && (
+        <div className="absolute inset-0 z-40 bg-white animate-in fade-out duration-300 pointer-events-none" />
+      )}
+
       {/* Controls overlay */}
       <PlayerControls
         isPlaying={playing}
@@ -825,6 +1086,21 @@ export function VideoPlayer({
         isIframe={isIframe}
         iframeTouchLocked={isIframe && isMobileDevice && iframeTouchLocked}
         onToggleIframeTouchLock={() => setIframeTouchLocked(prev => !prev)}
+        onScreenshot={isHls || isMpegTs ? handleScreenshot : undefined}
+        onSkipBack={seekable ? handleSkipBack : undefined}
+        onSkipForward={seekable ? handleSkipForward : undefined}
+        canSeek={seekable}
+        audioTracks={audioTracks}
+        currentAudioTrack={currentAudioTrack}
+        onAudioTrackChange={handleAudioTrackChange}
+        subtitleTracks={subtitleTracks}
+        currentSubtitleTrack={currentSubtitleTrack}
+        onSubtitleTrackChange={handleSubtitleTrackChange}
+        zoomLevel={zoomLevel}
+        onZoomChange={handleZoomChange}
+        deinterlace={deinterlace}
+        onDeinterlaceChange={setDeinterlace}
+        showDeinterlace={isMpegTs}
       />
 
       {/* Fullscreen rotate hint — shows on mobile in portrait mode */}
@@ -840,7 +1116,7 @@ export function VideoPlayer({
 
       {/* Keyboard shortcut hint */}
       <div className="absolute bottom-16 left-1/2 -translate-x-1/2 opacity-0 pointer-events-none text-[10px] text-white/60 bg-black/50 px-2 py-1 rounded whitespace-nowrap">
-        Space: Play/Pause • F: Fullscreen • M: Mute • Q: Quality • S: Speed
+        Space: Play/Pause • F: Fullscreen • M: Mute • Q: Quality • S: Speed • Shift+S: Screenshot • &larr;&rarr;: Skip 10s
       </div>
     </div>
   )

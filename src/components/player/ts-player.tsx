@@ -23,6 +23,7 @@ interface TsPlayerProps {
   playbackRate?: number
   aspectMode?: 'fit' | 'stretch' | 'crop' | '16:9' | '4:3'
   onBuffering?: (isBuffering: boolean) => void
+  deinterlace?: boolean
 }
 
 export function TsPlayer({
@@ -35,6 +36,7 @@ export function TsPlayer({
   playbackRate = 1,
   aspectMode = 'fit',
   onBuffering,
+  deinterlace = false,
 }: TsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerRef = useRef<any>(null) // mpegts.Player type not available at import time
@@ -109,6 +111,9 @@ export function TsPlayer({
 
         // Auto reconnection for live streams
         liveStreamInfinity: true,
+
+        // Deinterlace
+        ...(deinterlace ? { deinterlace: true } : {}),
       })
 
       player.attachMediaElement(video)
