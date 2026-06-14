@@ -33,17 +33,19 @@ export async function POST(request: NextRequest) {
     const now = new Date()
     const todayStr = now.toISOString().slice(0, 10) // YYYY-MM-DD
 
-    // Create PageView record
-    const pageViewPromise = db.pageView.create({
-      data: {
+    // Update DailyStat — needs more sequential logic
+    // First, check if this sessionId already has a pageview today (BEFORE creating the new one)
+    const existingTodayView = await db.pageView.findFirst({
+      where: {
         sessionId,
-        page,
-        channelId: channelId || null,
-        referrer: referrer || '',
-        userAgent: ua,
-        country,
-        ip,
+        createdAt: {
+          gte: new Date(todayStr + 'T00:00:00.000Z'),
+          lt: new Date(
+            new Date(todayStr + 'T00:00:00.000Z').getTime() + 86400000
+          ),
+        },
       },
+      select: { id: true },
     })
 
     // Upsert VisitorSession
@@ -72,23 +74,22 @@ export async function POST(request: NextRequest) {
         })
       : Promise.resolve(null)
 
-    // Run independent operations in parallel
-    await Promise.all([pageViewPromise, visitorSessionPromise, channelPromise])
-
-    // Update DailyStat — needs more sequential logic
-    // First, check if this sessionId already has a pageview today
-    const existingTodayView = await db.pageView.findFirst({
-      where: {
-        sessionId,
-        createdAt: {
-          gte: new Date(todayStr + 'T00:00:00.000Z'),
-          lt: new Date(
-            new Date(todayStr + 'T00:00:00.000Z').getTime() + 86400000
-          ),
+    // Create PageView + update session + update channel in parallel
+    await Promise.all([
+      db.pageView.create({
+        data: {
+          sessionId,
+          page,
+          channelId: channelId || null,
+          referrer: referrer || '',
+          userAgent: ua,
+          country,
+          ip,
         },
-      },
-      select: { id: true },
-    })
+      }),
+      visitorSessionPromise,
+      channelPromise,
+    ])
 
     // We need the current DailyStat to update JSON fields
     const currentStat = await db.dailyStat.upsert({
