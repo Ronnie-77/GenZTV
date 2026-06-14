@@ -77,7 +77,7 @@ export function JwPlayer({
       className="w-full h-full border-0"
       allow="autoplay; fullscreen; encrypted-media"
       allowFullScreen
-      sandbox="allow-scripts allow-same-origin allow-popups"
+      sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-popups-to-escape-sandbox"
       style={{ background: '#000' }}
     />
   )

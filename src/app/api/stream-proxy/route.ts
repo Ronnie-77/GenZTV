@@ -177,7 +177,10 @@ export async function GET(req: NextRequest) {
 
     // Non-live requests: m3u8, VOD .ts segments, and other content
     // Use shorter timeout and fewer retries for m3u8 manifests to enable faster fallback
-    const fetchTimeout = isM3u8 ? UPSTREAM_TIMEOUT_MANIFEST : UPSTREAM_TIMEOUT_SEGMENT
+    // Support custom timeout via ?timeout= query param (used by JW player for slow servers)
+    const customTimeout = req.nextUrl.searchParams.get('timeout')
+    const customTimeoutMs = customTimeout ? parseInt(customTimeout, 10) : 0
+    const fetchTimeout = customTimeoutMs > 0 ? customTimeoutMs : (isM3u8 ? UPSTREAM_TIMEOUT_MANIFEST : UPSTREAM_TIMEOUT_SEGMENT)
     const fetchRetries = isM3u8 ? MAX_RETRIES_MANIFEST : MAX_RETRIES_SEGMENT
     console.log(`[stream-proxy] Fetching: ${url} (m3u8=${isM3u8}, ts=${isTs}, timeout=${fetchTimeout / 1000}s, retries=${fetchRetries})`)
     let response: Response
