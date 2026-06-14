@@ -1,12 +1,24 @@
 import type { NextConfig } from "next";
-import path from "path";
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   typescript: {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
-  outputFileTracingRoot: path.join(__dirname),
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '200mb',
+    },
+  },
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**',
+      },
+    ],
+  },
   async redirects() {
     return [
       {
