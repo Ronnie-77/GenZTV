@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.7/hls.min.js"></script>
 <script>
 (function() {
   var video = document.getElementById('video');
@@ -54,8 +54,9 @@ export async function GET(request: NextRequest) {
   var proxyUrl = ${JSON.stringify(proxyUrl)};
   var hls = null;
   var ready = false;
-  var mode = ''; // 'native', 'direct', 'proxy'
+  var currentMode = ''; // 'native', 'direct', 'proxy'
   var fatalErrorCount = 0;
+  var triedModes = {}; // Track which modes we've tried
 
   function setStatus(msg) {
     if (statusEl) statusEl.textContent = msg;
@@ -70,7 +71,6 @@ export async function GET(request: NextRequest) {
     controlsEl.style.display = 'none';
     errorEl.style.display = 'block';
     errorEl.innerHTML = msg + '<br><button class="retry-btn" onclick="location.reload()">Retry</button>';
-    // Notify parent
     try { window.parent.postMessage({ type: 'jw-player-error', message: msg }, '*'); } catch(e) {}
   }
 
@@ -91,80 +91,26 @@ export async function GET(request: NextRequest) {
   }
 
   // ═══════════════════════════════════════════════════
-  // STEP 1: Try Native HLS (Safari/iOS)
-  // Native HLS does NOT require CORS — video element can load cross-origin media
-  // This works for ALL m3u8 URLs if the browser supports it
-  // ═══════════════════════════════════════════════════
-  function tryNativeHls() {
-    if (!video.canPlayType('application/vnd.apple.mpegurl')) {
-      console.log('[jw-player] Native HLS not supported, skipping');
-      tryDirectHls();
-      return;
-    }
-
-    mode = 'native';
-    setStatus('Connecting...');
-    console.log('[jw-player] Step 1: Trying native HLS with direct URL');
-
-    video.src = directUrl;
-
-    var metadataHandler = function() {
-      console.log('[jw-player] ✅ Native HLS working!');
-      notifyReady();
-      video.play().catch(function(){});
-      video.removeEventListener('loadedmetadata', metadataHandler);
-      video.removeEventListener('error', errorHandler);
-    };
-
-    var errorHandler = function() {
-      console.log('[jw-player] Native HLS failed, trying hls.js direct');
-      video.removeEventListener('loadedmetadata', metadataHandler);
-      video.removeEventListener('error', errorHandler);
-      video.removeAttribute('src');
-      video.load();
-      tryDirectHls();
-    };
-
-    // Timeout — if native HLS doesn't fire loadedmetadata in 8s, move on
-    var timeout = setTimeout(function() {
-      console.log('[jw-player] Native HLS timeout (8s), trying hls.js');
-      video.removeEventListener('loadedmetadata', metadataHandler);
-      video.removeEventListener('error', errorHandler);
-      video.removeAttribute('src');
-      video.load();
-      tryDirectHls();
-    }, 8000);
-
-    video.addEventListener('loadedmetadata', function() {
-      clearTimeout(timeout);
-      metadataHandler();
-    });
-    video.addEventListener('error', function() {
-      clearTimeout(timeout);
-      errorHandler();
-    });
-
-    video.play().catch(function(){});
-  }
-
-  // ═══════════════════════════════════════════════════
-  // STEP 2: Try hls.js with DIRECT URL (no proxy)
-  // Key: Do NOT add custom headers (like User-Agent) because
-  // custom headers trigger CORS preflight which IPTV servers
-  // can't handle. Let hls.js make simple CORS requests.
+  // STEP 1: Direct hls.js (like the user's working HTML file)
+  // Simple config, NO custom headers, NO proxy
+  // This works when: IPTV server sends CORS headers, or page is HTTP
   // ═══════════════════════════════════════════════════
   function tryDirectHls() {
+    if (triedModes['direct']) { tryProxyHls(); return; }
+    triedModes['direct'] = true;
+
     if (!Hls.isSupported()) {
-      console.log('[jw-player] hls.js not supported');
-      tryProxyHls();
+      console.log('[jw-player] hls.js not supported, trying native');
+      tryNativeHls();
       return;
     }
 
-    mode = 'direct';
+    currentMode = 'direct';
     setStatus('Connecting directly...');
-    console.log('[jw-player] Step 2: Trying hls.js with direct URL (no custom headers)');
+    console.log('[jw-player] Step 1: Direct hls.js (no proxy, no custom headers)');
 
     destroyHls();
+    fatalErrorCount = 0;
 
     hls = new Hls({
       enableWorker: true,
@@ -175,19 +121,17 @@ export async function GET(request: NextRequest) {
       maxBufferSize: 120 * 1000000,
       maxBufferHole: 0.5,
 
-      // ABR
       abrEwmaDefaultEstimate: 500000,
       abrBandWidthFactor: 0.95,
       abrBandWidthUpFactor: 0.7,
       abrMaxWithRealBitrate: true,
 
-      // Live
       liveSyncDurationCount: 3,
       liveMaxLatencyDurationCount: 10,
       liveDurationInfinity: true,
       progressive: true,
 
-      // Lenient timeouts for direct connection
+      // Generous timeouts for IPTV servers
       fragLoadingMaxRetry: 3,
       fragLoadingMaxRetryTimeout: 20000,
       fragLoadingTimeOut: 20000,
@@ -200,16 +144,13 @@ export async function GET(request: NextRequest) {
 
       startLevel: -1,
 
-      // CRITICAL: Do NOT add custom headers for direct requests!
-      // Custom headers like User-Agent trigger CORS preflight (OPTIONS request)
-      // Most IPTV servers don't handle OPTIONS, causing the request to fail
-      // Only add headers for proxy requests (same-origin, no CORS needed)
+      // CRITICAL: NO custom headers for direct mode!
+      // Custom headers trigger CORS preflight which IPTV servers can't handle
       xhrSetup: function(xhr, reqUrl) {
-        // Only set User-Agent for proxy requests (same-origin)
+        // Only set User-Agent for proxy requests (same-origin, no CORS)
         if (reqUrl.includes('/api/stream-proxy')) {
           try { xhr.setRequestHeader('User-Agent', 'VLC/3.0.18 LibVLC/3.0.18'); } catch(e) {}
         }
-        // For direct requests: no custom headers = no CORS preflight
       },
     });
 
@@ -217,64 +158,53 @@ export async function GET(request: NextRequest) {
     hls.attachMedia(video);
 
     hls.on(Hls.Events.MANIFEST_PARSED, function() {
-      console.log('[jw-player] ✅ Direct hls.js working!');
+      console.log('[jw-player] Direct hls.js working!');
       notifyReady();
       video.play().catch(function(){});
     });
 
     hls.on(Hls.Events.ERROR, function(event, data) {
       if (!data.fatal) return;
-      console.error('[jw-player] Direct hls.js error:', data.type, data.details);
+      console.error('[jw-player] Direct error:', data.type, data.details);
 
       if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
         fatalErrorCount++;
         if (fatalErrorCount <= 3) {
-          console.log('[jw-player] Media error recovery attempt ' + fatalErrorCount);
           hls.recoverMediaError();
         } else {
-          showError('Media error — stream format not supported by this browser.');
+          tryProxyHls();
         }
       } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-        // Direct failed — try proxy
-        console.log('[jw-player] Direct connection failed, trying proxy...');
+        // Direct failed → try proxy
+        console.log('[jw-player] Direct failed, trying proxy...');
         tryProxyHls();
       } else {
-        showError('Stream error — try a different browser or check your connection.');
+        tryProxyHls();
       }
     });
   }
 
   // ═══════════════════════════════════════════════════
-  // STEP 3: Try hls.js with PROXY (server-side fetch)
-  // This bypasses CORS but requires our server to reach the
-  // IPTV server. Uses much longer timeout (30s) because
-  // some IPTV servers are slow or our server might be far.
+  // STEP 2: Proxy hls.js (server-side fetch)
+  // Bypasses CORS but requires our server to reach the IPTV server
   // ═══════════════════════════════════════════════════
   function tryProxyHls() {
+    if (triedModes['proxy']) { tryNativeHls(); return; }
+    triedModes['proxy'] = true;
+
     if (!proxyUrl) {
-      showError('Stream unavailable — server cannot reach this channel. Try on Safari/iOS for direct playback.');
+      tryNativeHls();
       return;
     }
 
     if (!Hls.isSupported()) {
-      // Try native with proxy URL as last resort
-      mode = 'proxy-native';
-      setStatus('Trying proxy...');
-      video.src = proxyUrl;
-      video.addEventListener('loadedmetadata', function() {
-        notifyReady();
-        video.play().catch(function(){});
-      });
-      video.addEventListener('error', function() {
-        showError('Stream unavailable — could not connect to this channel.');
-      });
-      video.play().catch(function(){});
+      tryNativeHls();
       return;
     }
 
-    mode = 'proxy';
+    currentMode = 'proxy';
     setStatus('Trying proxy...');
-    console.log('[jw-player] Step 3: Trying hls.js with proxy URL (30s timeout)');
+    console.log('[jw-player] Step 2: Proxy hls.js');
 
     destroyHls();
     fatalErrorCount = 0;
@@ -294,7 +224,7 @@ export async function GET(request: NextRequest) {
       liveDurationInfinity: true,
       progressive: true,
 
-      // Very generous timeouts for proxy — server might need time to reach IPTV server
+      // Very generous timeouts for proxy
       fragLoadingMaxRetry: 4,
       fragLoadingMaxRetryTimeout: 30000,
       fragLoadingTimeOut: 30000,
@@ -308,7 +238,6 @@ export async function GET(request: NextRequest) {
       startLevel: -1,
 
       xhrSetup: function(xhr, reqUrl) {
-        // Add VLC User-Agent for proxy requests (same-origin, no CORS issues)
         if (reqUrl.includes('/api/stream-proxy')) {
           try { xhr.setRequestHeader('User-Agent', 'VLC/3.0.18 LibVLC/3.0.18'); } catch(e) {}
         }
@@ -319,43 +248,102 @@ export async function GET(request: NextRequest) {
     hls.attachMedia(video);
 
     hls.on(Hls.Events.MANIFEST_PARSED, function() {
-      console.log('[jw-player] ✅ Proxy hls.js working!');
+      console.log('[jw-player] Proxy hls.js working!');
       notifyReady();
       video.play().catch(function(){});
     });
 
     hls.on(Hls.Events.ERROR, function(event, data) {
       if (!data.fatal) return;
-      console.error('[jw-player] Proxy hls.js error:', data.type, data.details);
+      console.error('[jw-player] Proxy error:', data.type, data.details);
 
       if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
         fatalErrorCount++;
         if (fatalErrorCount <= 3) {
           hls.recoverMediaError();
         } else {
-          showError('Media error — stream format not supported.');
+          tryNativeHls();
         }
       } else {
-        // All methods failed
-        showError('Stream unavailable — server cannot reach this channel.<br><small>Tip: Try on Safari (Mac/iOS) for direct playback, or check if the channel is online.</small>');
+        tryNativeHls();
       }
     });
   }
 
   // ═══════════════════════════════════════════════════
-  // START: Try Native → Direct → Proxy
+  // STEP 3: Native HLS (Safari/iOS)
+  // No CORS needed — video element can load cross-origin media
+  // ═══════════════════════════════════════════════════
+  function tryNativeHls() {
+    if (triedModes['native']) {
+      showError('Stream unavailable — all playback methods failed.<br><small>Try opening the stream URL directly in a new browser tab.</small>');
+      return;
+    }
+    triedModes['native'] = true;
+
+    if (!video.canPlayType('application/vnd.apple.mpegurl')) {
+      showError('Stream unavailable — browser cannot play this format.<br><small>Try on Safari/iOS or open the URL directly in a new tab.</small>');
+      return;
+    }
+
+    currentMode = 'native';
+    setStatus('Trying native HLS...');
+    console.log('[jw-player] Step 3: Native HLS (Safari/iOS)');
+
+    video.src = directUrl;
+
+    var metadataHandler = function() {
+      console.log('[jw-player] Native HLS working!');
+      notifyReady();
+      video.play().catch(function(){});
+      video.removeEventListener('loadedmetadata', metadataHandler);
+      video.removeEventListener('error', errorHandler);
+      clearTimeout(timeout);
+    };
+
+    var errorHandler = function() {
+      console.log('[jw-player] Native HLS failed');
+      video.removeEventListener('loadedmetadata', metadataHandler);
+      video.removeEventListener('error', errorHandler);
+      video.removeAttribute('src');
+      video.load();
+      showError('Stream unavailable — the server may be offline or blocking connections.<br><small>Try opening the URL directly in a new browser tab.</small>');
+    };
+
+    var timeout = setTimeout(function() {
+      console.log('[jw-player] Native HLS timeout (10s)');
+      video.removeEventListener('loadedmetadata', metadataHandler);
+      video.removeEventListener('error', errorHandler);
+      video.removeAttribute('src');
+      video.load();
+      showError('Stream unavailable — connection timed out.<br><small>Try opening the URL directly in a new browser tab.</small>');
+    }, 10000);
+
+    video.addEventListener('loadedmetadata', function() {
+      clearTimeout(timeout);
+      metadataHandler();
+    });
+    video.addEventListener('error', function() {
+      clearTimeout(timeout);
+      errorHandler();
+    });
+
+    video.play().catch(function(){});
+  }
+
+  // ═══════════════════════════════════════════════════
+  // START: Try Direct → Proxy → Native
   // ═══════════════════════════════════════════════════
   if (!directUrl) {
     showError('No stream URL provided');
     return;
   }
 
-  tryNativeHls();
+  tryDirectHls();
 
   // ═══════════════════════════════════════════════════
   // Controls
   // ═══════════════════════════════════════════════════
-  // Show/hide controls on tap
   var controlsTimeout;
   video.addEventListener('click', function(e) {
     if (!ready) return;
@@ -372,7 +360,6 @@ export async function GET(request: NextRequest) {
     toggleFullscreen();
   });
 
-  // Auto-hide controls
   function showControls() {
     controlsEl.style.opacity = '1';
     clearTimeout(controlsTimeout);
@@ -384,7 +371,6 @@ export async function GET(request: NextRequest) {
   video.addEventListener('mousemove', showControls);
   video.addEventListener('touchstart', showControls);
 
-  // Update play button
   video.addEventListener('play', function() {
     var btn = document.getElementById('btn-play');
     if (btn) btn.textContent = '⏸';

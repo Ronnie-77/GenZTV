@@ -19,18 +19,16 @@ interface JwHlsPlayerProps {
 /**
  * JW-style HLS Player for m3u8 streams that don't work with the regular HlsPlayer.
  *
- * KEY DIFFERENCE from HlsPlayer:
- * - Much longer timeouts (30s manifest, 30s segments) — IPTV servers can be slow
- * - More retries (3 for manifest, 4 for segments)
- * - Proxy-first approach (required for HTTPS sites loading HTTP streams = mixed content)
- * - Direct fallback with NO custom headers (no CORS preflight)
- * - Native HLS as first attempt on Safari/iOS (no CORS needed at all)
- *
- * Why proxy-first?
- * - On HTTPS sites, browsers BLOCK HTTP requests (mixed content policy)
- * - Server-side proxy bypasses this because server → server has no mixed content restriction
- * - Direct mode only works if: site is HTTP, OR stream URL is HTTPS, OR browser allows it
+ * STRATEGY (learned from user's working HTML file):
+ * 1. Direct hls.js first — simplest config, no custom headers, no proxy
+ *    This works when: IPTV server sends CORS headers, or page is HTTP
+ * 2. Proxy hls.js fallback — uses server-side proxy to bypass CORS
+ *    This works when: our server can reach the IPTV server
+ * 3. Native HLS (Safari/iOS) — no CORS needed at all
  */
+
+type PlayerMode = 'none' | 'native' | 'direct' | 'proxy'
+
 export function JwHlsPlayer({
   src,
   proxySrc,
@@ -45,10 +43,10 @@ export function JwHlsPlayer({
 }: JwHlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
-  const triedProxyRef = useRef(false)
-  const triedDirectRef = useRef(false)
-  const mediaErrorCountRef = useRef(0)
   const readyFiredRef = useRef(false)
+  const mediaErrorCountRef = useRef(0)
+  const destroyedRef = useRef(false)
+  const triedModesRef = useRef<Set<PlayerMode>>(new Set())
 
   const cb = useRef({ onReady, onError, onBuffering })
   useEffect(() => {
@@ -56,6 +54,7 @@ export function JwHlsPlayer({
   })
 
   const cleanup = useCallback(() => {
+    destroyedRef.current = true
     if (hlsRef.current) {
       hlsRef.current.destroy()
       hlsRef.current = null
@@ -70,27 +69,18 @@ export function JwHlsPlayer({
   }
 
   function finalError(msg: string) {
-    console.error(`[jw-hls-player] 💀 ${msg}`)
+    console.error(`[jw-hls-player] FATAL: ${msg}`)
     cb.current.onError?.(msg)
     cleanup()
   }
 
-  // Check if direct mode is possible (not blocked by mixed content)
-  function canTryDirect(): boolean {
-    if (typeof window === 'undefined') return false
-    // If page is HTTPS and stream URL is HTTP → mixed content blocks it
-    if (window.location.protocol === 'https:' && src.startsWith('http://')) {
-      console.log('[jw-hls-player] ⚠️ Skipping direct mode: HTTPS page + HTTP stream = mixed content block')
-      return false
-    }
-    return true
-  }
-
-  // ── Create hls.js instance ──
-  function createHlsInstance(url: string, isProxy: boolean): Hls | null {
+  // ── Create a simple hls.js instance (like the user's working HTML) ──
+  function createHls(url: string, mode: 'direct' | 'proxy'): Hls | null {
     if (!Hls.isSupported()) return null
 
-    return new Hls({
+    const isProxyMode = mode === 'proxy'
+
+    const hls = new Hls({
       enableWorker: true,
       lowLatencyMode: true,
       backBufferLength: 30,
@@ -99,122 +89,216 @@ export function JwHlsPlayer({
       maxBufferSize: 120 * 1000000,
       maxBufferHole: 0.5,
 
+      // ABR — start low, adapt up
       abrEwmaDefaultEstimate: 500000,
       abrBandWidthFactor: 0.95,
       abrBandWidthUpFactor: 0.7,
       abrMaxWithRealBitrate: true,
 
+      // Live stream settings
       liveSyncDurationCount: 3,
       liveMaxLatencyDurationCount: 10,
       liveDurationInfinity: true,
       progressive: true,
 
-      // VERY lenient timeouts — IPTV servers can be slow to respond
-      fragLoadingMaxRetry: 4,
+      // Timeouts — generous for IPTV servers
+      fragLoadingMaxRetry: isProxyMode ? 4 : 3,
       fragLoadingMaxRetryTimeout: 30000,
       fragLoadingTimeOut: 30000,
 
-      manifestLoadingMaxRetry: 3,
+      manifestLoadingMaxRetry: isProxyMode ? 3 : 2,
       manifestLoadingMaxRetryTimeout: 30000,
-      manifestLoadingTimeOut: 30000,
+      manifestLoadingTimeOut: isProxyMode ? 30000 : 15000,
 
-      levelLoadingMaxRetry: 3,
+      levelLoadingMaxRetry: isProxyMode ? 3 : 2,
       levelLoadingMaxRetryTimeout: 30000,
-      levelLoadingTimeOut: 30000,
+      levelLoadingTimeOut: isProxyMode ? 30000 : 15000,
 
       startLevel: -1,
 
-      // CRITICAL: Only set custom headers for proxy requests (same-origin)
-      // For direct requests: NO custom headers = NO CORS preflight
+      // CRITICAL: NO custom headers for direct mode (avoids CORS preflight)
+      // Only add User-Agent for proxy mode (same-origin, no CORS issue)
       xhrSetup: (xhr: XMLHttpRequest, reqUrl: string) => {
-        if (isProxy || reqUrl.includes('/api/stream-proxy')) {
+        if (isProxyMode || reqUrl.includes('/api/stream-proxy')) {
           try { xhr.setRequestHeader('User-Agent', 'VLC/3.0.18 LibVLC/3.0.18') } catch {}
         }
-        // Direct requests: no custom headers to avoid CORS preflight
+        // Direct: NO custom headers = NO CORS preflight = better chance of success
       },
     })
-  }
-
-  // ── Initialize hls.js ──
-  function initHls(url: string, isProxy: boolean): Hls | null {
-    const hls = createHlsInstance(url, isProxy)
-    if (!hls) return null
 
     hls.loadSource(url)
     hls.attachMedia(videoRef.current!)
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      console.log(`[jw-hls-player] ✅ Manifest parsed (${isProxy ? 'proxy' : 'direct'})`)
+      console.log(`[jw-hls-player] Manifest parsed (${mode} mode) ✅`)
       fireReady()
+      videoRef.current?.play().catch(() => {})
     })
 
     hls.on(Hls.Events.ERROR, (_event, data) => {
-      console.error(`[jw-hls-player] ❌ Error: type=${data.type}, details=${data.details}, fatal=${data.fatal}`)
+      if (destroyedRef.current) return
+      const currentMode = triedModesRef.current.has('direct') ? 
+        (triedModesRef.current.has('proxy') ? 'proxy' : 'direct') : 'none'
+      console.error(`[jw-hls-player] Error: type=${data.type}, details=${data.details}, fatal=${data.fatal}, currentAttempt=${mode}`)
 
       if (!data.fatal) return
 
-      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-        handleFatalNetworkError(isProxy)
-      } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-        handleFatalMediaError(hls, isProxy)
+      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        mediaErrorCountRef.current += 1
+        if (mediaErrorCountRef.current <= 3) {
+          console.log(`[jw-hls-player] Media error recovery ${mediaErrorCountRef.current}/3`)
+          hls.recoverMediaError()
+        } else {
+          // Too many media errors — try next mode
+          tryNextMode(mode)
+        }
+      } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        // Network error — try next mode
+        tryNextMode(mode)
       } else {
-        finalError('Fatal stream error — try again later')
+        finalError('Stream error — try again later')
       }
     })
 
     return hls
   }
 
-  // ── Handle fatal network error with fallback ──
-  function handleFatalNetworkError(wasProxy: boolean) {
-    if (wasProxy && !triedDirectRef.current && canTryDirect()) {
-      // Proxy failed → try direct (only if not blocked by mixed content)
-      console.log('[jw-hls-player] 🔄 Proxy failed → trying direct (no custom headers)')
-      triedDirectRef.current = true
-      mediaErrorCountRef.current = 0
+  // ── Try the next playback mode ──
+  function tryNextMode(failedMode: PlayerMode) {
+    if (destroyedRef.current && !triedModesRef.current.has(failedMode)) return
 
-      cleanup()
-      const directHls = initHls(src, false)
-      if (directHls) {
-        hlsRef.current = directHls
-      } else {
-        finalError('Stream unavailable — could not connect to server')
-      }
-    } else if (!wasProxy && !triedProxyRef.current && proxySrc) {
-      // Direct failed → try proxy
-      console.log('[jw-hls-player] 🔄 Direct failed → trying proxy')
-      triedProxyRef.current = true
-      mediaErrorCountRef.current = 0
+    console.log(`[jw-hls-player] Mode '${failedMode}' failed, trying next...`)
 
-      cleanup()
-      const proxyHls = initHls(proxySrc, true)
-      if (proxyHls) {
-        hlsRef.current = proxyHls
-      } else {
-        finalError('Stream unavailable — could not connect to server')
-      }
+    // Destroy current hls instance but DON'T set destroyed flag
+    if (hlsRef.current) {
+      hlsRef.current.destroy()
+      hlsRef.current = null
+    }
+    // Reset destroyed flag so next mode can start
+    destroyedRef.current = false
+    mediaErrorCountRef.current = 0
+
+    // Determine next mode based on what hasn't been tried yet
+    // Order: direct → proxy → native
+    if (failedMode === 'direct' && !triedModesRef.current.has('proxy')) {
+      startProxy()
+    } else if (!triedModesRef.current.has('native')) {
+      startNative()
     } else {
-      finalError('Stream unavailable — the server may be offline or blocking connections. Try again later.')
+      // All modes tried — give up
+      finalError('Stream unavailable — all playback methods failed. The server may be offline, geo-restricted, or blocking connections. Try opening the stream URL directly in a new browser tab.')
     }
   }
 
-  // ── Handle fatal media error ──
-  function handleFatalMediaError(hls: Hls, isProxy: boolean) {
-    mediaErrorCountRef.current += 1
-    if (mediaErrorCountRef.current <= 3) {
-      console.log(`[jw-hls-player] Media error recovery ${mediaErrorCountRef.current}/3`)
-      hls.recoverMediaError()
-    } else {
-      const url = isProxy ? proxySrc : src
-      cleanup()
-      mediaErrorCountRef.current = 0
-      const newHls = initHls(url, isProxy)
-      if (newHls) {
-        hlsRef.current = newHls
-      } else {
-        finalError('Media error — stream format not supported')
-      }
+  // ── Start: Direct hls.js (like user's working HTML file) ──
+  function startDirect() {
+    if (destroyedRef.current) return
+    if (triedModesRef.current.has('direct')) {
+      tryNextMode('direct')
+      return
     }
+    triedModesRef.current.add('direct')
+
+    if (!Hls.isSupported()) {
+      console.log('[jw-hls-player] hls.js not supported, trying native')
+      startNative()
+      return
+    }
+
+    console.log('[jw-hls-player] Step 1: Direct hls.js (no proxy, no custom headers)')
+
+    const hls = createHls(src, 'direct')
+    if (hls) {
+      hlsRef.current = hls
+    } else {
+      tryNextMode('direct')
+    }
+  }
+
+  // ── Fallback: Proxy hls.js ──
+  function startProxy() {
+    if (destroyedRef.current) return
+    if (triedModesRef.current.has('proxy')) {
+      startNative()
+      return
+    }
+    triedModesRef.current.add('proxy')
+
+    if (!proxySrc) {
+      console.log('[jw-hls-player] No proxy URL, trying native')
+      startNative()
+      return
+    }
+
+    if (!Hls.isSupported()) {
+      console.log('[jw-hls-player] hls.js not supported, trying native')
+      startNative()
+      return
+    }
+
+    console.log('[jw-hls-player] Step 2: Proxy hls.js (server-side fetch)')
+
+    const hls = createHls(proxySrc, 'proxy')
+    if (hls) {
+      hlsRef.current = hls
+    } else {
+      startNative()
+    }
+  }
+
+  // ── Last resort: Native HLS (Safari/iOS) ──
+  function startNative() {
+    if (destroyedRef.current) return
+    if (triedModesRef.current.has('native')) {
+      finalError('Stream unavailable — all playback methods failed. Try opening the URL directly in a new browser tab.')
+      return
+    }
+    triedModesRef.current.add('native')
+
+    const video = videoRef.current
+    if (!video) { finalError('No video element'); return }
+
+    const nativeHls = video.canPlayType('application/vnd.apple.mpegurl')
+    if (!nativeHls) {
+      finalError('Stream unavailable — browser cannot play this format. Try Safari/iOS or open the URL directly in a new tab.')
+      return
+    }
+
+    console.log('[jw-hls-player] Step 3: Native HLS (Safari/iOS)')
+
+    video.src = src
+
+    const handleLoadedMetadata = () => {
+      console.log('[jw-hls-player] Native HLS working! ✅')
+      fireReady()
+      video.play().catch(() => {})
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      video.removeEventListener('error', handleError)
+      clearTimeout(nativeTimeout)
+    }
+
+    const handleError = () => {
+      console.log('[jw-hls-player] Native HLS failed')
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      video.removeEventListener('error', handleError)
+      clearTimeout(nativeTimeout)
+      video.removeAttribute('src')
+      video.load()
+      finalError('Stream unavailable — the server may be offline or geo-restricted. Try opening the URL directly in a new browser tab.')
+    }
+
+    const nativeTimeout = setTimeout(() => {
+      console.log('[jw-hls-player] Native HLS timeout (10s)')
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      video.removeEventListener('error', handleError)
+      video.removeAttribute('src')
+      video.load()
+      finalError('Stream unavailable — connection timed out. The server may be slow or geo-restricted.')
+    }, 10000)
+
+    video.addEventListener('loadedmetadata', handleLoadedMetadata)
+    video.addEventListener('error', handleError)
+    video.play().catch(() => {})
   }
 
   // ── Main Effect ──
@@ -224,11 +308,12 @@ export function JwHlsPlayer({
 
     onVideoRef?.(video)
 
+    // Reset state
     cleanup()
     readyFiredRef.current = false
     mediaErrorCountRef.current = 0
-    triedProxyRef.current = false
-    triedDirectRef.current = false
+    destroyedRef.current = false
+    triedModesRef.current = new Set()
 
     // Buffering events
     const handleWaiting = () => onBuffering?.(true)
@@ -238,85 +323,10 @@ export function JwHlsPlayer({
     video.addEventListener('playing', handlePlaying)
     video.addEventListener('canplay', handleCanPlay)
 
-    const nativeHls = video.canPlayType('application/vnd.apple.mpegurl')
-
-    if (nativeHls && canTryDirect()) {
-      // ═══════════════════════════════════════════════
-      // STEP 1: Native HLS (Safari/iOS)
-      // Only on Safari where native HLS is available
-      // AND not blocked by mixed content
-      // ═══════════════════════════════════════════════
-      console.log('[jw-hls-player] Step 1: Trying native HLS (Safari/iOS)')
-      video.src = src
-
-      const handleLoadedMetadata = () => {
-        console.log('[jw-hls-player] ✅ Native HLS working!')
-        fireReady()
-        video.play().catch(() => {})
-        video.removeEventListener('loadedmetadata', handleLoadedMetadata)
-        video.removeEventListener('error', handleError)
-        clearTimeout(nativeTimeout)
-      }
-
-      const handleError = () => {
-        console.log('[jw-hls-player] Native HLS failed → trying proxy')
-        video.removeEventListener('loadedmetadata', handleLoadedMetadata)
-        video.removeEventListener('error', handleError)
-        clearTimeout(nativeTimeout)
-        video.removeAttribute('src')
-        video.load()
-        startWithProxy()
-      }
-
-      const nativeTimeout = setTimeout(() => {
-        console.log('[jw-hls-player] Native HLS timeout (10s) → trying proxy')
-        video.removeEventListener('loadedmetadata', handleLoadedMetadata)
-        video.removeEventListener('error', handleError)
-        video.removeAttribute('src')
-        video.load()
-        startWithProxy()
-      }, 10000)
-
-      video.addEventListener('loadedmetadata', handleLoadedMetadata)
-      video.addEventListener('error', handleError)
-      video.play().catch(() => {})
-
-    } else {
-      // ═══════════════════════════════════════════════
-      // Non-Safari or mixed content: Start with PROXY
-      // Proxy is the only reliable way from HTTPS sites
-      // ═══════════════════════════════════════════════
-      startWithProxy()
-    }
-
-    function startWithProxy() {
-      if (!proxySrc) {
-        // No proxy available — try direct as last resort
-        if (Hls.isSupported() && src) {
-          console.log('[jw-hls-player] No proxy, trying direct only')
-          triedDirectRef.current = true
-          const hls = initHls(src, false)
-          if (hls) { hlsRef.current = hls } else { finalError('Cannot play this stream') }
-        } else {
-          finalError('Cannot play this stream — no proxy available')
-        }
-        return
-      }
-
-      if (!Hls.isSupported()) {
-        finalError('HLS is not supported in this browser')
-        return
-      }
-
-      console.log('[jw-hls-player] Starting with proxy (30s timeout)')
-      triedProxyRef.current = true
-      const hls = initHls(proxySrc, true)
-      if (hls) {
-        hlsRef.current = hls
-      } else {
-        finalError('Cannot create HLS player')
-      }
-    }
+    // ═══════════════════════════════════════════════════
+    // START: Try Direct → Proxy → Native
+    // ═══════════════════════════════════════════════════
+    startDirect()
 
     return () => {
       video.removeEventListener('waiting', handleWaiting)
@@ -324,7 +334,7 @@ export function JwHlsPlayer({
       video.removeEventListener('canplay', handleCanPlay)
       cleanup()
     }
-  }, [src, proxySrc, cleanup, onVideoRef, onBuffering])
+  }, [src, proxySrc])
 
   // Volume/muted/playbackRate
   useEffect(() => {
