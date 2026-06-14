@@ -20,6 +20,7 @@ const categoryOptions = [
 
 const streamTypeOptions = [
   { value: 'm3u', label: 'M3U/HLS' },
+  { value: 'm3u8_jw', label: 'M3U8 JW Player' },
   { value: 'iframe', label: 'iFrame' },
   { value: 'mpegts', label: 'MPEG-TS (.ts)' },
   { value: 'github_m3u', label: 'GitHub M3U' },

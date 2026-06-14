@@ -5,6 +5,7 @@ import { HlsPlayer } from './hls-player'
 import type { QualityLevel, HlsStats, LiveStatus, AudioTrack, SubtitleTrack } from './hls-player'
 import { IframePlayer } from './iframe-player'
 import { TsPlayer } from './ts-player'
+import { JwPlayer } from './jw-player'
 import { PlayerControls } from './player-controls'
 import { RotateCw, Lock, Unlock } from 'lucide-react'
 
@@ -54,7 +55,7 @@ function isTsUrl(url: string): boolean {
 
 interface VideoPlayerProps {
   streamUrl: string
-  streamType: string // m3u, iframe, github_m3u, direct, redirect
+  streamType: string // m3u, iframe, github_m3u, direct, redirect, m3u8_jw
   title?: string
   isLive?: boolean
   poster?: string
@@ -117,6 +118,7 @@ function getInitialResolved(url: string, type: string): { resolvedUrl: string; r
   if (type === 'redirect') return { resolvedUrl: proxyIframeUrl(url), resolvedType: 'iframe' }
   if (type === 'iframe') return { resolvedUrl: directIframeUrl(url), resolvedType: 'iframe' }
   if (type === 'github_m3u') return { resolvedUrl: url, resolvedType: type } // resolved async
+  if (type === 'm3u8_jw') return { resolvedUrl: url, resolvedType: 'm3u8_jw' } // JW Player handles its own proxy
   if (type === 'direct' || type === 'm3u' || type === 'm3u8') {
     return { resolvedUrl: proxyStreamUrl(url, type), resolvedType: type === 'direct' ? 'm3u' : type }
   }
@@ -157,6 +159,7 @@ export function VideoPlayer({
   const isIframe = resolvedType === 'iframe'
   const isMpegTs = resolvedType === 'mpegts'
   const isHls = resolvedType === 'm3u' || resolvedType === 'm3u8'
+  const isJw = resolvedType === 'm3u8_jw'
 
   // HLS load mode tracking (proxy → direct → mpegts fallback chain)
   const [hlsLoadMode, setHlsLoadMode] = useState<'proxy' | 'direct' | 'mpegts'>('proxy')
@@ -1033,6 +1036,16 @@ export function VideoPlayer({
         />
       )}
 
+      {/* JW-style HLS Player — for m3u8 streams that don't work with hls.js proxy */}
+      {/* Uses iframe with self-contained HTML page that tries direct URL first */}
+      {isJw && resolvedUrl && (
+        <JwPlayer
+          src={streamUrl}
+          onReady={handleReady}
+          onError={handleError}
+        />
+      )}
+
       {/* ── Mobile Iframe Touch Overlay ── */}
       {/* On mobile, a transparent overlay sits on top of the iframe to block ad clicks. */}
       {/* The user must tap the "Unlock" button to temporarily interact with the iframe. */}
@@ -1101,17 +1114,10 @@ export function VideoPlayer({
         </div>
       )}
 
-      {/* Loading/buffering indicator with fallback mode info */}
-      {(loading || buffering) && !error && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none">
-          <div className="w-10 h-10 border-3 border-white/30 border-t-white rounded-full animate-spin mb-3" />
-          {isHls && (
-            <div className="px-3 py-1.5 rounded-lg bg-black/60 backdrop-blur-sm text-white/80 text-xs">
-              {hlsLoadMode === 'proxy' && '🔄 Connecting to stream...'}
-              {hlsLoadMode === 'direct' && '🔄 Trying direct connection...'}
-              {hlsLoadMode === 'mpegts' && '🔄 Trying alternative player...'}
-            </div>
-          )}
+      {/* Loading/buffering indicator — spinner only, no text (not shown for JW player which has its own) */}
+      {(loading || buffering) && !error && !isJw && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+          <div className="w-10 h-10 border-3 border-white/30 border-t-white rounded-full animate-spin" />
         </div>
       )}
 
@@ -1125,7 +1131,8 @@ export function VideoPlayer({
         <div className="absolute inset-0 z-40 bg-white animate-in fade-out duration-300 pointer-events-none" />
       )}
 
-      {/* Controls overlay */}
+      {/* Controls overlay — not shown for JW player (has its own controls in iframe) */}
+      {!isJw && (
       <PlayerControls
         isPlaying={playing}
         onTogglePlay={togglePlay}
@@ -1174,6 +1181,7 @@ export function VideoPlayer({
         onDeinterlaceChange={setDeinterlace}
         showDeinterlace={isMpegTs}
       />
+      )}
 
       {/* Fullscreen rotate hint — shows on mobile in portrait mode */}
       {fullscreen && (

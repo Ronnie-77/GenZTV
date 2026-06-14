@@ -262,7 +262,7 @@ interface StreamForm {
   name: string
   channel: string
   channelId: string
-  type: 'iframe' | 'direct' | 'redirect' | 'mpegts'
+  type: 'iframe' | 'direct' | 'redirect' | 'mpegts' | 'm3u8_jw'
   url: string
 }
 
@@ -293,6 +293,7 @@ function StreamInput({ stream, onUpdate, onRemove, onMoveUp, onMoveDown, channel
     else if (ch.streamType === 'iframe') streamType = 'iframe'
     else if (ch.streamType === 'redirect') streamType = 'redirect'
     else if (ch.streamType === 'mpegts') streamType = 'mpegts'
+    else if (ch.streamType === 'm3u8_jw') streamType = 'm3u8_jw'
 
     onUpdate({
       ...stream,
@@ -427,6 +428,7 @@ function StreamInput({ stream, onUpdate, onRemove, onMoveUp, onMoveDown, channel
                     <span className={`text-[9px] px-1.5 py-0.5 rounded capitalize ${
                       ch.streamType === 'iframe' ? 'bg-blue-500/10 text-blue-400' :
                       ch.streamType === 'm3u' ? 'bg-green-500/10 text-green-400' :
+                      ch.streamType === 'm3u8_jw' ? 'bg-teal-500/10 text-teal-400' :
                       ch.streamType === 'mpegts' ? 'bg-purple-500/10 text-purple-400' :
                       'bg-orange-500/10 text-orange-400'
                     }`}>
@@ -455,6 +457,7 @@ function StreamInput({ stream, onUpdate, onRemove, onMoveUp, onMoveDown, channel
         >
           <option value="iframe">iFrame</option>
           <option value="direct">Direct (M3U8)</option>
+          <option value="m3u8_jw">M3U8 JW Player</option>
           <option value="mpegts">MPEG-TS (.ts)</option>
           <option value="redirect">Redirect</option>
         </select>
