@@ -1,17 +1,19 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { useAppStore } from '@/lib/store'
 import { Shield, Eye, EyeOff, LogOut, AlertCircle, Loader2, Tv, BarChart3, Radio, FolderOpen, Settings, Menu, X, Activity } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { AdminDashboard } from '@/views/admin/dashboard'
-import { AdminChannels } from '@/views/admin/channels'
-import { AdminMatches } from '@/views/admin/matches'
-import { AdminCategories } from '@/views/admin/categories'
-import { AdminSettings } from '@/views/admin/settings'
-import { AdminAnalytics } from '@/views/admin/analytics'
+
+// Lazy-load admin sub-pages to reduce initial compilation memory
+const AdminDashboard = lazy(() => import('@/views/admin/dashboard').then(m => ({ default: m.AdminDashboard })))
+const AdminChannels = lazy(() => import('@/views/admin/channels').then(m => ({ default: m.AdminChannels })))
+const AdminMatches = lazy(() => import('@/views/admin/matches').then(m => ({ default: m.AdminMatches })))
+const AdminCategories = lazy(() => import('@/views/admin/categories').then(m => ({ default: m.AdminCategories })))
+const AdminSettings = lazy(() => import('@/views/admin/settings').then(m => ({ default: m.AdminSettings })))
+const AdminAnalytics = lazy(() => import('@/views/admin/analytics').then(m => ({ default: m.AdminAnalytics })))
 
 const sidebarNavItems = [
   { id: 'dashboard' as const, label: 'Dashboard', icon: BarChart3 },
@@ -236,22 +238,33 @@ export function AdminPage() {
 
   // Admin panel with sidebar layout
   const renderAdminContent = () => {
-    switch (adminPage) {
-      case 'dashboard':
-        return <AdminDashboard />
-      case 'analytics':
-        return <AdminAnalytics />
-      case 'channels':
-        return <AdminChannels />
-      case 'matches':
-        return <AdminMatches />
-      case 'categories':
-        return <AdminCategories />
-      case 'settings':
-        return <AdminSettings />
-      default:
-        return <AdminDashboard />
-    }
+    const content = (() => {
+      switch (adminPage) {
+        case 'dashboard':
+          return <AdminDashboard />
+        case 'analytics':
+          return <AdminAnalytics />
+        case 'channels':
+          return <AdminChannels />
+        case 'matches':
+          return <AdminMatches />
+        case 'categories':
+          return <AdminCategories />
+        case 'settings':
+          return <AdminSettings />
+        default:
+          return <AdminDashboard />
+      }
+    })()
+    return (
+      <Suspense fallback={
+        <div className="flex items-center justify-center min-h-[50vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      }>
+        {content}
+      </Suspense>
+    )
   }
 
   return (

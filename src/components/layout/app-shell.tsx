@@ -1,27 +1,29 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react'
 import { useAppStore } from '@/lib/store'
 import { useAnalytics } from '@/lib/analytics'
 import { TopNav } from './top-nav'
 import { Sidebar } from './sidebar'
 import { BottomNav } from './bottom-nav'
-import { HomePage } from '@/views/home'
-import { LivePage } from '@/views/live'
-import { WatchPage } from '@/views/watch'
-import { NewsPage } from '@/views/news'
-import { SportsPage } from '@/views/sports'
-import { CricketPage } from '@/views/cricket'
-import { FootballPage } from '@/views/football'
-import { EntertainmentPage } from '@/views/entertainment'
-import { FavoritesPage } from '@/views/favorites'
-import { SearchPage } from '@/views/search'
-import { AdminPage } from '@/views/admin'
-import { MorePage } from '@/views/more'
 import { NotificationPrompt } from '@/components/notifications/notification-manager'
 import { X, Download, Smartphone, Wrench, Clock, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { fetchSettings } from '@/lib/api'
+
+// Lazy-load page components to reduce initial compilation memory
+const HomePage = lazy(() => import('@/views/home').then(m => ({ default: m.HomePage })))
+const LivePage = lazy(() => import('@/views/live').then(m => ({ default: m.LivePage })))
+const WatchPage = lazy(() => import('@/views/watch').then(m => ({ default: m.WatchPage })))
+const NewsPage = lazy(() => import('@/views/news').then(m => ({ default: m.NewsPage })))
+const SportsPage = lazy(() => import('@/views/sports').then(m => ({ default: m.SportsPage })))
+const CricketPage = lazy(() => import('@/views/cricket').then(m => ({ default: m.CricketPage })))
+const FootballPage = lazy(() => import('@/views/football').then(m => ({ default: m.FootballPage })))
+const EntertainmentPage = lazy(() => import('@/views/entertainment').then(m => ({ default: m.EntertainmentPage })))
+const FavoritesPage = lazy(() => import('@/views/favorites').then(m => ({ default: m.FavoritesPage })))
+const SearchPage = lazy(() => import('@/views/search').then(m => ({ default: m.SearchPage })))
+const AdminPage = lazy(() => import('@/views/admin').then(m => ({ default: m.AdminPage })))
+const MorePage = lazy(() => import('@/views/more').then(m => ({ default: m.MorePage })))
 
 // ── PWA Install Prompt ──
 interface BeforeInstallPromptEvent extends Event {
@@ -283,34 +285,45 @@ export function AppShell() {
   }
 
   const renderPage = () => {
-    switch (currentPage) {
-      case 'home':
-        return <HomePage />
-      case 'live':
-        return <LivePage />
-      case 'watch':
-        return <WatchPage />
-      case 'news':
-        return <NewsPage />
-      case 'sports':
-        return <SportsPage />
-      case 'cricket':
-        return <CricketPage />
-      case 'football':
-        return <FootballPage />
-      case 'entertainment':
-        return <EntertainmentPage />
-      case 'favorites':
-        return <FavoritesPage />
-      case 'search':
-        return <SearchPage />
-      case 'admin':
-        return <AdminPage />
-      case 'more':
-        return <MorePage />
-      default:
-        return <HomePage />
-    }
+    const page = (() => {
+      switch (currentPage) {
+        case 'home':
+          return <HomePage />
+        case 'live':
+          return <LivePage />
+        case 'watch':
+          return <WatchPage />
+        case 'news':
+          return <NewsPage />
+        case 'sports':
+          return <SportsPage />
+        case 'cricket':
+          return <CricketPage />
+        case 'football':
+          return <FootballPage />
+        case 'entertainment':
+          return <EntertainmentPage />
+        case 'favorites':
+          return <FavoritesPage />
+        case 'search':
+          return <SearchPage />
+        case 'admin':
+          return <AdminPage />
+        case 'more':
+          return <MorePage />
+        default:
+          return <HomePage />
+      }
+    })()
+    return (
+      <Suspense fallback={
+        <div className="flex items-center justify-center min-h-[50vh]">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        </div>
+      }>
+        {page}
+      </Suspense>
+    )
   }
 
   // Admin page has its own full layout — hide app chrome

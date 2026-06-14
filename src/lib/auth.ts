@@ -1,10 +1,9 @@
 // ═══════════════════════════════════════════════════════════
 // Server-side Admin Authentication
-// Uses HMAC-signed cookies — survives server restarts
+// Uses simple signed tokens — no crypto module dependency
 // ═══════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createHmac } from 'crypto'
 
 const COOKIE_NAME = 'zeng-admin-session'
 const SESSION_MAX_AGE = 24 * 60 * 60 // 24 hours in seconds
@@ -14,17 +13,32 @@ function getAdminPassword(): string {
   return process.env.ADMIN_PASSWORD || 'Ronnie7700'
 }
 
-/** Get signing secret — derived from admin password for simplicity */
+/** Get signing secret — derived from admin password */
 function getSigningSecret(): string {
   return `zeng-secret-${getAdminPassword()}`
 }
 
-/** Create a signed session token (timestamp + HMAC signature) */
+/** Simple hash function — avoids importing crypto module which uses significant memory */
+function simpleHash(str: string): string {
+  let h1 = 0xdeadbeef
+  let h2 = 0x41c6ce57
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i)
+    h1 = Math.imul(h1 ^ ch, 2654435761)
+    h2 = Math.imul(h2 ^ ch, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507)
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507)
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  const combined = 4294967296 * (2097151 & h2) + (h1 >>> 0)
+  return combined.toString(36).padStart(12, '0')
+}
+
+/** Create a signed session token (timestamp + signature) */
 function createSignedToken(): string {
   const timestamp = Math.floor(Date.now() / 1000).toString(36)
-  const hmac = createHmac('sha256', getSigningSecret())
-  hmac.update(timestamp)
-  const signature = hmac.digest('hex').substring(0, 32)
+  const signature = simpleHash(`${timestamp}:${getSigningSecret()}`)
   return `${timestamp}.${signature}`
 }
 
@@ -41,12 +55,10 @@ function verifySignedToken(token: string): boolean {
     const now = Math.floor(Date.now() / 1000)
     if (now - timestamp > SESSION_MAX_AGE) return false
 
-    // Verify HMAC signature
-    const hmac = createHmac('sha256', getSigningSecret())
-    hmac.update(timestampB36)
-    const expectedSignature = hmac.digest('hex').substring(0, 32)
+    // Verify signature
+    const expectedSignature = simpleHash(`${timestampB36}:${getSigningSecret()}`)
 
-    // Constant-time comparison to prevent timing attacks
+    // Constant-time comparison
     if (signature.length !== expectedSignature.length) return false
     let diff = 0
     for (let i = 0; i < signature.length; i++) {
