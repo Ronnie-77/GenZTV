@@ -12,7 +12,8 @@ export async function GET() {
     return NextResponse.json(settings)
   } catch (error) {
     console.error('[Settings] Error fetching settings:', error)
-    return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'Failed to fetch settings'
+    return NextResponse.json({ error: 'Failed to fetch settings', detail: message }, { status: 500 })
   }
 }
 

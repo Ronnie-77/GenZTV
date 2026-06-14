@@ -37,9 +37,12 @@ export function AdminDashboard() {
         .then(r => r.json())
         .then(data => setSubscriberCount(data.count))
         .catch(() => {})
-      // Load real analytics data
+      // Load real analytics data (requires admin auth cookie)
       fetch('/api/analytics/dashboard')
-        .then(r => r.json())
+        .then(r => {
+          if (!r.ok) throw new Error(`Analytics API returned ${r.status}`)
+          return r.json()
+        })
         .then(data => {
           if (data.today) {
             setTodayViews(data.today.views || 0)
@@ -47,7 +50,9 @@ export function AdminDashboard() {
           }
           setOnlineNow(data.onlineNow || 0)
         })
-        .catch(() => {})
+        .catch((err) => {
+          console.warn('[Dashboard] Failed to load analytics:', err.message)
+        })
     } catch {
       // ignore
     } finally {

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { createHash } from 'crypto'
 
 // POST /api/analytics/track — track a page view
+// Simplified to reduce memory usage and avoid server crashes
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -24,32 +24,35 @@ export async function POST(request: NextRequest) {
     const ua = request.headers.get('user-agent') || ''
     const country = request.headers.get('x-vercel-ip-country') || ''
 
-    // Generate session ID from fingerprint
-    const sessionId = createHash('sha256')
-      .update(`${ip}-${ua}`)
-      .digest('hex')
-      .slice(0, 16)
+    // Generate simple session ID from ip+ua (avoid crypto import to save memory)
+    // Use a simple string hash instead of createHash
+    let hash = 0
+    const str = `${ip}-${ua}`
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash // Convert to 32bit integer
+    }
+    const sessionId = Math.abs(hash).toString(36).padStart(8, '0')
 
     const now = new Date()
     const todayStr = now.toISOString().slice(0, 10) // YYYY-MM-DD
 
-    // Update DailyStat — needs more sequential logic
-    // First, check if this sessionId already has a pageview today (BEFORE creating the new one)
-    const existingTodayView = await db.pageView.findFirst({
-      where: {
+    // Create PageView
+    await db.pageView.create({
+      data: {
         sessionId,
-        createdAt: {
-          gte: new Date(todayStr + 'T00:00:00.000Z'),
-          lt: new Date(
-            new Date(todayStr + 'T00:00:00.000Z').getTime() + 86400000
-          ),
-        },
+        page,
+        channelId: channelId || null,
+        referrer: referrer || '',
+        userAgent: ua,
+        country,
+        ip,
       },
-      select: { id: true },
     })
 
-    // Upsert VisitorSession
-    const visitorSessionPromise = db.visitorSession.upsert({
+    // Upsert VisitorSession (sequential to avoid memory spikes)
+    await db.visitorSession.upsert({
       where: { sessionId },
       update: {
         lastSeen: now,
@@ -67,31 +70,16 @@ export async function POST(request: NextRequest) {
     })
 
     // If channelId is provided, increment channel viewCount
-    const channelPromise = channelId
-      ? db.channel.update({
-          where: { id: channelId },
-          data: { viewCount: { increment: 1 } },
-        })
-      : Promise.resolve(null)
+    if (channelId) {
+      await db.channel.update({
+        where: { id: channelId },
+        data: { viewCount: { increment: 1 } },
+      }).catch(() => {
+        // Channel might not exist — ignore error
+      })
+    }
 
-    // Create PageView + update session + update channel in parallel
-    await Promise.all([
-      db.pageView.create({
-        data: {
-          sessionId,
-          page,
-          channelId: channelId || null,
-          referrer: referrer || '',
-          userAgent: ua,
-          country,
-          ip,
-        },
-      }),
-      visitorSessionPromise,
-      channelPromise,
-    ])
-
-    // We need the current DailyStat to update JSON fields
+    // Upsert DailyStat
     const currentStat = await db.dailyStat.upsert({
       where: { date: todayStr },
       update: {},
@@ -105,47 +93,33 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Parse current JSON fields
-    const topPages: Record<string, number> = JSON.parse(
-      currentStat.topPages || '{}'
-    )
-    const topChannels: Record<string, number> = JSON.parse(
-      currentStat.topChannels || '{}'
-    )
-    const topCountries: Record<string, number> = JSON.parse(
-      currentStat.topCountries || '{}'
-    )
+    // Check if this session already viewed today (for unique visitor count)
+    const existingTodayView = await db.pageView.findFirst({
+      where: {
+        sessionId,
+        createdAt: {
+          gte: new Date(todayStr + 'T00:00:00.000Z'),
+        },
+      },
+      select: { id: true },
+    })
 
-    // Update topPages
+    // Parse and update JSON fields
+    const topPages: Record<string, number> = JSON.parse(currentStat.topPages || '{}')
+    const topChannels: Record<string, number> = JSON.parse(currentStat.topChannels || '{}')
+    const topCountries: Record<string, number> = JSON.parse(currentStat.topCountries || '{}')
+
     topPages[page] = (topPages[page] || 0) + 1
 
-    // Update topChannels if channelId provided
     if (channelId) {
       topChannels[channelId] = (topChannels[channelId] || 0) + 1
     }
 
-    // Update topCountries
     if (country) {
       topCountries[country] = (topCountries[country] || 0) + 1
-      // Keep only top 20
-      const sortedCountries = Object.entries(topCountries)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 20)
-      // Rebuild topCountries with only top 20
-      const filteredCountries: Record<string, number> = {}
-      for (const [key, val] of sortedCountries) {
-        filteredCountries[key] = val
-      }
-      Object.keys(topCountries).forEach((key) => {
-        if (!(key in filteredCountries)) {
-          delete topCountries[key]
-        } else {
-          topCountries[key] = filteredCountries[key]
-        }
-      })
     }
 
-    // Build the update payload
+    // Build update payload
     const updateData: Record<string, unknown> = {
       totalViews: { increment: 1 },
       topPages: JSON.stringify(topPages),
@@ -153,7 +127,6 @@ export async function POST(request: NextRequest) {
       topCountries: JSON.stringify(topCountries),
     }
 
-    // If no existing view from this session today, increment uniqueVisitors
     if (!existingTodayView) {
       updateData.uniqueVisitors = { increment: 1 }
     }
@@ -165,7 +138,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error tracking page view:', error)
+    console.error('[Analytics] Track error:', error)
     const message = error instanceof Error ? error.message : 'Failed to track page view'
     return NextResponse.json(
       { error: message },

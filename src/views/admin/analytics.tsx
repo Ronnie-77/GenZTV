@@ -102,8 +102,16 @@ export function AdminAnalytics() {
       setError(null)
 
       const res = await fetch('/api/analytics/dashboard')
+      if (res.status === 401) {
+        throw new Error('Authentication required — please log in again')
+      }
+      if (res.status === 503) {
+        throw new Error('Analytics system is initializing — please wait a moment and retry')
+      }
       if (!res.ok) {
-        throw new Error(`Failed to fetch analytics (${res.status})`)
+        const errorData = await res.json().catch(() => ({}))
+        const detail = errorData.detail || errorData.error || ''
+        throw new Error(`Failed to fetch analytics (${res.status})${detail ? ': ' + detail : ''}`)
       }
       const json = await res.json()
       setData(json)
