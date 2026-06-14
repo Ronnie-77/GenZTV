@@ -5,7 +5,7 @@ import { HlsPlayer } from './hls-player'
 import type { QualityLevel, HlsStats, LiveStatus, AudioTrack, SubtitleTrack } from './hls-player'
 import { IframePlayer } from './iframe-player'
 import { TsPlayer } from './ts-player'
-import { JwPlayer } from './jw-player'
+import { JwHlsPlayer } from './jw-hls-player'
 import { PlayerControls } from './player-controls'
 import { RotateCw, Lock, Unlock } from 'lucide-react'
 
@@ -1036,13 +1036,20 @@ export function VideoPlayer({
         />
       )}
 
-      {/* JW-style HLS Player — for m3u8 streams that don't work with hls.js proxy */}
-      {/* Uses iframe with self-contained HTML page that tries direct URL first */}
+      {/* JW-style HLS Player — tries direct URL first (no proxy, no custom headers) */}
+      {/* Native React component using hls.js — NOT an iframe (iframe blocks CORS) */}
       {isJw && resolvedUrl && (
-        <JwPlayer
+        <JwHlsPlayer
           src={streamUrl}
+          proxySrc={proxyStreamUrl(streamUrl, 'm3u8_jw') + '&timeout=30000'}
           onReady={handleReady}
           onError={handleError}
+          onVideoRef={handleVideoRef}
+          volume={volume}
+          muted={muted}
+          playbackRate={playbackRate}
+          aspectMode={aspectMode}
+          onBuffering={handleBuffering}
         />
       )}
 
@@ -1114,8 +1121,8 @@ export function VideoPlayer({
         </div>
       )}
 
-      {/* Loading/buffering indicator — spinner only, no text (not shown for JW player which has its own) */}
-      {(loading || buffering) && !error && !isJw && (
+      {/* Loading/buffering indicator — spinner only, no text */}
+      {(loading || buffering) && !error && (
         <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
           <div className="w-10 h-10 border-3 border-white/30 border-t-white rounded-full animate-spin" />
         </div>
@@ -1131,8 +1138,8 @@ export function VideoPlayer({
         <div className="absolute inset-0 z-40 bg-white animate-in fade-out duration-300 pointer-events-none" />
       )}
 
-      {/* Controls overlay — not shown for JW player (has its own controls in iframe) */}
-      {!isJw && (
+      {/* Controls overlay — shown for all non-iframe players */}
+      {!isIframe && (
       <PlayerControls
         isPlaying={playing}
         onTogglePlay={togglePlay}
