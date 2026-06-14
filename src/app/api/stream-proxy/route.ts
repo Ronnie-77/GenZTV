@@ -17,8 +17,8 @@ export const maxDuration = 300 // 5 minute timeout for live streams
 
 // Upstream request timeout (ms)
 // For m3u8 manifests, use very short timeout so player can fallback to direct mode quickly
-const UPSTREAM_TIMEOUT_MANIFEST = 6000 // 6s for m3u8 manifests (fail fast → fallback to direct)
-const UPSTREAM_TIMEOUT_SEGMENT = 60000 // 60s for segments (slower is ok)
+const UPSTREAM_TIMEOUT_MANIFEST = 4000 // 4s for m3u8 manifests (fail fast → fallback to direct)
+const UPSTREAM_TIMEOUT_SEGMENT = 30000 // 30s for segments (slower is ok but not too long)
 const UPSTREAM_TIMEOUT_LIVE = 60000 // 60s for live .ts streams
 
 // Retry configuration

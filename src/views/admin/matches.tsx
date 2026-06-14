@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useEffect, useCallback, Fragment, useRef } from 'react'
-import { Plus, Trophy, Edit, Trash2, X, Check, RefreshCw, Play, Pencil, Tv, Calendar, Radio, Clock, Sparkles, Users, Settings2, ArrowDownUp, ChevronDown, GripVertical, ArrowUp, ArrowDown } from 'lucide-react'
+import { Plus, Trophy, Edit, Trash2, X, Check, RefreshCw, Play, Pencil, Tv, Calendar, Radio, Clock, Sparkles, Users, Settings2, ArrowDownUp, ChevronDown, GripVertical, ArrowUp, ArrowDown, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
-import { fetchMatches, fetchChannels, createMatch, updateMatch, deleteMatch, type Match, type MatchStream, type Channel } from '@/lib/api'
+import { fetchMatches, fetchChannels, createMatch, updateMatch, deleteMatch, syncMatchStatuses, type Match, type MatchStream, type Channel } from '@/lib/api'
 import { searchTeams, type TeamEntry } from '@/lib/teams-data'
 import { toast } from 'sonner'
 import { DateTimePicker } from '@/components/ui/datetime-picker'
@@ -647,6 +647,28 @@ export function AdminMatches() {
     loadChannels()
   }, [loadChannels])
 
+  // Auto-sync match statuses every 60 seconds
+  const handleSyncStatuses = useCallback(async (silent = false) => {
+    try {
+      const result = await syncMatchStatuses()
+      if (!silent && result.totalUpdated > 0) {
+        toast.success('Statuses Synced', { description: `${result.updatedToLive} → Live, ${result.updatedToEnded} → Ended` })
+      }
+      if (result.totalUpdated > 0) {
+        loadMatches()
+      }
+    } catch {
+      if (!silent) toast.error('Sync Failed', { description: 'Could not sync match statuses' })
+    }
+  }, [loadMatches])
+
+  // Auto-sync on mount and periodically
+  useEffect(() => {
+    handleSyncStatuses(true) // silent on mount
+    const interval = setInterval(() => handleSyncStatuses(true), 60000) // every 60s
+    return () => clearInterval(interval)
+  }, [handleSyncStatuses])
+
   const resetForm = () => {
     setSportType('football')
     setLeague('')
@@ -808,6 +830,16 @@ export function AdminMatches() {
           </select>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleSyncStatuses(false)}
+            className="gap-1.5 btn-press h-9"
+            title="Auto-sync match statuses based on time"
+          >
+            <Zap className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Sync</span>
+          </Button>
           <Button
             variant="outline"
             size="sm"

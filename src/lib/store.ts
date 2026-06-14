@@ -21,6 +21,7 @@ export type AdminPage =
   | 'matches' 
   | 'categories' 
   | 'settings'
+  | 'data'
 
 interface AppState {
   // Navigation
@@ -114,8 +115,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     // Update URL hash for browser navigation
     if (typeof window !== 'undefined') {
-      const hash = page === 'home' ? '#/' : `#/${page}`
-      window.location.hash = hash
+      const channelId = get().currentChannelId
+      if (page === 'watch' && channelId) {
+        window.location.hash = `#/watch/${channelId}`
+      } else {
+        const hash = page === 'home' ? '#/' : `#/${page}`
+        window.location.hash = hash
+      }
     }
   },
   goBack: () => {
@@ -127,8 +133,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         navigationHistory: navigationHistory.slice(0, -1)
       })
       if (typeof window !== 'undefined') {
-        const hash = previousPage === 'home' ? '#/' : `#/${previousPage}`
-        window.location.hash = hash
+        if (previousPage === 'watch' && get().currentChannelId) {
+          window.location.hash = `#/watch/${get().currentChannelId}`
+        } else {
+          const hash = previousPage === 'home' ? '#/' : `#/${previousPage}`
+          window.location.hash = hash
+        }
       }
     } else {
       // No history, go to home
@@ -141,7 +151,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   
   // Watch page
   currentChannelId: null,
-  setCurrentChannelId: (id) => set({ currentChannelId: id }),
+  setCurrentChannelId: (id) => {
+    set({ currentChannelId: id })
+    // Update URL hash to include channel ID when on watch page
+    if (typeof window !== 'undefined' && get().currentPage === 'watch') {
+      if (id) {
+        window.location.hash = `#/watch/${id}`
+      } else {
+        window.location.hash = '#/watch'
+      }
+    }
+  },
   
   // Admin
   adminPage: 'dashboard',
@@ -197,6 +217,7 @@ if (typeof window !== 'undefined') {
   function initFromUrl() {
     const hash = window.location.hash.replace('#/', '').replace('#', '')
     const hashPage = hash.split('/')[0]
+    const hashSubPage = hash.split('/')[1] || ''
 
     // Note: Admin auth is now handled server-side via /api/auth/verify
     // No auto-unlock from URL hash
@@ -205,7 +226,12 @@ if (typeof window !== 'undefined') {
       const validPages: PageName[] = ['home', 'live', 'watch', 'news', 'sports', 'cricket', 'football', 'entertainment', 'favorites', 'search', 'admin', 'more']
       const page = hashPage as PageName
       if (validPages.includes(page)) {
-        useAppStore.setState({ currentPage: page })
+        // If on watch page with an ID in the hash, restore it
+        if (page === 'watch' && hashSubPage) {
+          useAppStore.setState({ currentPage: page, currentChannelId: hashSubPage })
+        } else {
+          useAppStore.setState({ currentPage: page })
+        }
       }
     }
   }

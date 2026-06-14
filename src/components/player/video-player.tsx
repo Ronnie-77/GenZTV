@@ -1105,8 +1105,9 @@ export function VideoPlayer({
       {(loading || buffering) && !error && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none">
           <div className="w-10 h-10 border-3 border-white/30 border-t-white rounded-full animate-spin mb-3" />
-          {isHls && hlsLoadMode !== 'proxy' && (
+          {isHls && (
             <div className="px-3 py-1.5 rounded-lg bg-black/60 backdrop-blur-sm text-white/80 text-xs">
+              {hlsLoadMode === 'proxy' && '🔄 Connecting to stream...'}
               {hlsLoadMode === 'direct' && '🔄 Trying direct connection...'}
               {hlsLoadMode === 'mpegts' && '🔄 Trying alternative player...'}
             </div>

@@ -179,21 +179,21 @@ export function HlsPlayer({
       liveDurationInfinity: true,
       progressive: true,
 
-      // KEY CHANGE: Proxy mode — fail fast (6s timeout, 0 retries for manifest)
+      // KEY CHANGE: Proxy mode — fail fast (4s timeout, 0 retries for manifest)
       // This ensures we try direct mode quickly when the proxy can't reach the server
       // Direct mode — moderate timeouts (user's browser may reach the server directly)
-      // Both modes should fail fast enough to try the next fallback within ~30s total
-      fragLoadingMaxRetry: isDirect ? 3 : 1,
-      fragLoadingMaxRetryTimeout: isDirect ? 16000 : 8000,
-      fragLoadingTimeOut: isDirect ? 15000 : 8000,
+      // Both modes should fail fast enough to try the next fallback within ~20s total
+      fragLoadingMaxRetry: isDirect ? 2 : 1,
+      fragLoadingMaxRetryTimeout: isDirect ? 12000 : 6000,
+      fragLoadingTimeOut: isDirect ? 12000 : 6000,
 
       manifestLoadingMaxRetry: isDirect ? 1 : 0,  // 0 retries for proxy = fail on first timeout
-      manifestLoadingMaxRetryTimeout: isDirect ? 8000 : 4000,
-      manifestLoadingTimeOut: isDirect ? 10000 : 6000,  // 6s for proxy, 10s for direct
+      manifestLoadingMaxRetryTimeout: isDirect ? 6000 : 3000,
+      manifestLoadingTimeOut: isDirect ? 8000 : 4000,  // 4s for proxy, 8s for direct
 
       levelLoadingMaxRetry: isDirect ? 1 : 0,
-      levelLoadingMaxRetryTimeout: isDirect ? 8000 : 4000,
-      levelLoadingTimeOut: isDirect ? 10000 : 6000,
+      levelLoadingMaxRetryTimeout: isDirect ? 6000 : 3000,
+      levelLoadingTimeOut: isDirect ? 8000 : 4000,
 
       startLevel: -1,
 

@@ -130,7 +130,7 @@ export function MatchCard({ match, variant }: MatchCardProps) {
               <img
                 src={match.teamALogo}
                 alt={match.teamA}
-                className={match.teamALogo.includes('flagcdn') ? 'team-logo-flag' : 'team-logo-img'}
+                className="team-logo-img"
                 onError={(e) => {
                   ;(e.target as HTMLImageElement).style.display = 'none'
                   ;(e.target as HTMLImageElement).parentElement!.setAttribute('data-fallback', 'true')
@@ -161,7 +161,7 @@ export function MatchCard({ match, variant }: MatchCardProps) {
               <img
                 src={match.teamBLogo}
                 alt={match.teamB}
-                className={match.teamBLogo.includes('flagcdn') ? 'team-logo-flag' : 'team-logo-img'}
+                className="team-logo-img"
                 onError={(e) => {
                   ;(e.target as HTMLImageElement).style.display = 'none'
                   ;(e.target as HTMLImageElement).parentElement!.setAttribute('data-fallback', 'true')

@@ -330,3 +330,13 @@ export async function getPushSubscriberCount(): Promise<number> {
   const data = await res.json()
   return data.count
 }
+
+// ============ Match Status Sync ============
+
+export async function syncMatchStatuses(): Promise<{ success: boolean; updatedToLive: number; updatedToEnded: number; totalUpdated: number }> {
+  const res = await adminFetch(`${BASE}/matches/sync-statuses`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error('Failed to sync match statuses')
+  return res.json()
+}

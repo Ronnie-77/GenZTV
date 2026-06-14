@@ -258,35 +258,23 @@ export function WatchPage() {
             ) : null}
           </div>
         </div>
-
-        {/* Stream selector for matches */}
-        {viewMode === 'match' && match && match.streams.length > 1 && (
-          <div className="mt-2 ml-12">
-            <div className="flex gap-1.5 flex-wrap">
-              {match.streams.map((stream, index) => (
-                <button
-                  key={stream.id}
-                  onClick={() => setActiveStreamIndex(index)}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors btn-press ${
-                    index === activeStreamIndex
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-                  }`}
-                >
-                  <ExternalLink className="h-2.5 w-2.5" />
-                  {stream.name || `Stream ${index + 1}`}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Video Player + Banner Ad + Related Channels */}
       <div className="px-4 md:px-6">
         <div className="flex flex-col lg:flex-row gap-4">
-          {/* Left: Video Player + Ad */}
+          {/* Left: Ad + Video Player + Stream Selector */}
           <div className="flex-1 min-w-0 max-w-4xl relative z-10">
+            {/* Banner Ad above player — PC only, mobile shows below */}
+            {videoAdsEnabled && (
+              <div className="hidden lg:flex flex-col items-center gap-3 mb-4">
+                {videoAdScripts.map((ad) => (
+                  <DynamicAdSlot key={ad.id} script={ad.script} />
+                ))}
+                {videoAdScripts.length === 0 && <BannerAd />}
+              </div>
+            )}
+
             <div className="relative w-full bg-black rounded-xl overflow-hidden z-10">
               {loading ? (
                 <div className="w-full aspect-video flex items-center justify-center bg-black">
@@ -302,9 +290,31 @@ export function WatchPage() {
               )}
             </div>
 
-            {/* Banner Ad below player — both mobile & PC */}
+            {/* Stream selector for matches — below video */}
+            {viewMode === 'match' && match && match.streams.length > 1 && (
+              <div className="mt-3">
+                <div className="flex gap-1.5 flex-wrap">
+                  {match.streams.map((stream, index) => (
+                    <button
+                      key={stream.id}
+                      onClick={() => setActiveStreamIndex(index)}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors btn-press ${
+                        index === activeStreamIndex
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                      }`}
+                    >
+                      <ExternalLink className="h-2.5 w-2.5" />
+                      {stream.name || `Stream ${index + 1}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Banner Ad below player — mobile only */}
             {videoAdsEnabled && (
-              <div className="flex flex-col items-center gap-3">
+              <div className="flex lg:hidden flex-col items-center gap-3 mt-4">
                 {videoAdScripts.map((ad) => (
                   <DynamicAdSlot key={ad.id} script={ad.script} />
                 ))}
