@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Tv, Edit, Trash2, Search, X, Check, RefreshCw, Eye, Star, ToggleLeft, ToggleRight, Upload, Github } from 'lucide-react'
+import { Plus, Tv, Edit, Trash2, Search, X, Check, RefreshCw, Eye, Star, ToggleLeft, ToggleRight, Upload, Github, FileUp, FileText, FileJson } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
-import { fetchChannels, createChannel, updateChannel, deleteChannel, parseM3U, type Channel } from '@/lib/api'
+import { fetchChannels, createChannel, updateChannel, deleteChannel, parseM3U, importFileContent, type Channel } from '@/lib/api'
 import { toast } from 'sonner'
 
 const categoryOptions = [
@@ -80,6 +80,16 @@ export function AdminChannels() {
   const [selectedIptvChannels, setSelectedIptvChannels] = useState<Set<number>>(new Set())
   const [importing, setImporting] = useState(false)
   const [iptvSearch, setIptvSearch] = useState('')
+
+  // File Import state
+  const [showFileImport, setShowFileImport] = useState(false)
+  const [fileImportLoading, setFileImportLoading] = useState(false)
+  const [fileImportResults, setFileImportResults] = useState<{ name: string; logo: string; group: string; url: string; language?: string; country?: string }[]>([])
+  const [selectedFileChannels, setSelectedFileChannels] = useState<Set<number>>(new Set())
+  const [fileImporting, setFileImporting] = useState(false)
+  const [fileImportSearch, setFileImportSearch] = useState('')
+  const [fileDragOver, setFileDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
@@ -275,6 +285,97 @@ export function AdminChannels() {
     }
   }
 
+  // ===== File Import Handlers =====
+
+  const handleFileUpload = async (file: File) => {
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    if (ext !== 'm3u' && ext !== 'json') {
+      toast.error('Invalid File', { description: 'Only .m3u and .json files are supported' })
+      return
+    }
+
+    setFileImportLoading(true)
+    setFileImportResults([])
+    setSelectedFileChannels(new Set())
+
+    try {
+      const content = await file.text()
+      const fileType = ext === 'm3u' ? 'm3u' : 'json'
+      const result = await importFileContent(content, fileType)
+      setFileImportResults(result.channels)
+      toast.success('File Parsed', { description: `Found ${result.total} channels in ${file.name}` })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to parse file'
+      toast.error('Parse Error', { description: msg })
+    } finally {
+      setFileImportLoading(false)
+    }
+  }
+
+  const handleFileDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setFileDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) handleFileUpload(file)
+  }
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) handleFileUpload(file)
+    // Reset input so same file can be re-selected
+    e.target.value = ''
+  }
+
+  const toggleFileChannel = (idx: number) => {
+    const next = new Set(selectedFileChannels)
+    if (next.has(idx)) next.delete(idx)
+    else next.add(idx)
+    setSelectedFileChannels(next)
+  }
+
+  const selectAllFileChannels = () => {
+    if (selectedFileChannels.size === fileImportResults.length) {
+      setSelectedFileChannels(new Set())
+    } else {
+      setSelectedFileChannels(new Set(fileImportResults.map((_, i) => i)))
+    }
+  }
+
+  const handleFileImportSelected = async () => {
+    setFileImporting(true)
+    let imported = 0
+    try {
+      for (const idx of selectedFileChannels) {
+        const ch = fileImportResults[idx]
+        if (ch) {
+          try {
+            await createChannel({
+              name: ch.name,
+              logo: ch.logo,
+              category: ch.group || 'entertainment',
+              streamType: ch.url.includes('.m3u8') ? 'm3u' : ch.url.includes('.ts') ? 'mpegts' : ch.url ? 'iframe' : 'm3u',
+              streamUrl: ch.url,
+              language: ch.language || '',
+              country: ch.country || '',
+            })
+            imported++
+          } catch {
+            // skip individual errors
+          }
+        }
+      }
+      toast.success('Import Complete', { description: `Successfully imported ${imported} channels` })
+      setShowFileImport(false)
+      setFileImportResults([])
+      setSelectedFileChannels(new Set())
+      loadChannels()
+    } catch {
+      toast.error('Error', { description: 'Failed to import channels' })
+    } finally {
+      setFileImporting(false)
+    }
+  }
+
   return (
     <div className="space-y-5">
       {/* Header bar */}
@@ -304,11 +405,20 @@ export function AdminChannels() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setShowIptvImport(!showIptvImport)}
+            onClick={() => { setShowIptvImport(!showIptvImport); setShowFileImport(false) }}
             className="gap-1.5 btn-press text-xs h-9"
           >
             <Github className="h-3.5 w-3.5" />
             IPTV Import
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { setShowFileImport(!showFileImport); setShowIptvImport(false) }}
+            className="gap-1.5 btn-press text-xs h-9"
+          >
+            <FileUp className="h-3.5 w-3.5" />
+            File Import
           </Button>
           <Button
             variant="outline"
@@ -424,6 +534,146 @@ export function AdminChannels() {
                     <Badge variant="secondary" className="text-[9px] shrink-0">
                       {ch.url.includes('.m3u8') ? 'M3U8' : 'Other'}
                     </Badge>
+                  </label>
+                )})}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* File Import Section */}
+      {showFileImport && (
+        <div className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <FileUp className="h-4 w-4 text-primary" />
+              <h3 className="text-sm font-semibold">Import from File</h3>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => { setShowFileImport(false); setFileImportResults([]); setSelectedFileChannels(new Set()) }} className="h-7 w-7">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Upload a <span className="font-semibold text-foreground">.m3u</span> or <span className="font-semibold text-foreground">.json</span> file to import channels. Supports drag &amp; drop.
+          </p>
+
+          {/* Drop Zone */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); setFileDragOver(true) }}
+            onDragLeave={() => setFileDragOver(false)}
+            onDrop={handleFileDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+              fileDragOver
+                ? 'border-primary bg-primary/5 scale-[1.01]'
+                : 'border-border hover:border-primary/40 hover:bg-secondary/30'
+            } ${fileImportLoading ? 'pointer-events-none opacity-60' : ''}`}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".m3u,.json"
+              onChange={handleFileInputChange}
+              className="hidden"
+            />
+            {fileImportLoading ? (
+              <div className="flex flex-col items-center gap-2">
+                <RefreshCw className="h-8 w-8 text-primary animate-spin" />
+                <p className="text-sm font-medium">Parsing file...</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                    <FileText className="h-5 w-5 text-orange-500" />
+                  </div>
+                  <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                    <FileJson className="h-5 w-5 text-emerald-500" />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium">
+                    {fileDragOver ? 'Drop your file here' : 'Drop file here or click to browse'}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Supported: .m3u (M3U playlist) and .json (channel data)
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Parsed Results */}
+          {fileImportResults.length > 0 && (
+            <div className="space-y-3">
+              {/* Search bar for parsed channels */}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  placeholder={`Search in ${fileImportResults.length} channels...`}
+                  value={fileImportSearch}
+                  onChange={(e) => setFileImportSearch(e.target.value)}
+                  className="pl-8 h-8 text-xs"
+                />
+                {fileImportSearch && (
+                  <button
+                    onClick={() => setFileImportSearch('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-secondary"
+                  >
+                    <X className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium">
+                  {fileImportSearch
+                    ? `${fileImportResults.filter(ch => ch.name.toLowerCase().includes(fileImportSearch.toLowerCase()) || (ch.group || '').toLowerCase().includes(fileImportSearch.toLowerCase())).length} of ${fileImportResults.length} channels (${selectedFileChannels.size} selected)`
+                    : `Found ${fileImportResults.length} channels (${selectedFileChannels.size} selected)`
+                  }
+                </p>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={selectAllFileChannels} className="text-xs h-7">
+                    {selectedFileChannels.size === fileImportResults.length ? 'Deselect All' : 'Select All'}
+                  </Button>
+                  <Button size="sm" onClick={handleFileImportSelected} disabled={fileImporting || selectedFileChannels.size === 0} className="gap-1 text-xs h-7">
+                    <Upload className="h-3 w-3" />
+                    {fileImporting ? 'Importing...' : `Import ${selectedFileChannels.size}`}
+                  </Button>
+                </div>
+              </div>
+              <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
+                {fileImportResults
+                  .filter(ch => !fileImportSearch || ch.name.toLowerCase().includes(fileImportSearch.toLowerCase()) || (ch.group || '').toLowerCase().includes(fileImportSearch.toLowerCase()))
+                  .map((ch) => {
+                    const idx = fileImportResults.indexOf(ch)
+                    return (
+                  <label
+                    key={idx}
+                    className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
+                      selectedFileChannels.has(idx) ? 'bg-primary/10 border border-primary/30' : 'bg-secondary/30 hover:bg-secondary/50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedFileChannels.has(idx)}
+                      onChange={() => toggleFileChannel(idx)}
+                      className="rounded"
+                    />
+                    {ch.logo && <img src={ch.logo} alt="" className="w-8 h-8 rounded object-contain p-0.5" />}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{ch.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-muted-foreground truncate">{ch.group || 'No group'}</p>
+                        {ch.language && <span className="text-[10px] text-muted-foreground">• {ch.language}</span>}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <Badge variant="secondary" className="text-[9px]">
+                        {ch.url.includes('.m3u8') ? 'M3U8' : ch.url.includes('.ts') ? 'TS' : ch.url ? 'URL' : 'No URL'}
+                      </Badge>
+                      {ch.country && <span className="text-[9px] text-muted-foreground">{ch.country}</span>}
+                    </div>
                   </label>
                 )})}
               </div>

@@ -263,6 +263,18 @@ export async function parseM3U(url: string): Promise<{ channels: { name: string;
   return res.json()
 }
 
+// ============ File Import ============
+
+export async function importFileContent(content: string, fileType: string): Promise<{ channels: { name: string; logo: string; group: string; url: string; language?: string; country?: string }[]; total: number }> {
+  const res = await adminFetch(`${BASE}/channels/import-file`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, fileType }),
+  })
+  if (!res.ok) throw new Error('Failed to parse import file')
+  return res.json()
+}
+
 // ============ Seed ============
 
 export async function seedDatabase(): Promise<Record<string, unknown>> {

@@ -35,7 +35,7 @@ export function AdminData() {
   const handleExport = async () => {
     setExporting(true)
     try {
-      const res = await fetch('/api/data/export', { credentials: 'same-origin' })
+      const res = await fetch('/api/data', { credentials: 'same-origin' })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || data.detail || `Export failed (${res.status})`)

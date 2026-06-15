@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Send, MessageCircle, Users, Smile, Reply, X } from 'lucide-react'
+import { Send, MessageCircle, Users, Smile, Reply, X, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -27,7 +27,7 @@ interface ChatMessage {
   time: string
   color: string
   reactions: Reaction[]
-  replyTo?: ReplyInfo
+  replyTo?: ReplyInfo | null
 }
 
 /* ------------------------------------------------------------------ */
@@ -157,7 +157,13 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
   /* ---- core state ---- */
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
-  const [username, setUsername] = useState(() => getStoredUsername())
+  const [username, setUsername] = useState(() => {
+    const stored = getStoredUsername()
+    if (stored) return stored
+    const name = generateUsername()
+    setStoredUsername(name)
+    return name
+  })
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [activeEmojiCategory, setActiveEmojiCategory] = useState(0)
   const [onlineCount] = useState(() => Math.floor(Math.random() * 200) + 50)
@@ -181,6 +187,10 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
   const [swipeOffset, setSwipeOffset] = useState(0)
   const swipeRef = useRef({ msgId: null as string | null, offset: 0 })
 
+  /* ---- name edit state ---- */
+  const [showNameEdit, setShowNameEdit] = useState(false)
+  const [nameInput, setNameInput] = useState('')
+
   /* ---- refs ---- */
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -189,6 +199,7 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
   const mentionDropdownRef = useRef<HTMLDivElement>(null)
   const touchStartRef = useRef<{ x: number; y: number; msgId: string } | null>(null)
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const nameInputRef = useRef<HTMLInputElement>(null)
 
   /* ================================================================ */
   /*  Effects                                                          */
@@ -235,34 +246,31 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
     return () => document.removeEventListener('mousedown', handler)
   }, [showMentions])
 
+  // Focus name input when edit opens
+  useEffect(() => {
+    if (showNameEdit) {
+      setTimeout(() => nameInputRef.current?.focus(), 100)
+    }
+  }, [showNameEdit])
+
   /* ================================================================ */
   /*  Handlers                                                         */
   /* ================================================================ */
 
-  /** Auto-generate username on first send */
-  const ensureUsername = useCallback(() => {
-    if (username) return username
-    const name = generateUsername()
-    setUsername(name)
-    setStoredUsername(name)
-    return name
-  }, [username])
-
   /** Send a chat message */
   const handleSend = useCallback(() => {
     if (!input.trim()) return
-    const name = ensureUsername()
 
     const msg: ChatMessage = {
       id: generateId(),
-      user: name,
+      user: username,
       text: input.trim(),
       time: formatTime(new Date()),
-      color: getUserColor(name),
+      color: getUserColor(username),
       reactions: [],
       replyTo: replyingTo
         ? { id: replyingTo.id, user: replyingTo.user, text: replyingTo.text }
-        : undefined,
+        : null,
     }
 
     setMessages(prev => {
@@ -275,7 +283,7 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
     setShowEmojiPicker(false)
     setShowMentions(false)
     inputRef.current?.focus()
-  }, [input, replyingTo, ensureUsername])
+  }, [input, username, replyingTo])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -295,15 +303,14 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
   /** Toggle a reaction on a message */
   const handleReaction = useCallback(
     (msgId: string, emoji: string) => {
-      const name = username || ensureUsername()
       setMessages(prev =>
         prev.map(msg => {
           if (msg.id !== msgId) return msg
           const existing = msg.reactions.find(r => r.emoji === emoji)
           let next: Reaction[]
           if (existing) {
-            if (existing.users.includes(name)) {
-              const filtered = existing.users.filter(u => u !== name)
+            if (existing.users.includes(username)) {
+              const filtered = existing.users.filter(u => u !== username)
               if (filtered.length === 0) {
                 next = msg.reactions.filter(r => r.emoji !== emoji)
               } else {
@@ -313,18 +320,18 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
               }
             } else {
               next = msg.reactions.map(r =>
-                r.emoji === emoji ? { ...r, users: [...r.users, name] } : r,
+                r.emoji === emoji ? { ...r, users: [...r.users, username] } : r,
               )
             }
           } else {
-            next = [...msg.reactions, { emoji, users: [name] }]
+            next = [...msg.reactions, { emoji, users: [username] }]
           }
           return { ...msg, reactions: next }
         }),
       )
       setReactionPickerMsgId(null)
     },
-    [username, ensureUsername],
+    [username],
   )
 
   /** Set a message as the reply target */
@@ -377,7 +384,6 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
     const t = e.touches[0]
     touchStartRef.current = { x: t.clientX, y: t.clientY, msgId }
 
-    // start long-press timer (500 ms)
     longPressTimer.current = setTimeout(() => {
       setReactionPickerMsgId(msgId)
       touchStartRef.current = null
@@ -393,7 +399,6 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
     const dx = t.clientX - touchStartRef.current.x
     const dy = t.clientY - touchStartRef.current.y
 
-    // Scrolling vertically → cancel everything
     if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) {
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current)
@@ -406,7 +411,6 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
       return
     }
 
-    // Horizontal swipe right → cancel long-press, show swipe
     if (dx > 15) {
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current)
@@ -439,6 +443,31 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
     setSwipeOffset(0)
     swipeRef.current = { msgId: null, offset: 0 }
   }, [handleReply])
+
+  /* ---- Name edit handlers ---- */
+  const handleNameSave = useCallback(() => {
+    const trimmed = nameInput.trim()
+    if (!trimmed) return
+    const newName = trimmed.toLowerCase().startsWith('genztv')
+      ? trimmed
+      : `${BRAND_PREFIX}${trimmed}`
+    setUsername(newName)
+    setStoredUsername(newName)
+    setShowNameEdit(false)
+    setNameInput('')
+    inputRef.current?.focus()
+  }, [nameInput])
+
+  const handleNameKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleNameSave()
+    }
+    if (e.key === 'Escape') {
+      setShowNameEdit(false)
+      setNameInput('')
+    }
+  }, [handleNameSave])
 
   /* ---- Mentionable users list ---- */
   const mentionableUsers = useMemo(() => {
@@ -496,7 +525,7 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
               }`}
               style={isSwiping ? { transform: `translateX(${Math.min(swipeOffset * 0.4, 30)}px)` } : undefined}
               onMouseEnter={() => setHoveredMsgId(msg.id)}
-              onMouseLeave={() => setHoveredMsgId(null)}
+              onMouseLeave={() => { setHoveredMsgId(null); setReactionPickerMsgId(null) }}
               onTouchStart={e => onMsgTouchStart(msg.id, e)}
               onTouchMove={onMsgTouchMove}
               onTouchEnd={onMsgTouchEnd}
@@ -508,7 +537,7 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
                 </div>
               )}
 
-              {/* Reply indicator (shows which message this is replying to) */}
+              {/* Reply indicator */}
               {msg.replyTo && (
                 <div className="flex items-center gap-1.5 mb-0.5 pl-2 border-l-2 border-primary/40">
                   <span className="text-[10px] text-primary/80 font-medium truncate max-w-[80px]">
@@ -520,13 +549,39 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
                 </div>
               )}
 
-              {/* Message body */}
-              <div className="flex gap-1.5 text-sm leading-tight items-start">
+              {/* Message body — inline layout with action buttons next to text */}
+              <div className="flex items-start gap-1 text-sm leading-tight relative">
                 <span className={`font-semibold text-xs shrink-0 ${msg.color}`}>{msg.user}</span>
                 <span className="text-muted-foreground text-xs shrink-0">:</span>
-                <span className="text-foreground/90 text-xs break-words flex-1">
+                <span className="text-foreground/90 text-xs break-words">
                   {renderMessageText(msg.text)}
                 </span>
+
+                {/* ── PC hover: inline action buttons right after text ── */}
+                {isHovered && !showPicker && (
+                  <span className="hidden lg:inline-flex items-center gap-0 ml-1 shrink-0 animate-in fade-in duration-100">
+                    <button
+                      onClick={e => {
+                        e.stopPropagation()
+                        setReactionPickerMsgId(msg.id)
+                      }}
+                      className="h-5 w-5 flex items-center justify-center rounded hover:bg-secondary transition-colors"
+                      title="React"
+                    >
+                      <Smile className="h-3 w-3 text-muted-foreground" />
+                    </button>
+                    <button
+                      onClick={e => {
+                        e.stopPropagation()
+                        handleReply(msg)
+                      }}
+                      className="h-5 w-5 flex items-center justify-center rounded hover:bg-secondary transition-colors"
+                      title="Reply"
+                    >
+                      <Reply className="h-3 w-3 text-muted-foreground" />
+                    </button>
+                  </span>
+                )}
               </div>
 
               {/* Reactions row */}
@@ -551,32 +606,6 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
                       </button>
                     )
                   })}
-                </div>
-              )}
-
-              {/* ── PC hover: emoji + reply actions ── */}
-              {isHovered && !showPicker && (
-                <div className="hidden lg:flex absolute -top-3 right-1 items-center gap-0.5 bg-card border border-border rounded-lg shadow-md p-0.5 z-10 animate-in fade-in slide-in-from-bottom-1 duration-150">
-                  <button
-                    onClick={e => {
-                      e.stopPropagation()
-                      setReactionPickerMsgId(msg.id)
-                    }}
-                    className="h-6 w-6 flex items-center justify-center rounded hover:bg-secondary transition-colors"
-                    title="React"
-                  >
-                    <Smile className="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
-                  <button
-                    onClick={e => {
-                      e.stopPropagation()
-                      handleReply(msg)
-                    }}
-                    className="h-6 w-6 flex items-center justify-center rounded hover:bg-secondary transition-colors"
-                    title="Reply"
-                  >
-                    <Reply className="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
                 </div>
               )}
 
@@ -679,6 +708,35 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
 
       {/* ───── Input Area ───── */}
       <div className="flex items-center gap-1.5 p-2 border-t border-border bg-secondary/20">
+        {/* Username badge — click to edit */}
+        {showNameEdit ? (
+          <div className="flex items-center gap-1 shrink-0">
+            <Input
+              ref={nameInputRef}
+              value={nameInput}
+              onChange={e => setNameInput(e.target.value)}
+              onKeyDown={handleNameKeyDown}
+              placeholder="New name..."
+              maxLength={15}
+              className="h-7 w-24 text-[10px] bg-background border-border"
+            />
+            <button
+              onClick={handleNameSave}
+              className="h-7 w-7 flex items-center justify-center rounded bg-primary text-primary-foreground"
+            >
+              <Send className="h-3 w-3" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => { setShowNameEdit(true); setNameInput(username) }}
+            className="shrink-0 flex items-center gap-0.5 px-1.5 py-1 rounded-md bg-primary/10 border border-primary/20 hover:bg-primary/20 transition-colors"
+            title="Click to change name"
+          >
+            <span className="text-[10px] font-semibold text-primary max-w-[60px] truncate">{username}</span>
+            <Pencil className="h-2.5 w-2.5 text-primary/60" />
+          </button>
+        )}
         <button
           onClick={() => setShowEmojiPicker(prev => !prev)}
           className={`h-8 w-8 shrink-0 flex items-center justify-center rounded-md transition-colors ${

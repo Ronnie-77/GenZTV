@@ -246,7 +246,7 @@ export function WatchPage() {
       <div className="px-4 md:px-6">
         <div className="flex flex-col lg:flex-row gap-4">
           {/* Left: Ad + Video Player + Stream Selector */}
-          <div className="flex-1 min-w-0 max-w-4xl relative z-10">
+          <div className="flex-1 min-w-0 max-w-4xl relative">
             {/* Banner Ad above player — PC only, mobile shows below */}
             {videoAdsEnabled && (
               <div className="hidden lg:flex flex-col items-center gap-3 mb-4">
@@ -313,7 +313,7 @@ export function WatchPage() {
           </div>
 
           {/* Right: Chat Box — PC only */}
-          <div className="hidden lg:flex lg:flex-col w-80 xl:w-96 shrink-0">
+          <div className="hidden lg:flex lg:flex-col w-80 xl:w-96 shrink-0 relative z-20">
             <ChatBox className="flex-1" messagesMaxHeight="max-h-[600px]" />
           </div>
         </div>

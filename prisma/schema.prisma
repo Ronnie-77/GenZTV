@@ -80,10 +80,6 @@ model AppSetting {
   homeAdsEnabled   Boolean @default(true)
   videoAdsEnabled  Boolean @default(true)
   apkUrl           String  @default("")
-  // Phase 1: Analytics Setup — GA4
-  ga4MeasurementId String @default("")  // e.g., G-XXXXXXXXXX
-  // Phase 6: Firebase App Linking
-  firebaseConfig   String @default("")  // JSON: Firebase web app config
 }
 
 model PushSubscription {
@@ -115,7 +111,6 @@ model DailyStat {
   topPages     String   @default("{}")  // JSON: { page: count }
   topChannels  String   @default("{}")  // JSON: { channelId: count }
   topCountries String   @default("{}")  // JSON: { country: count }
-  customEvents String   @default("{}")  // JSON: { eventName: count } — aggregated custom events per day
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
@@ -129,51 +124,4 @@ model VisitorSession {
   country     String   @default("")
   userAgent   String   @default("")
   ip          String   @default("")
-  // Phase 4: User Properties
-  deviceType  String   @default("")   // phone, tv, web
-  region      String   @default("")   // from IP or browser
-  connectionType String @default("")  // 4g, 3g, wifi, etc.
-  appVersion  String   @default("")   // app version string
-  notificationOptIn Boolean @default(false) // push notification opt-in
-}
-
-// Phase 3: Custom Event Tracking
-model CustomEvent {
-  id          String   @id @default(cuid())
-  sessionId   String   // Browser session
-  eventName   String   // e.g., match_card_click, stream_started
-  params      String   @default("{}")  // JSON: event parameters
-  page        String   @default("")    // Page where event occurred
-  channelId   String?  // If related to a channel
-  matchId     String?  // If related to a match
-  userAgent   String   @default("")
-  country     String   @default("")
-  ip          String   @default("")
-  createdAt   DateTime @default(now())
-}
-
-// Phase 5: Conversion Goals
-model ConversionEvent {
-  id          String   @id @default(cuid())
-  sessionId   String   // Browser session
-  goalName    String   // e.g., stream_started, rewarded_ad_complete, return_visit
-  value       Float    @default(0)  // Conversion value (optional)
-  params      String   @default("{}")  // JSON: additional parameters
-  userAgent   String   @default("")
-  country     String   @default("")
-  ip          String   @default("")
-  createdAt   DateTime @default(now())
-}
-
-// Match Chat
-model ChatMessage {
-  id          String   @id @default(cuid())
-  matchId     String   // Which match this chat belongs to
-  userId      String   // Persistent browser fingerprint
-  username    String   // Display name (e.g., "Rony3847")
-  message     String   // Chat message content
-  type        String   @default("message")  // message, system, emoji
-  replyToId   String?  // ID of message being replied to
-  mentions    String   @default("[]")  // JSON: array of mentioned usernames
-  createdAt   DateTime @default(now())
 }
