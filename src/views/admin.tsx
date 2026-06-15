@@ -6,15 +6,37 @@ import { Shield, Eye, EyeOff, LogOut, AlertCircle, Loader2, Tv, BarChart3, Radio
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { ErrorBoundary } from '@/components/error-boundary'
 
-// Lazy-load admin sub-pages to reduce initial compilation memory
-const AdminDashboard = lazy(() => import('@/views/admin/dashboard').then(m => ({ default: m.AdminDashboard })))
-const AdminChannels = lazy(() => import('@/views/admin/channels').then(m => ({ default: m.AdminChannels })))
-const AdminMatches = lazy(() => import('@/views/admin/matches').then(m => ({ default: m.AdminMatches })))
-const AdminCategories = lazy(() => import('@/views/admin/categories').then(m => ({ default: m.AdminCategories })))
-const AdminSettings = lazy(() => import('@/views/admin/settings').then(m => ({ default: m.AdminSettings })))
-const AdminAnalytics = lazy(() => import('@/views/admin/analytics').then(m => ({ default: m.AdminAnalytics })))
-const AdminData = lazy(() => import('@/views/admin/data').then(m => ({ default: m.AdminData })))
+// Lazy-load admin sub-pages with retry logic for robust chunk loading
+function lazyWithRetry<T extends React.ComponentType<unknown>>(
+  factory: () => Promise<{ default: T }>,
+  retries = 3
+): React.LazyExoticComponent<T> {
+  return lazy(async () => {
+    let lastError: Error | null = null
+    for (let i = 0; i < retries; i++) {
+      try {
+        const mod = await factory()
+        return mod
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        if (i < retries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)))
+        }
+      }
+    }
+    throw lastError
+  })
+}
+
+const AdminDashboard = lazyWithRetry(() => import('@/views/admin/dashboard').then(m => ({ default: m.AdminDashboard })))
+const AdminChannels = lazyWithRetry(() => import('@/views/admin/channels').then(m => ({ default: m.AdminChannels })))
+const AdminMatches = lazyWithRetry(() => import('@/views/admin/matches').then(m => ({ default: m.AdminMatches })))
+const AdminCategories = lazyWithRetry(() => import('@/views/admin/categories').then(m => ({ default: m.AdminCategories })))
+const AdminSettings = lazyWithRetry(() => import('@/views/admin/settings').then(m => ({ default: m.AdminSettings })))
+const AdminAnalytics = lazyWithRetry(() => import('@/views/admin/analytics').then(m => ({ default: m.AdminAnalytics })))
+const AdminData = lazyWithRetry(() => import('@/views/admin/data').then(m => ({ default: m.AdminData })))
 
 const sidebarNavItems = [
   { id: 'dashboard' as const, label: 'Dashboard', icon: BarChart3 },
@@ -261,13 +283,15 @@ export function AdminPage() {
       }
     })()
     return (
-      <Suspense fallback={
-        <div className="flex items-center justify-center min-h-[50vh]">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      }>
-        {content}
-      </Suspense>
+      <ErrorBoundary>
+        <Suspense fallback={
+          <div className="flex items-center justify-center min-h-[50vh]">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        }>
+          {content}
+        </Suspense>
+      </ErrorBoundary>
     )
   }
 

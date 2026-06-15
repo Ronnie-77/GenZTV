@@ -10,20 +10,43 @@ import { NotificationPrompt } from '@/components/notifications/notification-mana
 import { X, Download, Smartphone, Wrench, Clock, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { fetchSettings } from '@/lib/api'
+import { ErrorBoundary } from '@/components/error-boundary'
 
-// Lazy-load page components to reduce initial compilation memory
-const HomePage = lazy(() => import('@/views/home').then(m => ({ default: m.HomePage })))
-const LivePage = lazy(() => import('@/views/live').then(m => ({ default: m.LivePage })))
-const WatchPage = lazy(() => import('@/views/watch').then(m => ({ default: m.WatchPage })))
-const NewsPage = lazy(() => import('@/views/news').then(m => ({ default: m.NewsPage })))
-const SportsPage = lazy(() => import('@/views/sports').then(m => ({ default: m.SportsPage })))
-const CricketPage = lazy(() => import('@/views/cricket').then(m => ({ default: m.CricketPage })))
-const FootballPage = lazy(() => import('@/views/football').then(m => ({ default: m.FootballPage })))
-const EntertainmentPage = lazy(() => import('@/views/entertainment').then(m => ({ default: m.EntertainmentPage })))
-const FavoritesPage = lazy(() => import('@/views/favorites').then(m => ({ default: m.FavoritesPage })))
-const SearchPage = lazy(() => import('@/views/search').then(m => ({ default: m.SearchPage })))
-const AdminPage = lazy(() => import('@/views/admin').then(m => ({ default: m.AdminPage })))
-const MorePage = lazy(() => import('@/views/more').then(m => ({ default: m.MorePage })))
+// Lazy-load page components with retry logic for robust chunk loading
+function lazyWithRetry<T extends React.ComponentType<unknown>>(
+  factory: () => Promise<{ default: T }>,
+  retries = 3
+): React.LazyExoticComponent<T> {
+  return lazy(async () => {
+    let lastError: Error | null = null
+    for (let i = 0; i < retries; i++) {
+      try {
+        const mod = await factory()
+        return mod
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        // Wait a bit before retrying (exponential backoff)
+        if (i < retries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)))
+        }
+      }
+    }
+    throw lastError
+  })
+}
+
+const HomePage = lazyWithRetry(() => import('@/views/home').then(m => ({ default: m.HomePage })))
+const LivePage = lazyWithRetry(() => import('@/views/live').then(m => ({ default: m.LivePage })))
+const WatchPage = lazyWithRetry(() => import('@/views/watch').then(m => ({ default: m.WatchPage })))
+const NewsPage = lazyWithRetry(() => import('@/views/news').then(m => ({ default: m.NewsPage })))
+const SportsPage = lazyWithRetry(() => import('@/views/sports').then(m => ({ default: m.SportsPage })))
+const CricketPage = lazyWithRetry(() => import('@/views/cricket').then(m => ({ default: m.CricketPage })))
+const FootballPage = lazyWithRetry(() => import('@/views/football').then(m => ({ default: m.FootballPage })))
+const EntertainmentPage = lazyWithRetry(() => import('@/views/entertainment').then(m => ({ default: m.EntertainmentPage })))
+const FavoritesPage = lazyWithRetry(() => import('@/views/favorites').then(m => ({ default: m.FavoritesPage })))
+const SearchPage = lazyWithRetry(() => import('@/views/search').then(m => ({ default: m.SearchPage })))
+const AdminPage = lazyWithRetry(() => import('@/views/admin').then(m => ({ default: m.AdminPage })))
+const MorePage = lazyWithRetry(() => import('@/views/more').then(m => ({ default: m.MorePage })))
 
 // ── PWA Install Prompt ──
 interface BeforeInstallPromptEvent extends Event {
@@ -316,13 +339,15 @@ export function AppShell() {
       }
     })()
     return (
-      <Suspense fallback={
-        <div className="flex items-center justify-center min-h-[50vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-        </div>
-      }>
-        {page}
-      </Suspense>
+      <ErrorBoundary>
+        <Suspense fallback={
+          <div className="flex items-center justify-center min-h-[50vh]">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+          </div>
+        }>
+          {page}
+        </Suspense>
+      </ErrorBoundary>
     )
   }
 

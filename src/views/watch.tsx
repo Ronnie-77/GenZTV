@@ -5,6 +5,7 @@ import { useAppStore } from '@/lib/store'
 import { fetchChannel, fetchMatch, type Channel, type Match } from '@/lib/api'
 import { VideoPlayer } from '@/components/player/video-player'
 import { ChannelCard } from '@/components/channels/channel-card'
+import { ChatBox } from '@/components/chat/chat-box'
 import { useChannels } from '@/lib/hooks'
 import { ArrowLeft, Heart, Share2, Tv, ExternalLink, Radio, ListVideo } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -73,8 +74,8 @@ function BannerAd() {
   }, [])
 
   return (
-    <div className="w-full flex justify-center mt-4">
-      <div ref={containerRef} className="w-full max-w-[728px] min-h-[90px] overflow-hidden" />
+    <div className="w-full flex justify-center">
+      <div ref={containerRef} className="w-full min-h-[90px]" />
     </div>
   )
 }
@@ -312,19 +313,26 @@ export function WatchPage() {
               </div>
             )}
 
-            {/* Banner Ad below player — mobile only */}
+            {/* Mobile: Banner Ad below player */}
             {videoAdsEnabled && (
               <div className="flex lg:hidden flex-col items-center gap-3 mt-4">
-                {videoAdScripts.map((ad) => (
-                  <DynamicAdSlot key={ad.id} script={ad.script} />
-                ))}
-                {videoAdScripts.length === 0 && <BannerAd />}
+                <div className="w-full bg-secondary/30 border border-border rounded-lg flex items-center justify-center overflow-hidden min-h-[90px]">
+                  {videoAdScripts.map((ad) => (
+                    <DynamicAdSlot key={ad.id} script={ad.script} />
+                  ))}
+                  {videoAdScripts.length === 0 && <BannerAd />}
+                </div>
               </div>
             )}
+
+            {/* Mobile: Chat Box below banner ad */}
+            <div className="flex lg:hidden mt-4">
+              <ChatBox />
+            </div>
           </div>
 
-          {/* Right: Related Channels */}
-          <div className="w-full lg:w-72 xl:w-80 shrink-0 space-y-4">
+          {/* Right: Related Channels — PC only */}
+          <div className="hidden lg:block w-80 xl:w-96 shrink-0 space-y-4">
             {/* Related Channels — for both channel and match views */}
             {((viewMode === 'channel' && channel) || (viewMode === 'match' && match)) && (
               <div>
@@ -335,10 +343,10 @@ export function WatchPage() {
                     <span className="text-xs text-muted-foreground">({viewMode === 'channel' ? filteredRelated.length : filteredMatchRelated.length})</span>
                   )}
                 </div>
-                <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1 scrollbar-thin">
+                <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1 scrollbar-thin">
                   {loadingRelated ? (
                     <>
-                      {[1, 2, 3, 4, 5].map(i => (
+                      {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
                         <div key={i} className="flex items-center gap-3 bg-card rounded-xl border border-border p-3 animate-pulse">
                           <div className="w-10 h-10 bg-secondary rounded-lg" />
                           <div className="flex-1">

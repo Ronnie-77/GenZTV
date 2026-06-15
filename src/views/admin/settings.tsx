@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Settings, Save, RefreshCw, Globe, Tv, Monitor, Shield, Database, Download, Upload, X, FileArchive, Trash2, Megaphone, Plus, Code, Eye, EyeOff, GripVertical, AlertCircle } from 'lucide-react'
+import { Save, RefreshCw, Globe, Tv, Monitor, Shield, Download, Upload, X, FileArchive, Trash2, Megaphone, Plus, Code, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
-import { fetchSettings, updateSettings, fetchChannels, fetchMatches, fetchCategories, type AppSettings, type Channel } from '@/lib/api'
+import { fetchSettings, updateSettings, fetchChannels, type AppSettings, type Channel } from '@/lib/api'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
@@ -23,7 +23,7 @@ export function AdminSettings() {
   const [channels, setChannels] = useState<Channel[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [seeding, setSeeding] = useState(false)
+
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -259,51 +259,6 @@ export function AdminSettings() {
       toast.success('APK Deleted', { description: 'The APK file has been removed' })
     } catch {
       toast.error('Error', { description: 'Failed to delete APK' })
-    }
-  }
-
-  const handleSeed = async () => {
-    setSeeding(true)
-    try {
-      const res = await fetch('/api/seed', { method: 'POST' })
-      const data = await res.json()
-      if (res.ok) {
-        toast.success('Database Seeded', { description: `Created ${data.categories} categories, ${data.channels} channels, ${data.matches} matches` })
-      } else {
-        toast.error('Error', { description: 'Failed to seed database' })
-      }
-    } catch {
-      toast.error('Error', { description: 'Failed to seed database' })
-    } finally {
-      setSeeding(false)
-    }
-  }
-
-  const handleResetData = async () => {
-    if (!confirm('⚠️ This will delete ALL data and re-seed with demo data. Are you sure?')) return
-    try {
-      // Delete all data via API calls
-      const allChannels = await fetchChannels({ includeInactive: true })
-      const allMatches = await fetchMatches()
-      const allCategories = await fetchCategories()
-
-      // Delete matches
-      for (const m of allMatches) {
-        await fetch(`/api/matches/${m.id}`, { method: 'DELETE' })
-      }
-      // Delete channels
-      for (const ch of allChannels) {
-        await fetch(`/api/channels/${ch.id}`, { method: 'DELETE' })
-      }
-      // Delete categories
-      for (const cat of allCategories) {
-        await fetch(`/api/categories/${cat.id}`, { method: 'DELETE' })
-      }
-
-      // Re-seed
-      await handleSeed()
-    } catch {
-      toast.error('Error', { description: 'Failed to reset data' })
     }
   }
 
@@ -736,38 +691,6 @@ export function AdminSettings() {
             <p className="text-[10px] text-muted-foreground">Click "Add Script" to add your first ad script</p>
           </div>
         )}
-      </div>
-
-      {/* Database Management */}
-      <div className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Database className="h-4 w-4 text-primary" />
-          <h3 className="text-sm font-semibold">Database</h3>
-        </div>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSeed}
-            disabled={seeding}
-            className="gap-1.5 btn-press text-xs"
-          >
-            {seeding ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
-            {seeding ? 'Seeding...' : 'Seed Demo Data'}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleResetData}
-            className="gap-1.5 btn-press border-destructive/30 text-destructive hover:bg-destructive/10 text-xs"
-          >
-            <Database className="h-3.5 w-3.5" />
-            Reset All Data
-          </Button>
-        </div>
-        <p className="text-[10px] text-muted-foreground">
-          Seed adds demo data without removing existing data. Reset deletes all data and re-seeds.
-        </p>
       </div>
 
       {/* App Info */}

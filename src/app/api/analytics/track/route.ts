@@ -38,6 +38,17 @@ export async function POST(request: NextRequest) {
     const now = new Date()
     const todayStr = now.toISOString().slice(0, 10) // YYYY-MM-DD
 
+    // Check if this session already viewed today (BEFORE creating the page view)
+    const existingTodayView = await db.pageView.findFirst({
+      where: {
+        sessionId,
+        createdAt: {
+          gte: new Date(todayStr + 'T00:00:00.000Z'),
+        },
+      },
+      select: { id: true },
+    })
+
     // Create PageView
     await db.pageView.create({
       data: {
@@ -91,17 +102,6 @@ export async function POST(request: NextRequest) {
         topChannels: '{}',
         topCountries: '{}',
       },
-    })
-
-    // Check if this session already viewed today (for unique visitor count)
-    const existingTodayView = await db.pageView.findFirst({
-      where: {
-        sessionId,
-        createdAt: {
-          gte: new Date(todayStr + 'T00:00:00.000Z'),
-        },
-      },
-      select: { id: true },
     })
 
     // Parse and update JSON fields
