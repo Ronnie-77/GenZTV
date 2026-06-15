@@ -86,7 +86,9 @@ export function WatchPage() {
   const [activeStreamIndex, setActiveStreamIndex] = useState(0)
   const [viewMode, setViewMode] = useState<'channel' | 'match'>('channel')
   const [videoAdsEnabled, setVideoAdsEnabled] = useState(true)
-  const [videoAdScripts, setVideoAdScripts] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
+  const [videoAboveMobileAds, setVideoAboveMobileAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
+  const [videoAbovePcAds, setVideoAbovePcAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
+  const [nativeBannerAds, setNativeBannerAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
 
   // Fetch ad settings
   useEffect(() => {
@@ -94,8 +96,10 @@ export function WatchPage() {
       setVideoAdsEnabled(s.adsEnabled && (s.videoAdsEnabled ?? true))
       try {
         const all = JSON.parse(s.customAdScripts || '[]')
-        const videoAds = all.filter((a: {position: string; enabled: boolean}) => a.position === 'video-below' && a.enabled)
-        setVideoAdScripts(videoAds)
+        const enabled = (a: {enabled: boolean}) => a.enabled
+        setVideoAboveMobileAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'video-above-mobile' && enabled(a)))
+        setVideoAbovePcAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'video-above-pc' && enabled(a)))
+        setNativeBannerAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'native-banner' && enabled(a)))
       } catch { /* ignore */ }
     }).catch(() => {})
   }, [])
@@ -247,13 +251,23 @@ export function WatchPage() {
         <div className="flex flex-col lg:flex-row gap-4">
           {/* Left: Ad + Video Player + Stream Selector */}
           <div className="flex-1 min-w-0 max-w-4xl relative">
-            {/* Banner Ad above player — PC only, mobile shows below */}
+            {/* 📱 Banner Ad above player — Mobile only */}
             {videoAdsEnabled && (
-              <div className="hidden lg:flex flex-col items-center gap-3 mb-4">
-                {videoAdScripts.map((ad) => (
+              <div className="flex lg:hidden flex-col items-center gap-3 mb-4">
+                {videoAboveMobileAds.map((ad) => (
                   <DynamicAdSlot key={ad.id} script={ad.script} />
                 ))}
-                {videoAdScripts.length === 0 && <BannerAd />}
+                {videoAboveMobileAds.length === 0 && <BannerAd />}
+              </div>
+            )}
+
+            {/* 🖥️ Banner Ad above player — PC only */}
+            {videoAdsEnabled && (
+              <div className="hidden lg:flex flex-col items-center gap-3 mb-4">
+                {videoAbovePcAds.map((ad) => (
+                  <DynamicAdSlot key={ad.id} script={ad.script} />
+                ))}
+                {videoAbovePcAds.length === 0 && <BannerAd />}
               </div>
             )}
 
@@ -294,19 +308,7 @@ export function WatchPage() {
               </div>
             )}
 
-            {/* Mobile: Banner Ad below player */}
-            {videoAdsEnabled && (
-              <div className="flex lg:hidden flex-col items-center gap-3 mt-4">
-                <div className="w-full bg-secondary/30 border border-border rounded-lg flex items-center justify-center overflow-hidden min-h-[90px]">
-                  {videoAdScripts.map((ad) => (
-                    <DynamicAdSlot key={ad.id} script={ad.script} />
-                  ))}
-                  {videoAdScripts.length === 0 && <BannerAd />}
-                </div>
-              </div>
-            )}
-
-            {/* Mobile: Chat Box below banner ad */}
+            {/* Mobile: Chat Box below player */}
             <div className="flex lg:hidden mt-4">
               <ChatBox matchId={viewMode === 'match' && match ? match.id : undefined} matchTitle={viewMode === 'match' && match ? match.title : undefined} />
             </div>
@@ -318,6 +320,15 @@ export function WatchPage() {
           </div>
         </div>
       </div>
+
+      {/* 📋 Native Banner Ad — Bottom of Watch Page */}
+      {videoAdsEnabled && nativeBannerAds.length > 0 && (
+        <div className="px-4 md:px-6 mt-6 mb-4 flex flex-col items-center gap-3">
+          {nativeBannerAds.map((ad) => (
+            <DynamicAdSlot key={ad.id} script={ad.script} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

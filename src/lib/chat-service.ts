@@ -1,30 +1,6 @@
 'use client'
 
-import {
-  collection,
-  doc,
-  addDoc,
-  setDoc,
-  onSnapshot,
-  query,
-  orderBy,
-  limit,
-  startAfter,
-  Timestamp,
-  updateDoc,
-  arrayUnion,
-  arrayRemove,
-  getDoc,
-  getDocs,
-  where,
-  deleteDoc,
-  deleteField,
-  serverTimestamp,
-  type Unsubscribe,
-  type DocumentData,
-  type QueryDocumentSnapshot,
-} from 'firebase/firestore'
-import { db } from '@/lib/firebase'
+import { io as socketIO, type Socket } from 'socket.io-client'
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -37,7 +13,7 @@ export interface ChatMessage {
   userColor: string
   text: string
   timestamp: number
-  reactions: Record<string, string[]>  // { "👍": ["uid1", "uid2"] }
+  reactions: Record<string, string[]>
   replyTo: { msgId: string; username: string; text: string } | null
 }
 
@@ -64,6 +40,8 @@ export interface MentionNotification {
   read: boolean
 }
 
+type Unsubscribe = () => void
+
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
@@ -74,12 +52,45 @@ const MAX_MESSAGES = 100
 const PAGE_SIZE = 30
 const MESSAGE_COOLDOWN_MS = 3000
 const MAX_MESSAGE_LENGTH = 500
-const STALE_USER_THRESHOLD_MS = 5 * 60 * 1000  // 5 minutes
-const HEARTBEAT_INTERVAL_MS = 60 * 1000         // 1 minute
+const STALE_USER_THRESHOLD_MS = 5 * 60 * 1000
+const HEARTBEAT_INTERVAL_MS = 60 * 1000
 const MENTION_REGEX = /@(\w+)/g
+const CHAT_SERVICE_PORT = 3003
 
 /* ------------------------------------------------------------------ */
-/*  User Profile (localStorage + Firestore)                            */
+/*  Socket.io connection                                               */
+/* ------------------------------------------------------------------ */
+
+let socket: Socket | null = null
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null
+
+function getSocket(): Socket {
+  if (!socket || !socket.connected) {
+    socket = socketIO('/?XTransformPort=' + CHAT_SERVICE_PORT, {
+      transports: ['websocket', 'polling'],
+      autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+    })
+
+    socket.on('connect', () => {
+      console.log('[Chat] Connected to chat service')
+    })
+
+    socket.on('disconnect', () => {
+      console.log('[Chat] Disconnected from chat service')
+    })
+
+    socket.on('connect_error', (err) => {
+      console.warn('[Chat] Connection error:', err.message)
+    })
+  }
+  return socket
+}
+
+/* ------------------------------------------------------------------ */
+/*  User Profile (localStorage)                                        */
 /* ------------------------------------------------------------------ */
 
 function randomHSL(): string {
@@ -128,38 +139,38 @@ export function updateProfileUsername(username: string) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Username Uniqueness Check (Firestore)                              */
+/*  Username Uniqueness Check                                          */
 /* ------------------------------------------------------------------ */
 
 export async function checkUsernameAvailable(username: string): Promise<boolean> {
-  if (!db) return true
-  try {
-    const ref = doc(db, 'usernames', username.toLowerCase())
-    const snap = await getDoc(ref)
-    if (!snap.exists()) return true
-    const data = snap.data()
-    const profile = getStoredProfile()
-    if (profile && data.uid === profile.uid) return true
-    return false
-  } catch {
-    return true
-  }
+  const profile = getStoredProfile()
+  const s = getSocket()
+
+  return new Promise((resolve) => {
+    if (!s.connected) {
+      // If not connected, allow it (will be checked server-side later)
+      resolve(true)
+      return
+    }
+
+    s.emit('checkUsername', { username, uid: profile?.uid || '' }, (available: boolean) => {
+      resolve(available)
+    })
+
+    // Timeout fallback
+    setTimeout(() => resolve(true), 3000)
+  })
 }
 
 export async function registerUsername(username: string, uid: string): Promise<void> {
-  if (!db) return
-  try {
-    await setDoc(doc(db, 'usernames', username.toLowerCase()), {
-      uid,
-      createdAt: Timestamp.now(),
-    })
-  } catch {
-    // Silent fail — non-critical
+  const s = getSocket()
+  if (s.connected) {
+    s.emit('registerUsername', { username, uid })
   }
 }
 
 /* ------------------------------------------------------------------ */
-/*  Chat Messages (Firestore)                                          */
+/*  Chat Messages                                                      */
 /* ------------------------------------------------------------------ */
 
 export function listenToMessages(
@@ -167,107 +178,57 @@ export function listenToMessages(
   onMessages: (msgs: ChatMessage[]) => void,
   onError?: (err: Error) => void,
 ): Unsubscribe {
-  if (!db) {
-    onMessages([])
-    return () => {}
+  const s = getSocket()
+  const profile = getStoredProfile()
+
+  // Local message accumulator — mimics Firestore's onSnapshot behavior
+  let allMessages: ChatMessage[] = []
+
+  // Join the room
+  if (profile) {
+    s.emit('join', { matchId, profile })
   }
 
-  const q = query(
-    collection(db, 'chats', matchId, 'messages'),
-    orderBy('timestamp', 'asc'),
-    limit(MAX_MESSAGES),
-  )
+  // Listen for initial messages (full batch)
+  const handleMessages = (msgs: ChatMessage[]) => {
+    allMessages = msgs
+    onMessages(allMessages)
+  }
 
-  return onSnapshot(
-    q,
-    (snapshot) => {
-      const msgs: ChatMessage[] = snapshot.docs.map(d => {
-        const data = d.data() as DocumentData
-        return {
-          id: d.id,
-          uid: data.uid || '',
-          username: data.username || 'Anonymous',
-          userColor: data.userColor || '#888',
-          text: data.text || '',
-          timestamp: data.timestamp?.toMillis?.() || Date.now(),
-          reactions: data.reactions || {},
-          replyTo: data.replyTo || null,
-        }
-      })
-      onMessages(msgs)
-    },
-    (err) => {
-      onError?.(err)
-    },
-  )
+  // Listen for new single message
+  const handleNewMessage = (msg: ChatMessage) => {
+    // Avoid duplicates
+    if (!allMessages.find(m => m.id === msg.id)) {
+      allMessages = [...allMessages, msg]
+    }
+    onMessages(allMessages)
+  }
+
+  // Listen for message updates (reactions)
+  const handleMessageUpdated = (data: { id: string; reactions: Record<string, string[]> }) => {
+    allMessages = allMessages.map(m =>
+      m.id === data.id ? { ...m, reactions: data.reactions } : m
+    )
+    onMessages(allMessages)
+  }
+
+  s.on('messages', handleMessages)
+  s.on('message', handleNewMessage)
+  s.on('messageUpdated', handleMessageUpdated)
+
+  return () => {
+    s.off('messages', handleMessages)
+    s.off('message', handleNewMessage)
+    s.off('messageUpdated', handleMessageUpdated)
+  }
 }
 
-/** Load older messages for pagination — returns messages older than the given cursor */
+/** Not needed for socket.io — messages stream in real-time */
 export async function loadOlderMessages(
-  matchId: string,
-  oldestTimestamp: number | null,
+  _matchId: string,
+  _oldestTimestamp: number | null,
 ): Promise<{ messages: ChatMessage[]; hasMore: boolean }> {
-  if (!db) return { messages: [], hasMore: false }
-
-  try {
-    let q
-    if (oldestTimestamp) {
-      // Query messages older than the oldest we have
-      const cursor = Timestamp.fromMillis(oldestTimestamp)
-      q = query(
-        collection(db, 'chats', matchId, 'messages'),
-        orderBy('timestamp', 'desc'),
-        limit(PAGE_SIZE + 1), // +1 to check if there are more
-      )
-      // We can't easily use startAfter with a timestamp for descending,
-      // so we'll fetch and filter
-      const snap = await getDocs(q)
-      const all: ChatMessage[] = []
-      snap.docs.forEach(d => {
-        const data = d.data() as DocumentData
-        const ts = data.timestamp?.toMillis?.() || 0
-        if (ts < oldestTimestamp) {
-          all.push({
-            id: d.id,
-            uid: data.uid || '',
-            username: data.username || 'Anonymous',
-            userColor: data.userColor || '#888',
-            text: data.text || '',
-            timestamp: ts,
-            reactions: data.reactions || {},
-            replyTo: data.replyTo || null,
-          })
-        }
-      })
-      const hasMore = all.length > PAGE_SIZE
-      const messages = all.slice(0, PAGE_SIZE).reverse() // reverse back to ascending
-      return { messages, hasMore }
-    } else {
-      // First load
-      q = query(
-        collection(db, 'chats', matchId, 'messages'),
-        orderBy('timestamp', 'asc'),
-        limit(PAGE_SIZE),
-      )
-      const snap = await getDocs(q)
-      const messages: ChatMessage[] = snap.docs.map(d => {
-        const data = d.data() as DocumentData
-        return {
-          id: d.id,
-          uid: data.uid || '',
-          username: data.username || 'Anonymous',
-          userColor: data.userColor || '#888',
-          text: data.text || '',
-          timestamp: data.timestamp?.toMillis?.() || 0,
-          reactions: data.reactions || {},
-          replyTo: data.replyTo || null,
-        }
-      })
-      return { messages, hasMore: snap.size >= PAGE_SIZE }
-    }
-  } catch {
-    return { messages: [], hasMore: false }
-  }
+  return { messages: [], hasMore: false }
 }
 
 export async function sendMessage(
@@ -276,26 +237,15 @@ export async function sendMessage(
   text: string,
   replyTo: { msgId: string; username: string; text: string } | null,
 ): Promise<void> {
-  if (!db) return
   if (text.length > MAX_MESSAGE_LENGTH) throw new Error('Message too long')
   if (!text.trim()) throw new Error('Message empty')
 
-  await addDoc(collection(db, 'chats', matchId, 'messages'), {
-    uid: profile.uid,
-    username: profile.username,
-    userColor: profile.color,
-    text: text.trim(),
-    timestamp: serverTimestamp(),
-    reactions: {},
-    replyTo,
-  })
-
-  // Update active user presence
-  await updatePresence(matchId, profile)
+  const s = getSocket()
+  s.emit('message', { matchId, profile, text, replyTo })
 }
 
 /* ------------------------------------------------------------------ */
-/*  Reactions (Firestore)                                              */
+/*  Reactions                                                          */
 /* ------------------------------------------------------------------ */
 
 export async function toggleReaction(
@@ -304,31 +254,8 @@ export async function toggleReaction(
   emoji: string,
   uid: string,
 ): Promise<void> {
-  if (!db) return
-
-  const ref = doc(db, 'chats', matchId, 'messages', msgId)
-  const snap = await getDoc(ref)
-  if (!snap.exists()) return
-
-  const data = snap.data() as DocumentData
-  const reactions: Record<string, string[]> = data.reactions || {}
-  const users = reactions[emoji] || []
-
-  if (users.includes(uid)) {
-    if (users.length <= 1) {
-      await updateDoc(ref, {
-        [`reactions.${emoji}`]: deleteField(),
-      })
-    } else {
-      await updateDoc(ref, {
-        [`reactions.${emoji}`]: arrayRemove(uid),
-      })
-    }
-  } else {
-    await updateDoc(ref, {
-      [`reactions.${emoji}`]: arrayUnion(uid),
-    })
-  }
+  const s = getSocket()
+  s.emit('reaction', { matchId, msgId, emoji, uid })
 }
 
 /* ------------------------------------------------------------------ */
@@ -339,100 +266,55 @@ export async function updatePresence(
   matchId: string,
   profile: UserProfile,
 ): Promise<void> {
-  if (!db) return
-  try {
-    await setDoc(doc(db, 'activeUsers', matchId, 'users', profile.uid), {
-      username: profile.username,
-      lastSeen: serverTimestamp(),
-    }, { merge: true })
-  } catch {
-    // Silent
+  const s = getSocket()
+  if (s.connected) {
+    s.emit('heartbeat', { matchId, profile })
   }
 }
 
-/** Remove stale users who haven't been seen in the last 5 minutes */
-export async function cleanupStaleUsers(matchId: string): Promise<void> {
-  if (!db) return
-  try {
-    const cutoff = Timestamp.fromMillis(Date.now() - STALE_USER_THRESHOLD_MS)
-    const q = query(
-      collection(db, 'activeUsers', matchId, 'users'),
-      orderBy('lastSeen', 'asc'),
-      limit(50),
-    )
-    const snap = await getDocs(q)
-    const deletions: Promise<void>[] = []
-    snap.docs.forEach(d => {
-      const data = d.data() as DocumentData
-      const lastSeen: Timestamp | undefined = data.lastSeen
-      if (lastSeen && lastSeen.toMillis() < cutoff.toMillis()) {
-        deletions.push(deleteDoc(d.ref))
-      }
-    })
-    await Promise.all(deletions)
-  } catch {
-    // Silent
-  }
+export async function cleanupStaleUsers(_matchId: string): Promise<void> {
+  // Server handles this automatically
 }
 
 export function listenToActiveUsers(
   matchId: string,
   onUsers: (users: ActiveUser[]) => void,
 ): Unsubscribe {
-  if (!db) {
-    onUsers([])
-    return () => {}
+  const s = getSocket()
+
+  const handleActiveUsers = (users: ActiveUser[]) => {
+    onUsers(users)
   }
 
-  const q = collection(db, 'activeUsers', matchId, 'users')
-  return onSnapshot(q, (snapshot) => {
-    const now = Date.now()
-    const users: ActiveUser[] = []
-    snapshot.docs.forEach(d => {
-      const data = d.data() as DocumentData
-      const lastSeen = data.lastSeen?.toMillis?.() || 0
-      // Only count users seen within the threshold
-      if (now - lastSeen < STALE_USER_THRESHOLD_MS) {
-        users.push({
-          uid: d.id,
-          username: data.username || 'Anonymous',
-          lastSeen,
-        })
-      }
-    })
-    onUsers(users)
-  })
+  s.on('activeUsers', handleActiveUsers)
+
+  return () => {
+    s.off('activeUsers', handleActiveUsers)
+  }
 }
 
 export function listenToViewerCount(
   matchId: string,
   onCount: (count: number) => void,
 ): Unsubscribe {
-  if (!db) {
-    onCount(0)
-    return () => {}
+  const s = getSocket()
+
+  const handleActiveUsers = (users: ActiveUser[]) => {
+    onCount(users.length)
   }
 
-  const q = collection(db, 'activeUsers', matchId, 'users')
-  return onSnapshot(q, (snapshot) => {
-    const now = Date.now()
-    let count = 0
-    snapshot.docs.forEach(d => {
-      const data = d.data() as DocumentData
-      const lastSeen = data.lastSeen?.toMillis?.() || 0
-      if (now - lastSeen < STALE_USER_THRESHOLD_MS) count++
-    })
-    onCount(count)
-  })
+  s.on('activeUsers', handleActiveUsers)
+
+  return () => {
+    s.off('activeUsers', handleActiveUsers)
+  }
 }
 
-/** Remove own presence when leaving a chat room */
 export async function removePresence(matchId: string, uid: string): Promise<void> {
-  if (!db) return
-  try {
-    await deleteDoc(doc(db, 'activeUsers', matchId, 'users', uid))
-  } catch {
-    // Silent
+  const s = getSocket()
+  // Just disconnect — the server handles cleanup
+  if (s.connected) {
+    s.disconnect()
   }
 }
 
@@ -454,7 +336,6 @@ export function saveMentionNotification(notification: MentionNotification): void
   if (typeof window === 'undefined') return
   try {
     const existing = getMentionNotifications()
-    // Keep max 50
     const updated = [notification, ...existing].slice(0, 50)
     localStorage.setItem(MENTIONS_STORAGE_KEY, JSON.stringify(updated))
   } catch {
@@ -517,10 +398,8 @@ export function markMessageSent() {
 /* ------------------------------------------------------------------ */
 
 const BANNED_WORDS = [
-  // English
   'fuck', 'shit', 'asshole', 'bastard', 'bitch', 'dick', 'pussy', 'whore',
   'nigger', 'nigga', 'retard', 'faggot', 'cunt', 'cock', 'slut',
-  // Bengali transliterations & common
   'চুদ', 'মাদারচোদ', 'ব্যালা', 'খানকি', 'শালা', 'বেটা', 'রান্ডি',
   'চুতমারানি', 'গান্ডু', 'ঝাট', 'মাগি', 'পোঁদ', 'শুয়োর',
 ]
@@ -534,11 +413,8 @@ export function containsProfanity(text: string): boolean {
 /*  Heartbeat — periodic presence ping                                 */
 /* ------------------------------------------------------------------ */
 
-let heartbeatInterval: ReturnType<typeof setInterval> | null = null
-
 export function startHeartbeat(matchId: string, profile: UserProfile): void {
   stopHeartbeat()
-  // Immediately update presence
   updatePresence(matchId, profile)
   heartbeatInterval = setInterval(() => {
     updatePresence(matchId, profile)
@@ -567,7 +443,6 @@ export function playChatSound(type: 'message' | 'mention' | 'send'): void {
     gainNode.connect(audioCtx.destination)
 
     if (type === 'mention') {
-      // Higher pitched double beep for mentions
       oscillator.frequency.setValueAtTime(880, audioCtx.currentTime)
       oscillator.frequency.setValueAtTime(1100, audioCtx.currentTime + 0.1)
       gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime)
@@ -575,14 +450,12 @@ export function playChatSound(type: 'message' | 'mention' | 'send'): void {
       oscillator.start(audioCtx.currentTime)
       oscillator.stop(audioCtx.currentTime + 0.2)
     } else if (type === 'send') {
-      // Soft click for send
       oscillator.frequency.setValueAtTime(600, audioCtx.currentTime)
       gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime)
       gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05)
       oscillator.start(audioCtx.currentTime)
       oscillator.stop(audioCtx.currentTime + 0.05)
     } else {
-      // Subtle pop for new message
       oscillator.frequency.setValueAtTime(500, audioCtx.currentTime)
       oscillator.frequency.exponentialRampToValueAtTime(300, audioCtx.currentTime + 0.08)
       gainNode.gain.setValueAtTime(0.06, audioCtx.currentTime)

@@ -14,7 +14,7 @@ interface AdScript {
   id: string
   name: string
   script: string
-  position: 'home-banner' | 'video-below' | 'sidebar' | 'custom'
+  position: 'home-banner' | 'home-upcoming-mobile' | 'home-upcoming-pc' | 'native-banner' | 'video-above-mobile' | 'video-above-pc' | 'sidebar' | 'custom'
   enabled: boolean
 }
 
@@ -642,8 +642,12 @@ export function AdminSettings() {
                     onChange={(e) => setAdScripts(adScripts.map(a => a.id === ad.id ? { ...a, position: e.target.value as AdScript['position'] } : a))}
                     className="h-7 rounded-md border border-input bg-background px-2 text-[10px]"
                   >
-                    <option value="home-banner">🏠 Home Banner</option>
-                    <option value="video-below">📺 Below Video</option>
+                    <option value="home-banner">🏠 Home Banner (Top)</option>
+                    <option value="home-upcoming-mobile">📱 Home Below Upcoming (Mobile)</option>
+                    <option value="home-upcoming-pc">🖥️ Home Below Upcoming (PC)</option>
+                    <option value="native-banner">📋 Native Banner (Home + Watch)</option>
+                    <option value="video-above-mobile">📱 Above Video (Mobile)</option>
+                    <option value="video-above-pc">🖥️ Above Video (PC)</option>
                     <option value="sidebar">📌 Sidebar</option>
                     <option value="custom">⚙️ Custom</option>
                   </select>

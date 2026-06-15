@@ -1,9 +1,11 @@
 #!/bin/bash
-# Railway startup script
-# Runs database migration before starting the server
+# Start chat service in background
+cd /app/mini-services/chat-service && npm install && npx tsx index.ts &
+CHAT_PID=$!
 
-echo "🔄 Running database migration..."
-npx prisma db push --accept-data-loss
+# Start main Next.js app
+cd /app && npx prisma db push --accept-data-loss && next start &
+NEXT_PID=$!
 
-echo "🚀 Starting Next.js server..."
-next start
+# Wait for either to exit
+wait -n $CHAT_PID $NEXT_PID

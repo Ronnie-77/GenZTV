@@ -18,6 +18,9 @@ export function HomePage() {
   const [apkUrl, setApkUrl] = useState('')
   const [homeAdsEnabled, setHomeAdsEnabled] = useState(true)
   const [homeAdScripts, setHomeAdScripts] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
+  const [homeUpcomingMobileAds, setHomeUpcomingMobileAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
+  const [homeUpcomingPcAds, setHomeUpcomingPcAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
+  const [nativeBannerAds, setNativeBannerAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
   useEffect(() => {
     fetchSettings().then(s => {
       setApkUrl(s.apkUrl || '')
@@ -25,8 +28,11 @@ export function HomePage() {
       // Parse custom ad scripts for home page
       try {
         const all = JSON.parse(s.customAdScripts || '[]')
-        const homeAds = all.filter((a: {position: string; enabled: boolean}) => a.position === 'home-banner' && a.enabled)
-        setHomeAdScripts(homeAds)
+        const enabled = (a: {enabled: boolean}) => a.enabled
+        setHomeAdScripts(all.filter((a: {position: string; enabled: boolean}) => a.position === 'home-banner' && enabled(a)))
+        setHomeUpcomingMobileAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'home-upcoming-mobile' && enabled(a)))
+        setHomeUpcomingPcAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'home-upcoming-pc' && enabled(a)))
+        setNativeBannerAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'native-banner' && enabled(a)))
       } catch { /* ignore */ }
     }).catch(() => {})
   }, [])
@@ -315,6 +321,24 @@ export function HomePage() {
           )}
         </section>
 
+        {/* 📱 Ad Banner — Below Upcoming Matches (Mobile) */}
+        {homeAdsEnabled && homeUpcomingMobileAds.length > 0 && (
+          <div className="flex lg:hidden flex-col items-center gap-3">
+            {homeUpcomingMobileAds.map((ad) => (
+              <DynamicAdSlot key={ad.id} script={ad.script} />
+            ))}
+          </div>
+        )}
+
+        {/* 🖥️ Ad Banner — Below Upcoming Matches (PC) */}
+        {homeAdsEnabled && homeUpcomingPcAds.length > 0 && (
+          <div className="hidden lg:flex flex-col items-center gap-3">
+            {homeUpcomingPcAds.map((ad) => (
+              <DynamicAdSlot key={ad.id} script={ad.script} />
+            ))}
+          </div>
+        )}
+
         {/* 📺 Featured Channels Section */}
         <section>
           <div className="flex items-center justify-between mb-4">
@@ -359,6 +383,15 @@ export function HomePage() {
             </div>
           )}
         </section>
+
+        {/* 📋 Native Banner Ad — Below Popular Channels */}
+        {homeAdsEnabled && nativeBannerAds.length > 0 && (
+          <div className="flex flex-col items-center gap-3">
+            {nativeBannerAds.map((ad) => (
+              <DynamicAdSlot key={ad.id} script={ad.script} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

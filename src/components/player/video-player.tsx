@@ -1120,64 +1120,12 @@ export function VideoPlayer({
         <IframeReloadHint />
       )}
 
-      {/* ── Iframe floating controls ── */}
-      {/* When in iframe mode, PlayerControls is not rendered. We provide a minimal floating bar with fullscreen toggle. */}
-      {isIframe && !loading && !error && (
-        <div
-          className={`absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between px-3 py-2 bg-gradient-to-t from-black/80 to-transparent transition-opacity duration-300 ${
-            controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
-          }`}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-white text-xs font-medium truncate max-w-[200px]">
-              {title}
-            </span>
-            {isLive && (
-              <span className="flex items-center gap-1 text-[10px] text-red-400 font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                LIVE
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1">
-            {/* Touch lock toggle — mobile only */}
-            {isMobileDevice && (
-              <button
-                onClick={() => setIframeTouchLocked(prev => !prev)}
-                className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
-                title={iframeTouchLocked ? 'Unlock touch' : 'Lock touch'}
-              >
-                {iframeTouchLocked ? (
-                  <Lock className="h-4 w-4 text-white" />
-                ) : (
-                  <Unlock className="h-4 w-4 text-white" />
-                )}
-              </button>
-            )}
-            {/* Fullscreen toggle */}
-            <button
-              onClick={toggleFullscreen}
-              className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
-              title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-            >
-              {fullscreen ? (
-                <Minimize className="h-4.5 w-4.5 text-white" />
-              ) : (
-                <Maximize className="h-4.5 w-4.5 text-white" />
-              )}
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Screenshot flash effect */}
       {screenshotFlash && (
         <div className="absolute inset-0 z-40 bg-white animate-in fade-out duration-300 pointer-events-none" />
       )}
 
-      {/* Controls overlay — shown for all non-iframe players */}
-      {!isIframe && (
+      {/* Controls overlay */}
       <PlayerControls
         isPlaying={playing}
         onTogglePlay={togglePlay}
@@ -1224,7 +1172,6 @@ export function VideoPlayer({
         onDeinterlaceChange={setDeinterlace}
         showDeinterlace={isMpegTs}
       />
-      )}
 
       {/* Fullscreen rotate hint — shows on mobile in portrait mode */}
       {fullscreen && (

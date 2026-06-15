@@ -38,7 +38,7 @@ import {
   MAX_MESSAGE_LENGTH,
   MESSAGE_COOLDOWN_MS,
 } from '@/lib/chat-service'
-import type { Unsubscribe } from 'firebase/firestore'
+import type { Unsubscribe } from '@/lib/chat-service'
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */

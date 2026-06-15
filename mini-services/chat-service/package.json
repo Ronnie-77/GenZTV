@@ -1,9 +1,14 @@
 {
-  "name": "chat-service",
+  "name": "genztv-chat-service",
+  "version": "1.0.0",
+  "private": true,
   "scripts": {
-    "dev": "bun --hot index.ts"
+    "dev": "npx tsx index.ts",
+    "start": "npx tsx index.ts"
   },
   "dependencies": {
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "cors": "^2.8.5",
+    "tsx": "^4.19.0"
   }
 }

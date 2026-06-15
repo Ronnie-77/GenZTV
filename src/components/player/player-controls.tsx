@@ -589,6 +589,21 @@ export function PlayerControls({
             </div>
           )}
 
+          {/* Title + live indicator bar at top */}
+          <div
+            className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent px-3 pt-2.5 pb-6 pointer-events-none"
+          >
+            <div className="flex items-center gap-2">
+              <p className="text-white text-[13px] font-medium truncate">{title}</p>
+              {isLive && (
+                <span className="flex items-center gap-1 text-[10px] text-red-400 font-semibold shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                  LIVE
+                </span>
+              )}
+            </div>
+          </div>
+
           {/* Control bar at bottom */}
           <div
             className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-8 pointer-events-auto"
@@ -616,18 +631,6 @@ export function PlayerControls({
                 </button>
               )}
               <div className="flex-1" />
-              {hlsStats && (
-                <button
-                  onClick={() => {
-                    setSettingsOpen(!settingsOpen)
-                    setSettingsPage('main')
-                  }}
-                  className={`p-1.5 rounded-full hover:bg-white/10 transition-all ${effectiveSettingsOpen ? 'rotate-45' : ''}`}
-                  title="Settings"
-                >
-                  <Settings className="h-5 w-5 text-white" />
-                </button>
-              )}
               {onTogglePiP && 'pictureInPictureEnabled' in document && (
                 <button
                   onClick={onTogglePiP}
