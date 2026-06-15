@@ -17,12 +17,12 @@ export const maxDuration = 300 // 5 minute timeout for live streams
 
 // Upstream request timeout (ms)
 // For m3u8 manifests, use very short timeout so player can fallback to direct mode quickly
-const UPSTREAM_TIMEOUT_MANIFEST = 6000 // 6s for m3u8 manifests (fail fast → fallback to direct)
+const UPSTREAM_TIMEOUT_MANIFEST = 15000 // 15s for m3u8 manifests (generous for slow IPTV servers)
 const UPSTREAM_TIMEOUT_SEGMENT = 30000 // 30s for segments (slower is ok but not too long)
 const UPSTREAM_TIMEOUT_LIVE = 60000 // 60s for live .ts streams
 
 // Retry configuration
-const MAX_RETRIES_MANIFEST = 1 // 1 retry for manifests (quick retry then let player fallback)
+const MAX_RETRIES_MANIFEST = 2 // 2 retries for manifests (IPTV servers can be flaky)
 const MAX_RETRIES_SEGMENT = 2 // 2 retries for segments
 const RETRY_DELAY_MS = 500
 
@@ -224,7 +224,9 @@ export async function GET(req: NextRequest) {
 
       const baseUrl = url.substring(0, url.lastIndexOf('/') + 1)
       const originalQuery = parsedUrl.search
-      const rewritten = rewriteM3u8Urls(text, baseUrl, originalQuery)
+      // Propagate timeout param to rewritten URLs so sub-playlists also use extended timeout
+      const timeoutParam = req.nextUrl.searchParams.get('timeout')
+      const rewritten = rewriteM3u8Urls(text, baseUrl, originalQuery, timeoutParam)
 
       console.log(`[stream-proxy] Rewrote m3u8 (${text.length} bytes → ${rewritten.length} bytes)`)
 
@@ -286,9 +288,11 @@ export async function OPTIONS() {
  * - URI="..." attributes in #EXT-X-MAP (init segment URLs)
  * - Both absolute and relative URLs
  */
-function rewriteM3u8Urls(manifest: string, baseUrl: string, originalQuery: string = ''): string {
+function rewriteM3u8Urls(manifest: string, baseUrl: string, originalQuery: string = '', timeoutParam: string | null = null): string {
   const proxyBase = '/api/stream-proxy?url='
   const preservedQuery = originalQuery && originalQuery !== '?' ? originalQuery : ''
+  // Add timeout param to rewritten URLs so sub-resources also get extended timeout
+  const timeoutSuffix = timeoutParam ? `&timeout=${timeoutParam}` : ''
 
   const lines = manifest.split('\n')
   const rewritten = lines.map((line) => {
@@ -311,7 +315,7 @@ function rewriteM3u8Urls(manifest: string, baseUrl: string, originalQuery: strin
           if (preservedQuery && !absoluteUrl.includes('?')) {
             absoluteUrl += preservedQuery
           }
-          return `URI="${proxyBase}${encodeURIComponent(absoluteUrl)}"`
+          return `URI="${proxyBase}${encodeURIComponent(absoluteUrl)}${timeoutSuffix}"`
         })
       }
 
@@ -326,7 +330,7 @@ function rewriteM3u8Urls(manifest: string, baseUrl: string, originalQuery: strin
       if (preservedQuery && !absoluteUrl.includes('?')) {
         absoluteUrl += preservedQuery
       }
-      return `${proxyBase}${encodeURIComponent(absoluteUrl)}`
+      return `${proxyBase}${encodeURIComponent(absoluteUrl)}${timeoutSuffix}`
     }
 
     // Relative URL lines
@@ -336,7 +340,7 @@ function rewriteM3u8Urls(manifest: string, baseUrl: string, originalQuery: strin
         if (preservedQuery && !absoluteUrl.includes('?')) {
           absoluteUrl += preservedQuery
         }
-        return `${proxyBase}${encodeURIComponent(absoluteUrl)}`
+        return `${proxyBase}${encodeURIComponent(absoluteUrl)}${timeoutSuffix}`
       } catch {
         // If URL parsing fails, return original line
         return line

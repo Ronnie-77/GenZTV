@@ -1036,8 +1036,7 @@ export function VideoPlayer({
         />
       )}
 
-      {/* JW-style HLS Player — tries direct URL first (no proxy, no custom headers) */}
-      {/* Native React component using hls.js — NOT an iframe (iframe blocks CORS) */}
+      {/* JW-style HLS Player — proxy first (bypasses CORS, rewrites m3u8 URLs), then direct, then native */}
       {isJw && resolvedUrl && (
         <JwHlsPlayer
           src={streamUrl}
