@@ -7,7 +7,7 @@ import { IframePlayer } from './iframe-player'
 import { TsPlayer } from './ts-player'
 import { JwHlsPlayer } from './jw-hls-player'
 import { PlayerControls } from './player-controls'
-import { RotateCw, Lock, Unlock } from 'lucide-react'
+import { RotateCw, Lock, Unlock, Maximize, Minimize } from 'lucide-react'
 
 // Iframe reload hint — small floating button to reload iframe if video doesn't play
 function IframeReloadHint() {
@@ -645,26 +645,6 @@ export function VideoPlayer({
     }
   }, [])
 
-  // Skip forward/backward handlers
-  const handleSkipBack = useCallback(() => {
-    const video = videoRef.current || containerRef.current?.querySelector('video')
-    if (!video) return
-    video.currentTime = Math.max(0, video.currentTime - 10)
-    showControls()
-  }, [showControls])
-
-  const handleSkipForward = useCallback(() => {
-    const video = videoRef.current || containerRef.current?.querySelector('video')
-    if (!video) return
-    if (video.duration && isFinite(video.duration)) {
-      video.currentTime = Math.min(video.duration, video.currentTime + 10)
-    } else {
-      // For live/DVR streams
-      video.currentTime += 10
-    }
-    showControls()
-  }, [showControls])
-
   // Check if seeking is possible (for showing skip buttons)
   // For VOD: always seekable. For live: check seekable range (DVR window).
   // For mpegts: usually live with no DVR, so default to not seekable.
@@ -880,13 +860,21 @@ export function VideoPlayer({
         case 'arrowleft':
           if (seekable) {
             e.preventDefault()
-            handleSkipBack()
+            const video = videoRef.current || containerRef.current?.querySelector('video')
+            if (video) video.currentTime = Math.max(0, video.currentTime - 10)
           }
           break
         case 'arrowright':
           if (seekable) {
             e.preventDefault()
-            handleSkipForward()
+            const video = videoRef.current || containerRef.current?.querySelector('video')
+            if (video) {
+              if (video.duration && isFinite(video.duration)) {
+                video.currentTime = Math.min(video.duration, video.currentTime + 10)
+              } else {
+                video.currentTime += 10
+              }
+            }
           }
           break
         case '>':
@@ -922,7 +910,7 @@ export function VideoPlayer({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [fullscreen, showControls, qualityLevels, currentQuality, playbackRate, handleScreenshot, handleSkipBack, handleSkipForward, seekable])
+  }, [fullscreen, showControls, qualityLevels, currentQuality, playbackRate, handleScreenshot, seekable])
 
   return (
     <div
@@ -1132,6 +1120,57 @@ export function VideoPlayer({
         <IframeReloadHint />
       )}
 
+      {/* ── Iframe floating controls ── */}
+      {/* When in iframe mode, PlayerControls is not rendered. We provide a minimal floating bar with fullscreen toggle. */}
+      {isIframe && !loading && !error && (
+        <div
+          className={`absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between px-3 py-2 bg-gradient-to-t from-black/80 to-transparent transition-opacity duration-300 ${
+            controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-white text-xs font-medium truncate max-w-[200px]">
+              {title}
+            </span>
+            {isLive && (
+              <span className="flex items-center gap-1 text-[10px] text-red-400 font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                LIVE
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            {/* Touch lock toggle — mobile only */}
+            {isMobileDevice && (
+              <button
+                onClick={() => setIframeTouchLocked(prev => !prev)}
+                className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
+                title={iframeTouchLocked ? 'Unlock touch' : 'Lock touch'}
+              >
+                {iframeTouchLocked ? (
+                  <Lock className="h-4 w-4 text-white" />
+                ) : (
+                  <Unlock className="h-4 w-4 text-white" />
+                )}
+              </button>
+            )}
+            {/* Fullscreen toggle */}
+            <button
+              onClick={toggleFullscreen}
+              className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
+              title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            >
+              {fullscreen ? (
+                <Minimize className="h-4.5 w-4.5 text-white" />
+              ) : (
+                <Maximize className="h-4.5 w-4.5 text-white" />
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Screenshot flash effect */}
       {screenshotFlash && (
         <div className="absolute inset-0 z-40 bg-white animate-in fade-out duration-300 pointer-events-none" />
@@ -1172,8 +1211,6 @@ export function VideoPlayer({
         iframeTouchLocked={isIframe && isMobileDevice && iframeTouchLocked}
         onToggleIframeTouchLock={() => setIframeTouchLocked(prev => !prev)}
         onScreenshot={isHls || isMpegTs ? handleScreenshot : undefined}
-        onSkipBack={seekable ? handleSkipBack : undefined}
-        onSkipForward={seekable ? handleSkipForward : undefined}
         canSeek={seekable}
         audioTracks={audioTracks}
         currentAudioTrack={currentAudioTrack}

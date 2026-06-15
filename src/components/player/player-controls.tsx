@@ -18,8 +18,6 @@ import {
   Gauge,
   Maximize2,
   Camera,
-  SkipBack,
-  SkipForward,
   Headphones,
   Subtitles,
   ZoomIn,
@@ -102,9 +100,7 @@ interface PlayerControlsProps {
   onToggleIframeTouchLock?: () => void
   // New VLC-like features
   onScreenshot?: () => void
-  onSkipBack?: () => void
-  onSkipForward?: () => void
-  canSeek?: boolean // Whether skip buttons should be shown
+  canSeek?: boolean
   // Audio tracks
   audioTracks?: AudioTrack[]
   currentAudioTrack?: number
@@ -190,8 +186,6 @@ export function PlayerControls({
   onToggleIframeTouchLock,
   // New features
   onScreenshot,
-  onSkipBack,
-  onSkipForward,
   canSeek = true,
   audioTracks = [],
   currentAudioTrack = -1,
@@ -780,17 +774,6 @@ export function PlayerControls({
 
         {/* Main control buttons */}
         <div className="flex items-center gap-0.5 px-1">
-          {/* Skip Back 10s */}
-          {canSeek && onSkipBack && (
-            <button
-              onClick={onSkipBack}
-              className="p-1.5 rounded-full hover:bg-white/10 transition-colors"
-              title="Back 10s"
-            >
-              <SkipBack className="h-4.5 w-4.5 text-white" />
-            </button>
-          )}
-
           {/* Play/Pause */}
           <button
             onClick={onTogglePlay}
@@ -802,17 +785,6 @@ export function PlayerControls({
               <Play className="h-5 w-5 text-white" />
             )}
           </button>
-
-          {/* Skip Forward 10s */}
-          {canSeek && onSkipForward && (
-            <button
-              onClick={onSkipForward}
-              className="p-1.5 rounded-full hover:bg-white/10 transition-colors"
-              title="Forward 10s"
-            >
-              <SkipForward className="h-4.5 w-4.5 text-white" />
-            </button>
-          )}
 
           {/* Volume */}
           <div className="flex items-center">

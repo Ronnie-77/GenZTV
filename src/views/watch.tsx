@@ -110,12 +110,12 @@ export function WatchPage() {
     async function loadData() {
       setLoading(true)
       try {
-        const ch = await fetchChannel(currentChannelId)
+        const ch = await fetchChannel(currentChannelId!)
         setChannel(ch)
         setViewMode('channel')
       } catch {
         try {
-          const m = await fetchMatch(currentChannelId)
+          const m = await fetchMatch(currentChannelId!)
           setMatch(m)
           setViewMode('match')
         } catch {
@@ -308,13 +308,13 @@ export function WatchPage() {
 
             {/* Mobile: Chat Box below banner ad */}
             <div className="flex lg:hidden mt-4">
-              <ChatBox />
+              <ChatBox matchId={viewMode === 'match' && match ? match.id : undefined} matchTitle={viewMode === 'match' && match ? match.title : undefined} />
             </div>
           </div>
 
           {/* Right: Chat Box — PC only */}
           <div className="hidden lg:flex lg:flex-col w-80 xl:w-96 shrink-0 relative z-20">
-            <ChatBox className="flex-1" messagesMaxHeight="max-h-[600px]" />
+            <ChatBox className="flex-1" messagesMaxHeight="max-h-[600px]" matchId={viewMode === 'match' && match ? match.id : undefined} matchTitle={viewMode === 'match' && match ? match.title : undefined} />
           </div>
         </div>
       </div>

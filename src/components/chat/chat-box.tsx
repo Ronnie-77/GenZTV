@@ -1,9 +1,44 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Send, MessageCircle, Users, Smile, Reply, X, Pencil } from 'lucide-react'
+import {
+  Send, MessageCircle, Users, Smile, Reply, X, Settings, Loader2, Pencil,
+  Bell, BellOff, Volume2, VolumeX, ChevronUp, Hash,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { UsernameModal } from './username-modal'
+import {
+  getStoredProfile,
+  updateProfileUsername,
+  checkUsernameAvailable,
+  registerUsername,
+  listenToMessages,
+  sendMessage,
+  toggleReaction,
+  listenToViewerCount,
+  listenToActiveUsers,
+  canSendMessage,
+  markMessageSent,
+  containsProfanity,
+  startHeartbeat,
+  stopHeartbeat,
+  removePresence,
+  extractMentions,
+  saveMentionNotification,
+  getMentionNotifications,
+  getUnreadMentionCount,
+  markAllMentionsRead,
+  playChatSound,
+  cleanupStaleUsers,
+  type ChatMessage as FirestoreChatMessage,
+  type ActiveUser,
+  type MentionNotification,
+  type UserProfile,
+  MAX_MESSAGE_LENGTH,
+  MESSAGE_COOLDOWN_MS,
+} from '@/lib/chat-service'
+import type { Unsubscribe } from 'firebase/firestore'
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -15,44 +50,35 @@ interface Reaction {
 }
 
 interface ReplyInfo {
-  id: string
-  user: string
+  msgId: string
+  username: string
   text: string
 }
 
 interface ChatMessage {
   id: string
+  uid: string
   user: string
   text: string
   time: string
   color: string
   reactions: Reaction[]
-  replyTo?: ReplyInfo | null
+  replyTo: ReplyInfo | null
+  timestamp: number
+  isNew?: boolean  // for enter animation
 }
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const STORAGE_KEY = 'genztv-chat-username'
-const BRAND_PREFIX = 'GenZTV'
-
-const userColors = [
-  'text-emerald-400',
-  'text-amber-400',
-  'text-cyan-400',
-  'text-pink-400',
-  'text-violet-400',
-  'text-rose-400',
-  'text-teal-400',
-  'text-orange-400',
-]
-
 const REACTIONS = [
   { emoji: '👍', label: 'Like' },
-  { emoji: '🥰', label: 'Care' },
+  { emoji: '❤️', label: 'Love' },
   { emoji: '😂', label: 'Haha' },
+  { emoji: '😢', label: 'Sad' },
   { emoji: '😡', label: 'Angry' },
+  { emoji: '🔥', label: 'Fire' },
 ]
 
 const emojiCategories = [
@@ -94,44 +120,34 @@ const emojiCategories = [
 /*  Utility helpers                                                    */
 /* ------------------------------------------------------------------ */
 
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 9)
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-function getStoredUsername(): string {
-  if (typeof window === 'undefined') return ''
-  return localStorage.getItem(STORAGE_KEY) || ''
-}
-
-function setStoredUsername(name: string) {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(STORAGE_KEY, name)
-}
-
-function getUserColor(name: string): string {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  }
-  return userColors[Math.abs(hash) % userColors.length]
-}
-
-function generateUsername(): string {
-  const num = Math.floor(1000 + Math.random() * 9000)
-  return `${BRAND_PREFIX}${num}`
+/** Convert Firestore reactions map to sorted array */
+function normalizeReactions(reactionsMap: Record<string, string[]>): Reaction[] {
+  if (!reactionsMap || typeof reactionsMap !== 'object') return []
+  return Object.entries(reactionsMap)
+    .filter(([, users]) => Array.isArray(users) && users.length > 0)
+    .map(([emoji, users]) => ({ emoji, users }))
+    .sort((a, b) => b.users.length - a.users.length)
 }
 
 /** Highlight @mentions in message text */
-function renderMessageText(text: string) {
+function renderMessageText(text: string, currentUsername?: string) {
   const parts = text.split(/(@\w+)/g)
   return parts.map((part, i) => {
     if (part.startsWith('@')) {
+      const isSelf = currentUsername && part.slice(1).toLowerCase() === currentUsername.toLowerCase()
       return (
-        <span key={i} className="text-primary font-medium bg-primary/10 rounded px-0.5">
+        <span
+          key={i}
+          className={`font-medium rounded px-0.5 ${
+            isSelf
+              ? 'bg-yellow-500/20 text-yellow-400'
+              : 'bg-primary/10 text-primary'
+          }`}
+        >
           {part}
         </span>
       )
@@ -141,76 +157,287 @@ function renderMessageText(text: string) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Recently used emojis (localStorage)                                */
+/* ------------------------------------------------------------------ */
+
+const RECENT_EMOJIS_KEY = 'genztv-recent-emojis'
+const MAX_RECENT = 24
+
+function getRecentEmojis(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(RECENT_EMOJIS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+
+function addRecentEmoji(emoji: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    const recent = getRecentEmojis().filter(e => e !== emoji)
+    recent.unshift(emoji)
+    localStorage.setItem(RECENT_EMOJIS_KEY, JSON.stringify(recent.slice(0, MAX_RECENT)))
+  } catch { /* silent */ }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Props                                                              */
 /* ------------------------------------------------------------------ */
 
 interface ChatBoxProps {
   className?: string
   messagesMaxHeight?: string
+  matchId?: string
+  matchTitle?: string
 }
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxProps) {
-  /* ---- core state ---- */
+export function ChatBox({ className, messagesMaxHeight = 'max-h-64', matchId, matchTitle }: ChatBoxProps) {
+  /* ---- User identity ---- */
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [showUsernameModal, setShowUsernameModal] = useState(false)
+
+  /* ---- Core chat state ---- */
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
-  const [username, setUsername] = useState(() => {
-    const stored = getStoredUsername()
-    if (stored) return stored
-    const name = generateUsername()
-    setStoredUsername(name)
-    return name
-  })
+  const [sending, setSending] = useState(false)
+  const [cooldownMs, setCooldownMs] = useState(0)
+  const [viewerCount, setViewerCount] = useState(0)
+  const [profanityWarning, setProfanityWarning] = useState('')
+  const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([])
+
+  /* ---- UI state ---- */
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [activeEmojiCategory, setActiveEmojiCategory] = useState(0)
-  const [onlineCount] = useState(() => Math.floor(Math.random() * 200) + 50)
-
-  /* ---- reply state ---- */
+  const [recentEmojis, setRecentEmojis] = useState<string[]>([])
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null)
-
-  /* ---- reaction picker state ---- */
   const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null)
-
-  /* ---- PC hover state ---- */
   const [hoveredMsgId, setHoveredMsgId] = useState<string | null>(null)
+  const [showNameEdit, setShowNameEdit] = useState(false)
+  const [nameInput, setNameInput] = useState('')
+  const [nameCheck, setNameCheck] = useState<{ checking: boolean; available: boolean | null; error: string }>({
+    checking: false, available: null, error: '',
+  })
 
   /* ---- @ mention state ---- */
   const [showMentions, setShowMentions] = useState(false)
   const [mentionFilter, setMentionFilter] = useState('')
   const [mentionStartIdx, setMentionStartIdx] = useState(-1)
 
-  /* ---- mobile swipe state ---- */
+  /* ---- Mobile swipe state ---- */
   const [swipeMsgId, setSwipeMsgId] = useState<string | null>(null)
   const [swipeOffset, setSwipeOffset] = useState(0)
   const swipeRef = useRef({ msgId: null as string | null, offset: 0 })
 
-  /* ---- name edit state ---- */
-  const [showNameEdit, setShowNameEdit] = useState(false)
-  const [nameInput, setNameInput] = useState('')
+  /* ---- Auto-scroll state ---- */
+  const [isNearBottom, setIsNearBottom] = useState(true)
+  const [unreadCount, setUnreadCount] = useState(0)
 
-  /* ---- refs ---- */
+  /* ---- Sound & notification state ---- */
+  const [soundEnabled, setSoundEnabled] = useState(true)
+  const [showMentionPanel, setShowMentionPanel] = useState(false)
+  const [mentionNotifs, setMentionNotifs] = useState<MentionNotification[]>([])
+  const [unreadMentions, setUnreadMentions] = useState(0)
+
+  /* ---- Highlight message (when jumping to reply) ---- */
+  const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null)
+
+  /* ---- Refs ---- */
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const emojiPickerRef = useRef<HTMLDivElement>(null)
   const reactionPickerRef = useRef<HTMLDivElement>(null)
   const mentionDropdownRef = useRef<HTMLDivElement>(null)
+  const nameInputRef = useRef<HTMLInputElement>(null)
   const touchStartRef = useRef<{ x: number; y: number; msgId: string } | null>(null)
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const nameInputRef = useRef<HTMLInputElement>(null)
+  const nameCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const unsubRef = useRef<Unsubscribe | null>(null)
+  const unsubViewerRef = useRef<Unsubscribe | null>(null)
+  const unsubActiveRef = useRef<Unsubscribe | null>(null)
+  const prevMsgCountRef = useRef(0)
+  const soundEnabledRef = useRef(true)
 
-  /* ================================================================ */
-  /*  Effects                                                          */
-  /* ================================================================ */
+  // Keep ref in sync with state
+  useEffect(() => { soundEnabledRef.current = soundEnabled }, [soundEnabled])
 
-  // Auto-scroll
+  /* ---- Load sound preference from localStorage ---- */
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    if (typeof window === 'undefined') return
+    const pref = localStorage.getItem('genztv-chat-sound')
+    if (pref === 'off') setSoundEnabled(false)
+    // Load recent emojis
+    setRecentEmojis(getRecentEmojis())
+  }, [])
 
-  // Close reaction picker on outside click
+  /* ================================================================ */
+  /*  Initialize user profile                                          */
+  /* ================================================================ */
+
+  useEffect(() => {
+    const stored = getStoredProfile()
+    if (stored) {
+      setProfile(stored)
+    } else {
+      setShowUsernameModal(true)
+    }
+  }, [])
+
+  const handleUsernameComplete = useCallback((p: UserProfile) => {
+    setProfile(p)
+    setShowUsernameModal(false)
+  }, [])
+
+  /* ================================================================ */
+  /*  Firestore listeners                                              */
+  /* ================================================================ */
+
+  useEffect(() => {
+    // Clean up previous listeners
+    if (unsubRef.current) unsubRef.current()
+    if (unsubViewerRef.current) unsubViewerRef.current()
+    if (unsubActiveRef.current) unsubActiveRef.current()
+    unsubRef.current = null
+    unsubViewerRef.current = null
+    unsubActiveRef.current = null
+    stopHeartbeat()
+
+    // No matchId → no chat
+    if (!matchId || !profile) {
+      setMessages([])
+      setViewerCount(0)
+      setActiveUsers([])
+      return
+    }
+
+    // Start heartbeat for presence
+    startHeartbeat(matchId, profile)
+
+    // Periodic cleanup of stale users (every 2 min)
+    const cleanupTimer = setInterval(() => {
+      cleanupStaleUsers(matchId)
+    }, 2 * 60 * 1000)
+    // Run once immediately
+    cleanupStaleUsers(matchId)
+
+    // Listen to messages
+    const unsub = listenToMessages(
+      matchId,
+      (firestoreMsgs) => {
+        const prevLen = prevMsgCountRef.current
+        const converted: ChatMessage[] = firestoreMsgs.map((m, i) => ({
+          id: m.id,
+          uid: m.uid,
+          user: m.username,
+          text: m.text,
+          time: formatTime(m.timestamp),
+          color: m.userColor,
+          reactions: normalizeReactions(m.reactions),
+          replyTo: m.replyTo ? { msgId: m.replyTo.msgId, username: m.replyTo.username, text: m.replyTo.text } : null,
+          timestamp: m.timestamp,
+          isNew: i >= prevLen && prevLen > 0,  // only new messages get animation
+        }))
+        prevMsgCountRef.current = firestoreMsgs.length
+        setMessages(converted)
+
+        // Check for mentions and play sound
+        if (prevLen > 0 && profile) {
+          const newMsgs = firestoreMsgs.slice(prevLen)
+          for (const msg of newMsgs) {
+            const mentions = extractMentions(msg.text)
+            if (mentions.map(m => m.toLowerCase()).includes(profile.username.toLowerCase())) {
+              // Save mention notification
+              saveMentionNotification({
+                id: `${msg.id}-${Date.now()}`,
+                fromUser: msg.username,
+                fromUserColor: msg.userColor,
+                text: msg.text,
+                matchId: matchId!,
+                matchTitle: matchTitle || matchId!,
+                timestamp: Date.now(),
+                read: false,
+              })
+              setUnreadMentions(getUnreadMentionCount())
+              // Play mention sound
+              if (soundEnabledRef.current) playChatSound('mention')
+              break
+            } else {
+              // Play normal message sound
+              if (soundEnabledRef.current && msg.uid !== profile.uid) playChatSound('message')
+            }
+          }
+        }
+      },
+    )
+    unsubRef.current = unsub
+
+    // Listen to viewer count
+    const unsubViewer = listenToViewerCount(matchId, (count) => {
+      setViewerCount(count)
+    })
+    unsubViewerRef.current = unsubViewer
+
+    // Listen to active users
+    const unsubActive = listenToActiveUsers(matchId, (users) => {
+      setActiveUsers(users)
+    })
+    unsubActiveRef.current = unsubActive
+
+    // Cleanup on unmount
+    return () => {
+      unsub()
+      unsubViewer()
+      unsubActive()
+      stopHeartbeat()
+      clearInterval(cleanupTimer)
+      if (profile && matchId) removePresence(matchId, profile.uid)
+    }
+  }, [matchId, profile, matchTitle])
+
+  /* ================================================================ */
+  /*  Auto-scroll with smart detection                                 */
+  /* ================================================================ */
+
+  const checkNearBottom = useCallback(() => {
+    const el = messagesContainerRef.current
+    if (!el) return
+    const threshold = 150
+    setIsNearBottom(el.scrollHeight - el.scrollTop - el.clientHeight < threshold)
+  }, [])
+
+  useEffect(() => {
+    if (isNearBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    } else {
+      setUnreadCount(prev => prev + 1)
+    }
+  }, [messages.length, isNearBottom])
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    setUnreadCount(0)
+    setIsNearBottom(true)
+  }, [])
+
+  /** Scroll to a specific message by ID (for reply thread navigation) */
+  const scrollToMessage = useCallback((msgId: string) => {
+    const el = document.getElementById(`msg-${msgId}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setHighlightMsgId(msgId)
+      // Remove highlight after 2 seconds
+      setTimeout(() => setHighlightMsgId(null), 2000)
+    }
+  }, [])
+
+  /* ================================================================ */
+  /*  Close pickers on outside click                                   */
+  /* ================================================================ */
+
   useEffect(() => {
     if (!reactionPickerMsgId) return
     const handler = (e: MouseEvent) => {
@@ -222,7 +449,6 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
     return () => document.removeEventListener('mousedown', handler)
   }, [reactionPickerMsgId])
 
-  // Close emoji picker on outside click
   useEffect(() => {
     if (!showEmojiPicker) return
     const handler = (e: MouseEvent) => {
@@ -234,7 +460,6 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
     return () => document.removeEventListener('mousedown', handler)
   }, [showEmojiPicker])
 
-  // Close mention dropdown on outside click
   useEffect(() => {
     if (!showMentions) return
     const handler = (e: MouseEvent) => {
@@ -246,44 +471,83 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
     return () => document.removeEventListener('mousedown', handler)
   }, [showMentions])
 
-  // Focus name input when edit opens
   useEffect(() => {
-    if (showNameEdit) {
-      setTimeout(() => nameInputRef.current?.focus(), 100)
-    }
+    if (showNameEdit) setTimeout(() => nameInputRef.current?.focus(), 100)
   }, [showNameEdit])
+
+  /* ================================================================ */
+  /*  Cooldown timer                                                   */
+  /* ================================================================ */
+
+  useEffect(() => {
+    if (cooldownMs <= 0) return
+    const timer = setInterval(() => {
+      setCooldownMs(prev => {
+        const next = prev - 100
+        return next <= 0 ? 0 : next
+      })
+    }, 100)
+    return () => clearInterval(timer)
+  }, [cooldownMs > 0])
+
+  /* ================================================================ */
+  /*  Refresh mention notifications periodically                        */
+  /* ================================================================ */
+
+  useEffect(() => {
+    const refresh = () => {
+      setMentionNotifs(getMentionNotifications())
+      setUnreadMentions(getUnreadMentionCount())
+    }
+    refresh()
+    const timer = setInterval(refresh, 5000)
+    return () => clearInterval(timer)
+  }, [])
 
   /* ================================================================ */
   /*  Handlers                                                         */
   /* ================================================================ */
 
   /** Send a chat message */
-  const handleSend = useCallback(() => {
-    if (!input.trim()) return
+  const handleSend = useCallback(async () => {
+    if (!input.trim() || !profile || !matchId) return
 
-    const msg: ChatMessage = {
-      id: generateId(),
-      user: username,
-      text: input.trim(),
-      time: formatTime(new Date()),
-      color: getUserColor(username),
-      reactions: [],
-      replyTo: replyingTo
-        ? { id: replyingTo.id, user: replyingTo.user, text: replyingTo.text }
-        : null,
+    // Rate limit check
+    const rateCheck = canSendMessage()
+    if (!rateCheck.ok) {
+      setCooldownMs(rateCheck.remainingMs)
+      return
     }
 
-    setMessages(prev => {
-      const next = [...prev, msg]
-      if (next.length > 100) next.shift()
-      return next
-    })
-    setInput('')
-    setReplyingTo(null)
-    setShowEmojiPicker(false)
-    setShowMentions(false)
-    inputRef.current?.focus()
-  }, [input, username, replyingTo])
+    // Profanity check
+    if (containsProfanity(input)) {
+      setProfanityWarning('⚠️ Your message contains inappropriate language')
+      return
+    }
+
+    setProfanityWarning('')
+    setSending(true)
+
+    try {
+      await sendMessage(
+        matchId,
+        profile,
+        input.trim(),
+        replyingTo ? { msgId: replyingTo.id, username: replyingTo.user, text: replyingTo.text } : null,
+      )
+      markMessageSent()
+      if (soundEnabledRef.current) playChatSound('send')
+      setInput('')
+      setReplyingTo(null)
+      setShowEmojiPicker(false)
+      setShowMentions(false)
+      inputRef.current?.focus()
+    } catch (err) {
+      // Silent fail
+    } finally {
+      setSending(false)
+    }
+  }, [input, profile, matchId, replyingTo])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -297,41 +561,21 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
 
   const handleEmojiClick = useCallback((emoji: string) => {
     setInput(prev => prev + emoji)
+    addRecentEmoji(emoji)
+    setRecentEmojis(getRecentEmojis())
     inputRef.current?.focus()
   }, [])
 
   /** Toggle a reaction on a message */
   const handleReaction = useCallback(
-    (msgId: string, emoji: string) => {
-      setMessages(prev =>
-        prev.map(msg => {
-          if (msg.id !== msgId) return msg
-          const existing = msg.reactions.find(r => r.emoji === emoji)
-          let next: Reaction[]
-          if (existing) {
-            if (existing.users.includes(username)) {
-              const filtered = existing.users.filter(u => u !== username)
-              if (filtered.length === 0) {
-                next = msg.reactions.filter(r => r.emoji !== emoji)
-              } else {
-                next = msg.reactions.map(r =>
-                  r.emoji === emoji ? { ...r, users: filtered } : r,
-                )
-              }
-            } else {
-              next = msg.reactions.map(r =>
-                r.emoji === emoji ? { ...r, users: [...r.users, username] } : r,
-              )
-            }
-          } else {
-            next = [...msg.reactions, { emoji, users: [username] }]
-          }
-          return { ...msg, reactions: next }
-        }),
-      )
+    async (msgId: string, emoji: string) => {
+      if (!profile || !matchId) return
+      try {
+        await toggleReaction(matchId, msgId, emoji, profile.uid)
+      } catch { /* silent */ }
       setReactionPickerMsgId(null)
     },
-    [username],
+    [profile, matchId],
   )
 
   /** Set a message as the reply target */
@@ -344,14 +588,13 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     setInput(value)
+    setProfanityWarning('')
 
     const cursorPos = e.target.selectionStart ?? value.length
+
     let atIdx = -1
     for (let i = cursorPos - 1; i >= 0; i--) {
-      if (value[i] === '@') {
-        atIdx = i
-        break
-      }
+      if (value[i] === '@') { atIdx = i; break }
       if (value[i] === ' ') break
     }
 
@@ -390,6 +633,7 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
       setSwipeMsgId(null)
       setSwipeOffset(0)
       swipeRef.current = { msgId: null, offset: 0 }
+      if (navigator.vibrate) navigator.vibrate(50)
     }, 500)
   }, [])
 
@@ -400,22 +644,15 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
     const dy = t.clientY - touchStartRef.current.y
 
     if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) {
-      if (longPressTimer.current) {
-        clearTimeout(longPressTimer.current)
-        longPressTimer.current = null
-      }
+      if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
       touchStartRef.current = null
-      setSwipeMsgId(null)
-      setSwipeOffset(0)
+      setSwipeMsgId(null); setSwipeOffset(0)
       swipeRef.current = { msgId: null, offset: 0 }
       return
     }
 
     if (dx > 15) {
-      if (longPressTimer.current) {
-        clearTimeout(longPressTimer.current)
-        longPressTimer.current = null
-      }
+      if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
       const offset = Math.min(dx, 80)
       setSwipeMsgId(touchStartRef.current.msgId)
       setSwipeOffset(offset)
@@ -424,63 +661,97 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
   }, [])
 
   const onMsgTouchEnd = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current)
-      longPressTimer.current = null
-    }
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
 
     const { msgId, offset } = swipeRef.current
     if (msgId && offset > 40) {
-      setMessages(prev => {
-        const msg = prev.find(m => m.id === msgId)
-        if (msg) handleReply(msg)
-        return prev
-      })
+      const msg = messages.find(m => m.id === msgId)
+      if (msg) handleReply(msg)
     }
 
     touchStartRef.current = null
-    setSwipeMsgId(null)
-    setSwipeOffset(0)
+    setSwipeMsgId(null); setSwipeOffset(0)
     swipeRef.current = { msgId: null, offset: 0 }
-  }, [handleReply])
+  }, [messages, handleReply])
 
-  /* ---- Name edit handlers ---- */
-  const handleNameSave = useCallback(() => {
+  /* ---- Name edit handlers (Settings) ---- */
+  const handleNameSave = useCallback(async () => {
     const trimmed = nameInput.trim()
-    if (!trimmed) return
-    const newName = trimmed.toLowerCase().startsWith('genztv')
-      ? trimmed
-      : `${BRAND_PREFIX}${trimmed}`
-    setUsername(newName)
-    setStoredUsername(newName)
+    if (!trimmed || !profile) return
+
+    if (trimmed === profile.username) {
+      setShowNameEdit(false)
+      return
+    }
+
+    const regex = /^[a-zA-Z0-9_]+$/
+    if (trimmed.length < 3 || trimmed.length > 20 || !regex.test(trimmed)) return
+
+    const available = await checkUsernameAvailable(trimmed)
+    if (!available) return
+
+    await registerUsername(trimmed, profile.uid)
+    updateProfileUsername(trimmed)
+    setProfile(prev => prev ? { ...prev, username: trimmed } : null)
     setShowNameEdit(false)
     setNameInput('')
-    inputRef.current?.focus()
-  }, [nameInput])
+  }, [nameInput, profile])
 
   const handleNameKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      handleNameSave()
-    }
-    if (e.key === 'Escape') {
-      setShowNameEdit(false)
-      setNameInput('')
-    }
+    if (e.key === 'Enter') { e.preventDefault(); handleNameSave() }
+    if (e.key === 'Escape') { setShowNameEdit(false); setNameInput('') }
   }, [handleNameSave])
+
+  const handleNameInputChange = useCallback((val: string) => {
+    setNameInput(val)
+    setNameCheck({ checking: false, available: null, error: '' })
+
+    if (nameCheckTimer.current) clearTimeout(nameCheckTimer.current)
+
+    const regex = /^[a-zA-Z0-9_]+$/
+    if (val.length < 3 || val.length > 20 || !regex.test(val)) {
+      setNameCheck(prev => ({ ...prev, error: '3–20 chars, letters/numbers/underscore' }))
+      return
+    }
+
+    setNameCheck(prev => ({ ...prev, checking: true }))
+    nameCheckTimer.current = setTimeout(async () => {
+      const available = await checkUsernameAvailable(val)
+      setNameCheck({ checking: false, available, error: available ? '' : 'Already taken' })
+    }, 400)
+  }, [])
+
+  /* ---- Sound toggle ---- */
+  const toggleSound = useCallback(() => {
+    setSoundEnabled(prev => {
+      const next = !prev
+      localStorage.setItem('genztv-chat-sound', next ? 'on' : 'off')
+      return next
+    })
+  }, [])
 
   /* ---- Mentionable users list ---- */
   const mentionableUsers = useMemo(() => {
-    const unique = [...new Set(messages.map(m => m.user))]
+    const unique = [...new Set(activeUsers.map(u => u.username))]
     return unique
-      .filter(u => u !== username)
+      .filter(u => u !== profile?.username)
       .filter(u => u.toLowerCase().includes(mentionFilter.toLowerCase()))
-      .slice(0, 5)
-  }, [messages, username, mentionFilter])
+      .slice(0, 6)
+  }, [activeUsers, profile?.username, mentionFilter])
 
   /* ================================================================ */
   /*  Render                                                           */
   /* ================================================================ */
+
+  // No matchId → chat hidden entirely
+  if (!matchId) return null
+
+  // Show username modal if no profile
+  if (showUsernameModal || !profile) {
+    return <UsernameModal onComplete={handleUsernameComplete} />
+  }
+
+  const isSendDisabled = !input.trim() || sending || cooldownMs > 0
 
   return (
     <div
@@ -492,16 +763,156 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
           <MessageCircle className="h-4 w-4 text-primary" />
           <span className="text-sm font-semibold">Live Chat</span>
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Users className="h-3 w-3" />
-          <span>{onlineCount}</span>
+        <div className="flex items-center gap-2">
+          {/* Viewer count */}
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Users className="h-3 w-3" />
+            <span>{viewerCount > 0 ? viewerCount : ''}</span>
+          </div>
+          {/* Sound toggle */}
+          <button
+            onClick={toggleSound}
+            className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-secondary transition-colors"
+            title={soundEnabled ? 'Mute sounds' : 'Unmute sounds'}
+            aria-label={soundEnabled ? 'Mute sounds' : 'Unmute sounds'}
+          >
+            {soundEnabled ? (
+              <Volume2 className="h-3.5 w-3.5 text-muted-foreground" />
+            ) : (
+              <VolumeX className="h-3.5 w-3.5 text-muted-foreground" />
+            )}
+          </button>
+          {/* Mention bell */}
+          <button
+            onClick={() => {
+              setShowMentionPanel(prev => !prev)
+              if (!showMentionPanel) {
+                markAllMentionsRead()
+                setUnreadMentions(0)
+              }
+            }}
+            className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-secondary transition-colors relative"
+            title="Mentions"
+            aria-label="Mentions"
+          >
+            {unreadMentions > 0 ? (
+              <Bell className="h-3.5 w-3.5 text-primary" />
+            ) : (
+              <BellOff className="h-3.5 w-3.5 text-muted-foreground" />
+            )}
+            {unreadMentions > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-destructive text-destructive-foreground text-[8px] font-bold flex items-center justify-center">
+                {unreadMentions > 9 ? '9+' : unreadMentions}
+              </span>
+            )}
+          </button>
+          {/* Settings */}
+          <button
+            onClick={() => { setShowNameEdit(true); setNameInput(profile.username) }}
+            className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-secondary transition-colors"
+            title="Chat settings"
+            aria-label="Chat settings"
+          >
+            <Settings className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
         </div>
       </div>
 
+      {/* ───── Mention Notification Panel ───── */}
+      {showMentionPanel && (
+        <div className="border-b border-border bg-popover p-2 max-h-40 overflow-y-auto scrollbar-thin">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-muted-foreground">Mentions</span>
+            {mentionNotifs.length > 0 && (
+              <button
+                onClick={() => {
+                  localStorage.removeItem('genztv-mention-notifications')
+                  setMentionNotifs([])
+                  setUnreadMentions(0)
+                }}
+                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
+          {mentionNotifs.length === 0 ? (
+            <p className="text-[10px] text-muted-foreground/60 text-center py-2">No mentions yet</p>
+          ) : (
+            <div className="space-y-1">
+              {mentionNotifs.slice(0, 10).map(n => (
+                <div
+                  key={n.id}
+                  className={`flex items-start gap-2 px-2 py-1.5 rounded-md text-xs ${
+                    n.read ? 'opacity-60' : 'bg-secondary/40'
+                  }`}
+                >
+                  <span className="font-semibold shrink-0" style={{ color: n.fromUserColor }}>
+                    @{n.fromUser}
+                  </span>
+                  <span className="text-foreground/80 truncate">{n.text}</span>
+                  <span className="text-[9px] text-muted-foreground shrink-0 ml-auto">
+                    {formatTime(n.timestamp)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ───── Name Edit Overlay ───── */}
+      {showNameEdit && (
+        <div className="absolute inset-0 z-30 bg-background/95 backdrop-blur-sm flex flex-col items-center justify-center p-4">
+          <h3 className="text-sm font-semibold mb-3">Change Username</h3>
+          <div className="relative w-full max-w-xs mb-2">
+            <Input
+              ref={nameInputRef}
+              value={nameInput}
+              onChange={e => handleNameInputChange(e.target.value)}
+              onKeyDown={handleNameKeyDown}
+              placeholder="New username..."
+              maxLength={20}
+              className="h-9 text-sm pr-9"
+            />
+            <div className="absolute right-2 top-1/2 -translate-y-1/2">
+              {nameCheck.checking ? (
+                <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
+              ) : nameCheck.available === true ? (
+                <span className="text-emerald-500 text-xs">✓</span>
+              ) : nameCheck.available === false ? (
+                <span className="text-destructive text-xs">✗</span>
+              ) : null}
+            </div>
+          </div>
+          {nameCheck.error && <p className="text-[10px] text-destructive mb-2">{nameCheck.error}</p>}
+          {nameCheck.available === true && !nameCheck.error && (
+            <p className="text-[10px] text-emerald-500 mb-2">Available!</p>
+          )}
+          <p className="text-[10px] text-muted-foreground mb-3">
+            Changing name only affects future messages
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => { setShowNameEdit(false); setNameInput('') }}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleNameSave}
+              disabled={!nameCheck.available && nameInput !== profile.username}
+              className="btn-press"
+            >
+              Save
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ───── Messages ───── */}
       <div
-        className={`flex-1 overflow-y-auto ${messagesMaxHeight} p-3 space-y-1 scrollbar-thin`}
-        onScroll={() => setReactionPickerMsgId(null)}
+        ref={messagesContainerRef}
+        className={`flex-1 overflow-y-auto ${messagesMaxHeight} p-3 space-y-1 scrollbar-thin relative`}
+        onScroll={() => { checkNearBottom(); setReactionPickerMsgId(null) }}
       >
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -515,14 +926,18 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
           const isSwiping = swipeMsgId === msg.id
           const isHovered = hoveredMsgId === msg.id
           const showPicker = reactionPickerMsgId === msg.id
+          const isOwn = profile && msg.uid === profile.uid
+          const isHighlighted = highlightMsgId === msg.id
 
           return (
             <div
               key={msg.id}
               id={`msg-${msg.id}`}
-              className={`group relative rounded-lg px-2 py-1 transition-transform lg:transition-colors ${
+              className={`group relative rounded-lg px-2 py-1 transition-all duration-200 lg:transition-colors ${
                 isHovered ? 'bg-secondary/20' : ''
-              }`}
+              } ${isHighlighted ? 'bg-primary/10 ring-1 ring-primary/30' : ''} ${
+                isOwn ? 'ml-4 bg-primary/5' : ''
+              } ${msg.isNew ? 'animate-in slide-in-from-bottom-2 duration-300' : ''}`}
               style={isSwiping ? { transform: `translateX(${Math.min(swipeOffset * 0.4, 30)}px)` } : undefined}
               onMouseEnter={() => setHoveredMsgId(msg.id)}
               onMouseLeave={() => { setHoveredMsgId(null); setReactionPickerMsgId(null) }}
@@ -537,44 +952,45 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
                 </div>
               )}
 
-              {/* Reply indicator */}
+              {/* Reply indicator — clickable to scroll to original */}
               {msg.replyTo && (
-                <div className="flex items-center gap-1.5 mb-0.5 pl-2 border-l-2 border-primary/40">
+                <button
+                  onClick={() => { if (msg.replyTo) scrollToMessage(msg.replyTo.msgId) }}
+                  className="flex items-center gap-1.5 mb-0.5 pl-2 border-l-2 border-primary/40 w-full text-left hover:bg-primary/5 rounded-sm transition-colors"
+                >
                   <span className="text-[10px] text-primary/80 font-medium truncate max-w-[80px]">
-                    {msg.replyTo.user}
+                    {msg.replyTo.username}
                   </span>
                   <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
                     {msg.replyTo.text}
                   </span>
-                </div>
+                </button>
               )}
 
               {/* Message body — inline layout with action buttons next to text */}
               <div className="flex items-start gap-1 text-sm leading-tight relative">
-                <span className={`font-semibold text-xs shrink-0 ${msg.color}`}>{msg.user}</span>
-                <span className="text-muted-foreground text-xs shrink-0">:</span>
+                {!isOwn && (
+                  <span className="font-semibold text-xs shrink-0" style={{ color: msg.color }}>
+                    {msg.user}
+                  </span>
+                )}
+                {!isOwn && <span className="text-muted-foreground text-xs shrink-0">:</span>}
                 <span className="text-foreground/90 text-xs break-words">
-                  {renderMessageText(msg.text)}
+                  {renderMessageText(msg.text, profile?.username)}
                 </span>
 
                 {/* ── PC hover: inline action buttons right after text ── */}
                 {isHovered && !showPicker && (
                   <span className="hidden lg:inline-flex items-center gap-0 ml-1 shrink-0 animate-in fade-in duration-100">
                     <button
-                      onClick={e => {
-                        e.stopPropagation()
-                        setReactionPickerMsgId(msg.id)
-                      }}
+                      onClick={e => { e.stopPropagation(); setReactionPickerMsgId(msg.id) }}
                       className="h-5 w-5 flex items-center justify-center rounded hover:bg-secondary transition-colors"
                       title="React"
                     >
                       <Smile className="h-3 w-3 text-muted-foreground" />
                     </button>
                     <button
-                      onClick={e => {
-                        e.stopPropagation()
-                        handleReply(msg)
-                      }}
+                      onClick={e => { e.stopPropagation(); handleReply(msg) }}
                       className="h-5 w-5 flex items-center justify-center rounded hover:bg-secondary transition-colors"
                       title="Reply"
                     >
@@ -584,22 +1000,29 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
                 )}
               </div>
 
+              {/* Own message timestamp badge */}
+              {isOwn && isHovered && (
+                <div className="flex justify-end">
+                  <span className="text-[9px] text-muted-foreground/60">{msg.time} · You</span>
+                </div>
+              )}
+
               {/* Reactions row */}
               {msg.reactions.length > 0 && (
                 <div className="flex gap-1 mt-0.5 flex-wrap">
                   {msg.reactions.map(r => {
-                    const hasMine = username && r.users.includes(username)
+                    const hasMine = profile && r.users.includes(profile.uid)
                     return (
                       <button
                         key={r.emoji}
                         onClick={() => handleReaction(msg.id, r.emoji)}
-                        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] transition-colors ${
+                        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] transition-all duration-200 ${
                           hasMine
                             ? 'bg-primary/15 border border-primary/30'
                             : 'bg-secondary/60 border border-border/50'
-                        } hover:bg-secondary`}
+                        } hover:bg-secondary hover:scale-105`}
                       >
-                        <span>{r.emoji}</span>
+                        <span className="text-xs">{r.emoji}</span>
                         {r.users.length > 1 && (
                           <span className="text-muted-foreground">{r.users.length}</span>
                         )}
@@ -627,11 +1050,29 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
                   ))}
                 </div>
               )}
+
+              {/* Timestamp on hover (non-own messages) */}
+              {isHovered && !isOwn && (
+                <span className="absolute -top-0.5 right-1 text-[9px] text-muted-foreground/60">
+                  {msg.time}
+                </span>
+              )}
             </div>
           )
         })}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* ───── Unread messages pill ───── */}
+      {!isNearBottom && unreadCount > 0 && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-medium shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200 btn-press"
+        >
+          <ChevronUp className="h-3 w-3" />
+          <span>{unreadCount} new{unreadCount > 1 ? 's' : ''}</span>
+        </button>
+      )}
 
       {/* ───── Mention Dropdown ───── */}
       {showMentions && mentionableUsers.length > 0 && (
@@ -645,7 +1086,8 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
               onClick={() => handleMentionSelect(u)}
               className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-secondary transition-colors flex items-center gap-2"
             >
-              <span className={`font-medium ${getUserColor(u)}`}>@{u}</span>
+              <Hash className="h-3 w-3 text-muted-foreground" />
+              <span className="font-medium text-primary">@{u}</span>
             </button>
           ))}
         </div>
@@ -653,12 +1095,15 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
 
       {/* ───── Reply preview bar ───── */}
       {replyingTo && (
-        <div className="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-secondary/20">
+        <div className="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-secondary/20 animate-in slide-in-from-bottom-1 duration-200">
           <div className="flex-1 min-w-0 flex items-center gap-1.5">
             <Reply className="h-3 w-3 text-primary shrink-0" />
-            <span className="text-[10px] text-primary font-medium shrink-0">
+            <button
+              onClick={() => scrollToMessage(replyingTo.id)}
+              className="text-[10px] text-primary font-medium shrink-0 hover:underline"
+            >
               {replyingTo.user}
-            </span>
+            </button>
             <span className="text-[10px] text-muted-foreground truncate">
               {replyingTo.text}
             </span>
@@ -674,7 +1119,24 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
 
       {/* ───── Emoji Picker ───── */}
       {showEmojiPicker && (
-        <div ref={emojiPickerRef} className="border-t border-border bg-background p-2">
+        <div ref={emojiPickerRef} className="border-t border-border bg-background p-2 animate-in slide-in-from-bottom-2 duration-200">
+          {/* Recent emojis */}
+          {recentEmojis.length > 0 && (
+            <div className="mb-2">
+              <span className="text-[9px] text-muted-foreground font-medium px-1">Recent</span>
+              <div className="grid grid-cols-8 gap-0.5 mt-0.5">
+                {recentEmojis.slice(0, 16).map((emoji, i) => (
+                  <button
+                    key={`recent-${i}`}
+                    onClick={() => handleEmojiClick(emoji)}
+                    className="h-7 w-7 flex items-center justify-center hover:bg-secondary rounded transition-colors text-sm"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {/* Category tabs */}
           <div className="flex gap-1 mb-2 overflow-x-auto scrollbar-none pb-1">
             {emojiCategories.map((cat, i) => (
@@ -708,35 +1170,18 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
 
       {/* ───── Input Area ───── */}
       <div className="flex items-center gap-1.5 p-2 border-t border-border bg-secondary/20">
-        {/* Username badge — click to edit */}
-        {showNameEdit ? (
-          <div className="flex items-center gap-1 shrink-0">
-            <Input
-              ref={nameInputRef}
-              value={nameInput}
-              onChange={e => setNameInput(e.target.value)}
-              onKeyDown={handleNameKeyDown}
-              placeholder="New name..."
-              maxLength={15}
-              className="h-7 w-24 text-[10px] bg-background border-border"
-            />
-            <button
-              onClick={handleNameSave}
-              className="h-7 w-7 flex items-center justify-center rounded bg-primary text-primary-foreground"
-            >
-              <Send className="h-3 w-3" />
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => { setShowNameEdit(true); setNameInput(username) }}
-            className="shrink-0 flex items-center gap-0.5 px-1.5 py-1 rounded-md bg-primary/10 border border-primary/20 hover:bg-primary/20 transition-colors"
-            title="Click to change name"
-          >
-            <span className="text-[10px] font-semibold text-primary max-w-[60px] truncate">{username}</span>
-            <Pencil className="h-2.5 w-2.5 text-primary/60" />
-          </button>
-        )}
+        {/* Username badge */}
+        <button
+          onClick={() => { setShowNameEdit(true); setNameInput(profile.username) }}
+          className="shrink-0 flex items-center gap-0.5 px-1.5 py-1 rounded-md border hover:opacity-80 transition-colors"
+          style={{ borderColor: profile.color + '40', background: profile.color + '15' }}
+          title="Click to change name"
+        >
+          <span className="text-[10px] font-semibold max-w-[60px] truncate" style={{ color: profile.color }}>
+            {profile.username}
+          </span>
+          <Pencil className="h-2.5 w-2.5 opacity-50" style={{ color: profile.color }} />
+        </button>
         <button
           onClick={() => setShowEmojiPicker(prev => !prev)}
           className={`h-8 w-8 shrink-0 flex items-center justify-center rounded-md transition-colors ${
@@ -747,23 +1192,50 @@ export function ChatBox({ className, messagesMaxHeight = 'max-h-64' }: ChatBoxPr
         >
           <Smile className="h-4 w-4" />
         </button>
-        <Input
-          ref={inputRef}
-          value={input}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          placeholder="Say something... (@ to mention)"
-          className="h-8 text-xs bg-background border-border"
-        />
+        <div className="flex-1 relative">
+          <Input
+            ref={inputRef}
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            placeholder="Say something... (@ to mention)"
+            className="h-8 text-xs bg-background border-border pr-16"
+            maxLength={MAX_MESSAGE_LENGTH}
+          />
+          {/* Character count + cooldown */}
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            {cooldownMs > 0 && (
+              <span className="text-[9px] text-amber-500 font-medium">
+                {(cooldownMs / 1000).toFixed(1)}s
+              </span>
+            )}
+            {input.length > MAX_MESSAGE_LENGTH * 0.8 && (
+              <span className={`text-[9px] ${input.length >= MAX_MESSAGE_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}>
+                {input.length}/{MAX_MESSAGE_LENGTH}
+              </span>
+            )}
+          </div>
+        </div>
         <Button
           size="icon"
           onClick={handleSend}
-          disabled={!input.trim()}
+          disabled={isSendDisabled}
           className="h-8 w-8 shrink-0 btn-press"
         >
-          <Send className="h-3.5 w-3.5" />
+          {sending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Send className="h-3.5 w-3.5" />
+          )}
         </Button>
       </div>
+
+      {/* ───── Profanity warning ───── */}
+      {profanityWarning && (
+        <div className="px-3 py-1.5 bg-destructive/10 border-t border-destructive/20 text-[10px] text-destructive font-medium animate-in fade-in duration-200">
+          {profanityWarning}
+        </div>
+      )}
     </div>
   )
 }
