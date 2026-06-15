@@ -1,10 +1,8 @@
-[phases.setup]
-
 [phases.install]
 cmd = "npm ci --legacy-peer-deps"
 
 [phases.build]
-cmd = "prisma generate && next build && cd mini-services/chat-service && npm install"
+cmd = "prisma generate && next build"
 
 [start]
-cmd = "bash start.sh"
+cmd = "npx prisma db push --accept-data-loss && next start"

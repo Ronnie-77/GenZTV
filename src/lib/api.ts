@@ -138,6 +138,16 @@ export async function deleteChannel(id: string): Promise<void> {
   if (!res.ok) throw new Error('Failed to delete channel')
 }
 
+export async function bulkDeleteChannels(ids: string[]): Promise<{ deleted: number }> {
+  const res = await adminFetch(`${BASE}/channels/bulk-delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
+  if (!res.ok) throw new Error('Failed to bulk delete channels')
+  return res.json()
+}
+
 // ============ Matches ============
 
 export async function fetchMatches(params?: { sport?: string; status?: string; featured?: boolean }): Promise<Match[]> {
