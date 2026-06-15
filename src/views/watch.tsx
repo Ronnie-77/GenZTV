@@ -4,10 +4,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useAppStore } from '@/lib/store'
 import { fetchChannel, fetchMatch, type Channel, type Match } from '@/lib/api'
 import { VideoPlayer } from '@/components/player/video-player'
-import { ChannelCard } from '@/components/channels/channel-card'
 import { ChatBox } from '@/components/chat/chat-box'
-import { useChannels } from '@/lib/hooks'
-import { ArrowLeft, Heart, Share2, Tv, ExternalLink, Radio, ListVideo } from 'lucide-react'
+import { ArrowLeft, Heart, Share2, Tv, ExternalLink, Radio } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -102,11 +100,6 @@ export function WatchPage() {
     }).catch(() => {})
   }, [])
 
-  // Fetch related channels from the same category
-  const { channels: relatedChannels, loading: loadingRelated } = useChannels(
-    channel ? { category: channel.category } : undefined
-  )
-
   // Fetch channel or match data
   useEffect(() => {
     if (!currentChannelId) {
@@ -149,18 +142,6 @@ export function WatchPage() {
     : match?.title || 'Unknown Match'
 
   const isFav = channel ? favorites.includes(channel.id) : false
-
-  // Filter out current channel from related, show all
-  const filteredRelated = relatedChannels.filter(ch => ch.id !== channel?.id)
-
-  // For matches, also prepare related channels from the sport's category
-  const matchCategory = match?.sport === 'cricket' ? 'cricket'
-    : match?.sport === 'football' ? 'football'
-    : 'sports'
-  const { channels: matchRelatedChannels } = useChannels(
-    viewMode === 'match' ? { category: matchCategory } : undefined
-  )
-  const filteredMatchRelated = matchRelatedChannels.filter(ch => ch.id !== channel?.id)
 
   // No channel selected state
   if (!currentChannelId && !loading) {
@@ -261,7 +242,7 @@ export function WatchPage() {
         </div>
       </div>
 
-      {/* Video Player + Banner Ad + Related Channels */}
+      {/* Video Player + Banner Ad */}
       <div className="px-4 md:px-6">
         <div className="flex flex-col lg:flex-row gap-4">
           {/* Left: Ad + Video Player + Stream Selector */}
@@ -331,41 +312,9 @@ export function WatchPage() {
             </div>
           </div>
 
-          {/* Right: Related Channels — PC only */}
-          <div className="hidden lg:block w-80 xl:w-96 shrink-0 space-y-4">
-            {/* Related Channels — for both channel and match views */}
-            {((viewMode === 'channel' && channel) || (viewMode === 'match' && match)) && (
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <ListVideo className="h-4 w-4 text-primary" />
-                  <h3 className="text-sm font-semibold">Related Channels</h3>
-                  {!loadingRelated && (viewMode === 'channel' ? filteredRelated.length : filteredMatchRelated.length) > 0 && (
-                    <span className="text-xs text-muted-foreground">({viewMode === 'channel' ? filteredRelated.length : filteredMatchRelated.length})</span>
-                  )}
-                </div>
-                <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1 scrollbar-thin">
-                  {loadingRelated ? (
-                    <>
-                      {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
-                        <div key={i} className="flex items-center gap-3 bg-card rounded-xl border border-border p-3 animate-pulse">
-                          <div className="w-10 h-10 bg-secondary rounded-lg" />
-                          <div className="flex-1">
-                            <div className="h-3 bg-secondary rounded w-20 mb-1" />
-                            <div className="h-2 bg-secondary rounded w-14" />
-                          </div>
-                        </div>
-                      ))}
-                    </>
-                  ) : (viewMode === 'channel' ? filteredRelated : filteredMatchRelated).length > 0 ? (
-                    (viewMode === 'channel' ? filteredRelated : filteredMatchRelated).map(ch => (
-                      <ChannelCard key={ch.id} channel={ch} compact />
-                    ))
-                  ) : (
-                    <p className="text-sm text-muted-foreground text-center py-4">No related channels</p>
-                  )}
-                </div>
-              </div>
-            )}
+          {/* Right: Chat Box — PC only */}
+          <div className="hidden lg:flex lg:flex-col w-80 xl:w-96 shrink-0">
+            <ChatBox className="flex-1" messagesMaxHeight="max-h-[600px]" />
           </div>
         </div>
       </div>
