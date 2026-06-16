@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
 import { useMatches, useChannels } from '@/lib/hooks'
 import { fetchSettings } from '@/lib/api'
 import { MatchCard } from '@/components/matches/match-card'
 import { ChannelCard } from '@/components/channels/channel-card'
+import { DynamicAdSlot } from '@/components/ads/dynamic-ad-slot'
 import { Play, Trophy, Globe, Antenna, ChevronRight, Tv, Zap, Download, Smartphone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { TimezoneSelector } from '@/components/timezone/timezone-selector'
@@ -202,14 +203,13 @@ export function HomePage() {
       </div>
 
       {/* ── Ad Banner ── */}
-      {homeAdsEnabled && (
+      {/* All ads are now controlled from the admin panel (Custom Ad Scripts).
+          No hardcoded fallback ads — nothing renders when no ad scripts are configured. */}
+      {homeAdsEnabled && homeAdScripts.length > 0 && (
         <div className="px-4 md:px-6 lg:px-8 py-3 flex flex-col items-center gap-3">
-          {/* Dynamic ad scripts from settings */}
           {homeAdScripts.map((ad) => (
             <DynamicAdSlot key={ad.id} script={ad.script} />
           ))}
-          {/* Fallback if no custom scripts */}
-          {homeAdScripts.length === 0 && <AdsterraBanner />}
         </div>
       )}
 
@@ -395,58 +395,4 @@ export function HomePage() {
       </div>
     </div>
   )
-}
-
-/* ── Adsterra Banner Component ── */
-// Dynamic ad slot — renders custom ad script HTML from settings
-function DynamicAdSlot({ script }: { script: string }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!containerRef.current || !script.trim()) return
-    // Clear previous content
-    containerRef.current.innerHTML = ''
-    // Create a div to hold the script content
-    const wrapper = document.createElement('div')
-    wrapper.innerHTML = script.trim()
-    // Insert all child nodes (scripts and elements)
-    while (wrapper.firstChild) {
-      const node = wrapper.firstChild
-      if (node.nodeName === 'SCRIPT') {
-        // Scripts need to be recreated to execute
-        const newScript = document.createElement('script')
-        const oldScript = node as HTMLScriptElement
-        if (oldScript.src) newScript.src = oldScript.src
-        if (oldScript.textContent) newScript.textContent = oldScript.textContent
-        Array.from(oldScript.attributes).forEach(attr => {
-          newScript.setAttribute(attr.name, attr.value)
-        })
-        newScript.async = true
-        containerRef.current.appendChild(newScript)
-      } else {
-        containerRef.current.appendChild(node)
-      }
-    }
-  }, [script])
-
-  if (!script.trim()) return null
-  return <div ref={containerRef} className="w-full max-w-4xl" />
-}
-
-function AdsterraBanner() {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!containerRef.current) return
-    // Avoid duplicate script injection on re-renders
-    if (containerRef.current.querySelector('script[data-adsterra]')) return
-
-    const script = document.createElement('script')
-    script.src = 'https://pl29635948.effectivecpmnetwork.com/89/67/a1/8967a1e3709cfc58a5e29ab94ca202a2.js'
-    script.async = true
-    script.setAttribute('data-adsterra', 'hero-banner')
-    containerRef.current.appendChild(script)
-  }, [])
-
-  return <div ref={containerRef} className="w-full max-w-4xl" />
 }

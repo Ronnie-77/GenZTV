@@ -194,16 +194,18 @@ export function AdminAnalytics() {
           <h2 className="text-xl font-bold tracking-tight">Analytics</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Real-time traffic & engagement insights</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => fetchData(true)}
-          disabled={refreshing}
-          className="gap-1.5 text-xs h-7"
-        >
-          <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchData(true)}
+            disabled={refreshing}
+            className="gap-1.5 text-xs h-7"
+          >
+            <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* ─── Top Stats Row ─── */}

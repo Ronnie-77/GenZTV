@@ -73,42 +73,7 @@ export function useNotifications() {
     })
   }, [])
 
-  // Subscribe to push notifications
-  const subscribe = useCallback(async () => {
-    if (!VAPID_PUBLIC_KEY) {
-      const msg = 'Notifications are not available at this time'
-      setError(msg)
-      toast.info(msg)
-      return false
-    }
-
-    if (!swRegistration) {
-      // Try to register service worker first
-      if ('serviceWorker' in navigator) {
-        try {
-          const registration = await navigator.serviceWorker.register('/sw.js')
-          setSwRegistration(registration)
-          // Continue with this registration
-          return doSubscribe(registration)
-        } catch {
-          const msg = window !== window.top
-            ? 'Please open the site directly to enable notifications (not in an embedded view)'
-            : 'Failed to register service worker. Please reload and try again.'
-          setError(msg)
-          toast.error(msg)
-          return false
-        }
-      }
-      const msg = 'Service workers are not supported'
-      setError(msg)
-      toast.error(msg)
-      return false
-    }
-
-    return doSubscribe(swRegistration)
-  }, [swRegistration])
-
-  // Internal subscribe helper
+  // Internal subscribe helper — defined first so subscribe() can reference it
   const doSubscribe = async (registration: ServiceWorkerRegistration) => {
     setIsLoading(true)
     setError(null)
@@ -171,12 +136,74 @@ export function useNotifications() {
     }
   }
 
+  // Subscribe to push notifications
+  const subscribe = useCallback(async () => {
+    if (!VAPID_PUBLIC_KEY) {
+      const msg = 'Notifications are not available at this time'
+      setError(msg)
+      toast.info(msg)
+      return false
+    }
+
+    // Try to use existing registration, or get a fresh one from the navigator
+    let registration = swRegistration
+
+    if (!registration) {
+      // Try to register service worker first
+      if ('serviceWorker' in navigator) {
+        try {
+          registration = await navigator.serviceWorker.register('/sw.js')
+          setSwRegistration(registration)
+          // Continue with this registration
+        } catch {
+          const msg = window !== window.top
+            ? 'Please open the site directly to enable notifications (not in an embedded view)'
+            : 'Failed to register service worker. Please reload and try again.'
+          setError(msg)
+          toast.error(msg)
+          return false
+        }
+      } else {
+        const msg = 'Service workers are not supported'
+        setError(msg)
+        toast.error(msg)
+        return false
+      }
+    }
+
+    // Also try to get the ready registration in case the stored one is stale
+    if (!registration && 'serviceWorker' in navigator) {
+      try {
+        registration = await navigator.serviceWorker.ready
+        setSwRegistration(registration)
+      } catch {
+        // Ignore, use the one we have
+      }
+    }
+
+    return doSubscribe(registration)
+  }, [swRegistration])
+
   // Unsubscribe from push notifications
   const unsubscribe = useCallback(async () => {
-    if (!swRegistration) return false
     setIsLoading(true)
     try {
-      const subscription = await swRegistration.pushManager.getSubscription()
+      // Try to use stored registration or get from navigator
+      let registration = swRegistration
+      if (!registration && 'serviceWorker' in navigator) {
+        try {
+          registration = await navigator.serviceWorker.ready
+        } catch {
+          // No registration available
+        }
+      }
+      if (!registration) {
+        // No service worker — just mark as unsubscribed
+        setIsSubscribed(false)
+        toast.success('Notifications disabled')
+        return true
+      }
+      const subscription = await registration.pushManager.getSubscription()
       if (subscription) {
         await subscription.unsubscribe()
         // Remove from server
@@ -191,6 +218,8 @@ export function useNotifications() {
       return true
     } catch (err) {
       console.error('[Notifications] Failed to unsubscribe:', err)
+      // Even on error, mark as unsubscribed locally so user can re-subscribe
+      setIsSubscribed(false)
       toast.error('Failed to disable notifications')
       return false
     } finally {

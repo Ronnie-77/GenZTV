@@ -162,8 +162,11 @@ export function NotificationBell() {
     }
 
     if (permission === 'granted' && isSubscribed) {
-      // Toggle subscription
+      // Toggle off — unsubscribe
       await toggleSubscription()
+    } else if (permission === 'granted' && !isSubscribed) {
+      // Permission granted but not subscribed — re-subscribe
+      await subscribe()
     } else if (permission === 'default') {
       // Request permission and subscribe
       await subscribe()

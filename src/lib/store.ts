@@ -1,15 +1,16 @@
 import { create } from 'zustand'
+import { detectDeviceMode, setManualDeviceMode, type DeviceMode } from '@/lib/device-mode'
 
-export type PageName = 
-  | 'home' 
-  | 'live' 
-  | 'watch' 
-  | 'news' 
-  | 'sports' 
-  | 'cricket' 
-  | 'football' 
-  | 'entertainment' 
-  | 'favorites' 
+export type PageName =
+  | 'home'
+  | 'live'
+  | 'watch'
+  | 'news'
+  | 'sports'
+  | 'cricket'
+  | 'football'
+  | 'entertainment'
+  | 'favorites'
   | 'search'
   | 'admin'
   | 'more'
@@ -58,6 +59,10 @@ interface AppState {
   timezoneSource: 'auto' | 'manual'
   setTimezone: (tz: string, source?: 'auto' | 'manual') => void
   detectTimezone: () => void
+
+  // Device mode (mobile / desktop / tv)
+  deviceMode: DeviceMode
+  setDeviceMode: (mode: DeviceMode | 'auto') => void
 }
 
 const loadFavorites = (): string[] => {
@@ -210,6 +215,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       saveTimezone('UTC', 'auto')
     }
   },
+
+  // Device mode — TV / mobile / desktop. SSR-safe default is 'desktop'.
+  deviceMode: typeof window === 'undefined' ? 'desktop' : detectDeviceMode(),
+  setDeviceMode: (mode) => {
+    if (mode === 'auto') {
+      setManualDeviceMode('auto')
+      const detected = detectDeviceMode()
+      set({ deviceMode: detected })
+    } else {
+      setManualDeviceMode(mode)
+      set({ deviceMode: mode })
+    }
+  },
 }))
 
 // Initialize from URL hash on load + timezone hydration
@@ -242,6 +260,27 @@ if (typeof window !== 'undefined') {
   const tzData = loadTimezone()
   useAppStore.setState({ timezone: tzData.tz, timezoneSource: tzData.source })
 
+  // Re-detect device mode on the client (SSR default was 'desktop').
+  useAppStore.setState({ deviceMode: detectDeviceMode() })
+
   // Listen for hash changes (browser back/forward, manual URL entry)
   window.addEventListener('hashchange', initFromUrl)
+
+  // Re-evaluate device mode when crossing breakpoints (e.g. rotating a tablet,
+  // or docking/undocking a TV). Manual overrides are respected inside detect().
+  let resizeTimer: number | undefined
+  window.addEventListener('resize', () => {
+    if (resizeTimer) window.clearTimeout(resizeTimer)
+    resizeTimer = window.setTimeout(() => {
+      // Only auto-update if no manual override is set
+      try {
+        const manual = localStorage.getItem('zeng-device-mode')
+        if (!manual || manual === 'auto') {
+          useAppStore.setState({ deviceMode: detectDeviceMode() })
+        }
+      } catch {
+        // ignore
+      }
+    }, 400)
+  })
 }

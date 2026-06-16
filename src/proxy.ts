@@ -85,6 +85,13 @@ const SQL_INJECTION_PATTERNS = [
   /(\/proc\/self)/i,
 ]
 
+// ─── Main proxy handler ───
+// Exported as both named (`proxy`) and default for maximum compatibility.
+// Next.js 16's middleware template resolves the handler via:
+//   (isProxy ? mod.proxy : mod.middleware) || mod.default
+// Providing a default export ensures the handler is found even if the
+// compiled template mis-detects the file type (e.g. stale .next cache),
+// which otherwise causes "adapterFn is not a function" runtime errors.
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl
   const userAgent = request.headers.get('user-agent') || ''
@@ -153,6 +160,9 @@ export function proxy(request: NextRequest) {
 
   return response
 }
+
+// Default export — safety net for stale .next caches / Turbopack edge cases
+export default proxy
 
 export const config = {
   matcher: [

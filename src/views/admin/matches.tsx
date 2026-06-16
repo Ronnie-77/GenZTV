@@ -443,7 +443,7 @@ function StreamInput({ stream, onUpdate, onRemove, onMoveUp, onMoveDown, channel
       )}
 
       {/* Stream fields */}
-      <div className="grid grid-cols-[1fr_auto_1fr] gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-2">
         <Input
           placeholder="Stream name"
           value={stream.name}
@@ -453,7 +453,7 @@ function StreamInput({ stream, onUpdate, onRemove, onMoveUp, onMoveDown, channel
         <select
           value={stream.type}
           onChange={(e) => onUpdate({ ...stream, type: e.target.value as StreamForm['type'] })}
-          className="h-8 rounded-md border border-input bg-background px-2 text-xs min-w-[100px]"
+          className="h-8 rounded-md border border-input bg-background px-2 text-xs sm:min-w-[100px]"
         >
           <option value="iframe">iFrame</option>
           <option value="direct">Direct (M3U8)</option>
@@ -576,8 +576,9 @@ export function AdminMatches() {
   const [teamALogo, setTeamALogo] = useState('')
   const [teamBName, setTeamBName] = useState('')
   const [teamBLogo, setTeamBLogo] = useState('')
-  const [startTime, setStartTime] = useState('')
+  const [startTime, setStartTime] = useState(() => utcToAdminLocal(new Date().toISOString()))
   const [endTime, setEndTime] = useState('')
+  const [endTimeManuallySet, setEndTimeManuallySet] = useState(false) // Track if user manually edited endTime
   const [status, setStatus] = useState('upcoming')
   const [featured, setFeatured] = useState(false)
   const [streams, setStreams] = useState<StreamForm[]>([
@@ -672,6 +673,24 @@ export function AdminMatches() {
     return () => clearInterval(interval)
   }, [handleSyncStatuses])
 
+  // Auto-set endTime to 3 hours after startTime (only if user hasn't manually set endTime)
+  useEffect(() => {
+    if (endTimeManuallySet || !startTime) return
+    // Parse the startTime datetime-local value as a Date
+    const startDate = new Date(startTime)
+    if (isNaN(startDate.getTime())) return
+    // Add 3 hours
+    const endDate = new Date(startDate.getTime() + 3 * 60 * 60 * 1000)
+    // Format as datetime-local string (YYYY-MM-DDTHH:mm)
+    const y = endDate.getFullYear()
+    const m = String(endDate.getMonth() + 1).padStart(2, '0')
+    const d = String(endDate.getDate()).padStart(2, '0')
+    const h = String(endDate.getHours()).padStart(2, '0')
+    const min = String(endDate.getMinutes()).padStart(2, '0')
+    const endTimeValue = `${y}-${m}-${d}T${h}:${min}`
+    setEndTime(endTimeValue)
+  }, [startTime, endTimeManuallySet])
+
   const resetForm = () => {
     setSportType('football')
     setLeague('')
@@ -679,8 +698,10 @@ export function AdminMatches() {
     setTeamALogo('')
     setTeamBName('')
     setTeamBLogo('')
-    setStartTime('')
+    // Auto-select today's date in admin timezone
+    setStartTime(utcToAdminLocal(new Date().toISOString()))
     setEndTime('')
+    setEndTimeManuallySet(false)
     setStatus('upcoming')
     setFeatured(false)
     setStreams([{ name: 'Stream 1', channel: '', channelId: '', type: 'iframe', url: '' }])
@@ -696,6 +717,7 @@ export function AdminMatches() {
     setTeamBLogo(match.teamBLogo)
     setStartTime(utcToAdminLocal(match.startTime))
     setEndTime(match.endTime ? utcToAdminLocal(match.endTime) : '')
+    setEndTimeManuallySet(!!match.endTime) // If match has endTime, consider it manually set
     setStatus(match.status)
     setFeatured(match.isFeatured)
     setStreams(match.streams.map(s => ({
@@ -832,7 +854,7 @@ export function AdminMatches() {
             <option value="ended">✅ Ended</option>
           </select>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button
             variant="outline"
             size="sm"
@@ -990,11 +1012,11 @@ export function AdminMatches() {
                 <div className="space-y-2">
                   <DateTimePicker
                     value={endTime}
-                    onChange={setEndTime}
+                    onChange={(val) => { setEndTime(val); setEndTimeManuallySet(true) }}
                     label="End Time"
                     timeZoneLabel="BST"
                   />
-                  <p className="text-[10px] text-muted-foreground">Match auto-ends when time passes</p>
+                  <p className="text-[10px] text-muted-foreground">Auto-set to 3 hours after start time. Edit to customize.</p>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">

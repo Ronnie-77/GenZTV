@@ -1,20 +1,53 @@
 {
   "name": "GenZ TV",
   "short_name": "GenZ TV",
-  "description": "Premium Live Streaming Platform",
+  "description": "Premium Live Streaming Platform — Live TV, Sports, Cricket, Football & Entertainment.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
   "background_color": "#0A0A0F",
   "theme_color": "#E05555",
-  "orientation": "any",
+  "orientation": "landscape-primary",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["entertainment", "sports", "video"],
   "icons": [
     {
       "src": "/logo.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
+    },
+    {
+      "src": "/logo.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ],
-  "categories": ["entertainment", "sports"],
+  "shortcuts": [
+    {
+      "name": "Live TV",
+      "short_name": "Live",
+      "description": "Browse all live TV channels",
+      "url": "/#/live",
+      "icons": [{ "src": "/logo.svg", "sizes": "any" }]
+    },
+    {
+      "name": "Sports",
+      "short_name": "Sports",
+      "description": "Live sports and matches",
+      "url": "/#/sports",
+      "icons": [{ "src": "/logo.svg", "sizes": "any" }]
+    },
+    {
+      "name": "Favorites",
+      "short_name": "Favorites",
+      "description": "Your favorite channels",
+      "url": "/#/favorites",
+      "icons": [{ "src": "/logo.svg", "sizes": "any" }]
+    }
+  ],
   "gcm_sender_id": "103953800507"
 }

@@ -1,80 +1,24 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore } from '@/lib/store'
 import { fetchChannel, fetchMatch, fetchChannels, type Channel, type Match } from '@/lib/api'
 import { VideoPlayer } from '@/components/player/video-player'
+import { DynamicAdSlot } from '@/components/ads/dynamic-ad-slot'
 import { ArrowLeft, Heart, Share2, Tv, ExternalLink, Radio, List } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { fetchSettings } from '@/lib/api'
 
-// Dynamic ad slot — renders custom ad script HTML from settings
-function DynamicAdSlot({ script }: { script: string }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!containerRef.current || !script.trim()) return
-    containerRef.current.innerHTML = ''
-    const wrapper = document.createElement('div')
-    wrapper.innerHTML = script.trim()
-    while (wrapper.firstChild) {
-      const node = wrapper.firstChild
-      if (node.nodeName === 'SCRIPT') {
-        const newScript = document.createElement('script')
-        const oldScript = node as HTMLScriptElement
-        if (oldScript.src) newScript.src = oldScript.src
-        if (oldScript.textContent) newScript.textContent = oldScript.textContent
-        Array.from(oldScript.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
-        newScript.async = true
-        containerRef.current.appendChild(newScript)
-      } else {
-        containerRef.current.appendChild(node)
-      }
-    }
-  }, [script])
-
-  if (!script.trim()) return null
-  return <div ref={containerRef} className="w-full max-w-[728px]" />
-}
-
-// Adsterra Banner Ad — dynamically injects ad script below video player (mobile & PC)
+// Default banner ad (fallback when no custom ad scripts exist).
+// Rendered through the shared sandboxed DynamicAdSlot so document.write()
+// inside the ad creative can never destroy the parent React app.
 function BannerAd() {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const initialized = useRef(false)
-
-  useEffect(() => {
-    if (initialized.current || !containerRef.current) return
-    initialized.current = true
-
-    const container = containerRef.current
-
-    // Inject atOptions config script
-    const configScript = document.createElement('script')
-    configScript.textContent = `
-      atOptions = {
-        'key' : '297e220ba939d2e247ad7b9372939809',
-        'format' : 'iframe',
-        'height' : 90,
-        'width' : 728,
-        'params' : {}
-      };
-    `
-    container.appendChild(configScript)
-
-    // Inject invoke.js script
-    const invokeScript = document.createElement('script')
-    invokeScript.src = 'https://www.highperformanceformat.com/297e220ba939d2e247ad7b9372939809/invoke.js'
-    invokeScript.async = true
-    container.appendChild(invokeScript)
-  }, [])
-
-  return (
-    <div className="w-full flex justify-center">
-      <div ref={containerRef} className="w-full min-h-[90px]" />
-    </div>
-  )
+  const script =
+    "<script>atOptions = {'key' : '297e220ba939d2e247ad7b9372939809','format' : 'iframe','height' : 90,'width' : 728,'params' : {}};</script>" +
+    '<script src="https://www.highperformanceformat.com/297e220ba939d2e247ad7b9372939809/invoke.js" async></script>'
+  return <DynamicAdSlot script={script} maxWidth="max-w-[728px]" />
 }
 
 export function WatchPage() {
@@ -251,20 +195,20 @@ export function WatchPage() {
         </div>
       </div>
 
-      {/* Banner Ad — above video player (outside flex row) */}
+      {/* Banner Ad — above video player (outside flex row), left-aligned */}
       {videoAdsEnabled && (
         <div className="px-4 md:px-6 mb-4">
           {/* 📱 Mobile */}
-          <div className="flex lg:hidden flex-col items-center gap-3">
+          <div className="flex lg:hidden flex-col items-start gap-3">
             {videoAboveMobileAds.map((ad) => (
-              <DynamicAdSlot key={ad.id} script={ad.script} />
+              <DynamicAdSlot key={ad.id} script={ad.script} maxWidth="max-w-[728px]" />
             ))}
             {videoAboveMobileAds.length === 0 && <BannerAd />}
           </div>
           {/* 🖥️ PC */}
-          <div className="hidden lg:flex flex-col items-center gap-3">
+          <div className="hidden lg:flex flex-col items-start gap-3">
             {videoAbovePcAds.map((ad) => (
-              <DynamicAdSlot key={ad.id} script={ad.script} />
+              <DynamicAdSlot key={ad.id} script={ad.script} maxWidth="max-w-[728px]" />
             ))}
             {videoAbovePcAds.length === 0 && <BannerAd />}
           </div>
@@ -380,11 +324,11 @@ export function WatchPage() {
         </div>
       </div>
 
-      {/* 📋 Native Banner Ad — Bottom of Watch Page */}
+      {/* 📋 Native Banner Ad — Bottom of Watch Page, left-aligned */}
       {videoAdsEnabled && nativeBannerAds.length > 0 && (
-        <div className="px-4 md:px-6 mt-6 mb-4 flex flex-col items-center gap-3">
+        <div className="px-4 md:px-6 mt-6 mb-4 flex flex-col items-start gap-3">
           {nativeBannerAds.map((ad) => (
-            <DynamicAdSlot key={ad.id} script={ad.script} />
+            <DynamicAdSlot key={ad.id} script={ad.script} maxWidth="max-w-[728px]" />
           ))}
         </div>
       )}

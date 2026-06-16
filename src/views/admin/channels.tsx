@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Tv, Edit, Trash2, Search, X, Check, RefreshCw, Eye, Star, ToggleLeft, ToggleRight, Upload, Github, FileUp, FileText, FileJson } from 'lucide-react'
+import { Plus, Tv, Edit, Trash2, Search, X, Check, RefreshCw, Eye, Star, ToggleLeft, ToggleRight, Upload, Github, FileUp, FileText, FileJson, CheckSquare, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -93,6 +93,10 @@ export function AdminChannels() {
 
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   // Ref for scrolling to form on edit
   const formRef = useRef<HTMLDivElement>(null)
@@ -198,6 +202,45 @@ export function AdminChannels() {
       loadChannels()
     } catch {
       toast.error('Error', { description: 'Failed to delete channel' })
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return
+    if (!confirm(`Are you sure you want to delete ${selectedIds.size} channel${selectedIds.size > 1 ? 's' : ''}? This cannot be undone.`)) return
+
+    setBulkDeleting(true)
+    let deleted = 0
+    let failed = 0
+    for (const id of selectedIds) {
+      try {
+        await deleteChannel(id)
+        deleted++
+      } catch {
+        failed++
+      }
+    }
+    setBulkDeleting(false)
+    setSelectedIds(new Set())
+    if (deleted > 0) toast.success(`Deleted ${deleted} channel${deleted > 1 ? 's' : ''}`)
+    if (failed > 0) toast.error(`Failed to delete ${failed} channel${failed > 1 ? 's' : ''}`)
+    loadChannels()
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === channels.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(channels.map(ch => ch.id)))
     }
   }
 
@@ -401,7 +444,7 @@ export function AdminChannels() {
             ))}
           </select>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button
             variant="outline"
             size="sm"
@@ -409,7 +452,8 @@ export function AdminChannels() {
             className="gap-1.5 btn-press text-xs h-9"
           >
             <Github className="h-3.5 w-3.5" />
-            IPTV Import
+            <span className="hidden sm:inline">IPTV Import</span>
+            <span className="sm:hidden">IPTV</span>
           </Button>
           <Button
             variant="outline"
@@ -418,7 +462,8 @@ export function AdminChannels() {
             className="gap-1.5 btn-press text-xs h-9"
           >
             <FileUp className="h-3.5 w-3.5" />
-            File Import
+            <span className="hidden sm:inline">File Import</span>
+            <span className="sm:hidden">File</span>
           </Button>
           <Button
             variant="outline"
@@ -843,10 +888,43 @@ export function AdminChannels() {
         </div>
       ) : (
         <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+          {/* Bulk Actions Bar */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-3 px-4 py-2 bg-destructive/5 border-b border-destructive/20">
+              <span className="text-xs font-medium text-destructive">{selectedIds.size} selected</span>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+                className="h-7 text-xs gap-1.5"
+              >
+                {bulkDeleting ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                {bulkDeleting ? 'Deleting...' : `Delete ${selectedIds.size}`}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedIds(new Set())}
+                className="h-7 text-xs"
+              >
+                Cancel
+              </Button>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-secondary/50">
                 <tr>
+                  <th className="p-3 w-10">
+                    <button onClick={toggleSelectAll} className="p-0.5 rounded hover:bg-secondary transition-colors" title={selectedIds.size === channels.length ? 'Deselect all' : 'Select all'}>
+                      {selectedIds.size === channels.length && channels.length > 0 ? (
+                        <CheckSquare className="h-4 w-4 text-primary" />
+                      ) : (
+                        <Square className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </button>
+                  </th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Channel</th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Category</th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Type</th>
@@ -857,7 +935,16 @@ export function AdminChannels() {
               </thead>
               <tbody>
                 {channels.map((ch) => (
-                  <tr key={ch.id} className="border-t border-border hover:bg-secondary/30 transition-colors">
+                  <tr key={ch.id} className={`border-t border-border hover:bg-secondary/30 transition-colors ${selectedIds.has(ch.id) ? 'bg-primary/5' : ''}`}>
+                    <td className="p-3 w-10">
+                      <button onClick={() => toggleSelect(ch.id)} className="p-0.5 rounded hover:bg-secondary transition-colors">
+                        {selectedIds.has(ch.id) ? (
+                          <CheckSquare className="h-4 w-4 text-primary" />
+                        ) : (
+                          <Square className="h-4 w-4 text-muted-foreground/50" />
+                        )}
+                      </button>
+                    </td>
                     <td className="p-3 text-sm">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center overflow-hidden shrink-0 p-0.5">

@@ -9,12 +9,13 @@ import {
   Bell,
   BellOff,
   Sparkles,
+  Tv as TvIcon,
 } from 'lucide-react'
 import { useNotifications } from '@/lib/use-notifications'
 import { toast } from 'sonner'
 
 export function MorePage() {
-  const { setCurrentPage } = useAppStore()
+  const { setCurrentPage, deviceMode, setDeviceMode } = useAppStore()
   const { permission, isSubscribed, toggleSubscription, subscribe, isLoading } = useNotifications()
 
   const handleNotificationToggle = async () => {
@@ -37,6 +38,16 @@ export function MorePage() {
     }
   }
 
+  const handleTVToggle = () => {
+    if (deviceMode === 'tv') {
+      setDeviceMode('auto')
+      toast('Switched to auto mode', { duration: 2000 })
+    } else {
+      setDeviceMode('tv')
+      toast('TV mode enabled — use your remote to navigate', { duration: 3000 })
+    }
+  }
+
   return (
     <div className="p-4 md:p-6 space-y-5 max-w-lg mx-auto">
       {/* Page Header */}
@@ -44,6 +55,37 @@ export function MorePage() {
         <h1 className="text-2xl font-bold tracking-tight">Settings & Social</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Customize your experience</p>
       </div>
+
+      {/* TV Mode Toggle */}
+      <section>
+        <button
+          onClick={handleTVToggle}
+          className="tv-toggle-card"
+          data-active={deviceMode === 'tv' ? 'true' : 'false'}
+          style={{ borderRadius: '1rem' }}
+        >
+          <div className="tv-toggle-icon">
+            <TvIcon className="h-5 w-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">
+              {deviceMode === 'tv' ? 'TV Mode is ON' : 'Enable TV Mode'}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {deviceMode === 'tv'
+                ? 'Optimized for TV remote. Tap to switch back to auto.'
+                : '10-foot UI with remote control — for Smart TVs and big screens.'}
+            </p>
+          </div>
+          <div className={`w-11 h-[26px] rounded-full transition-all duration-300 relative shrink-0 ${
+            deviceMode === 'tv' ? 'bg-primary' : 'bg-muted-foreground/30'
+          }`}>
+            <div className={`absolute top-[3px] w-5 h-5 rounded-full bg-white shadow-sm transition-all duration-300 ${
+              deviceMode === 'tv' ? 'left-[22px]' : 'left-[3px]'
+            }`} />
+          </div>
+        </button>
+      </section>
 
       {/* Notification Toggle */}
       <section>

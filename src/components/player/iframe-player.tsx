@@ -1,88 +1,25 @@
 'use client'
 
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect } from 'react'
 
 interface IframePlayerProps {
   src: string
   onReady?: () => void
   onError?: (error: string) => void
-  /** The original unproxied URL — used to construct the proxy fallback URL */
-  originalUrl?: string
-  /** Callback when the player switches from direct to proxy mode */
-  onSwitchToProxy?: () => void
 }
 
-/**
- * IframePlayer — dual-mode iframe loader for embed streams.
- *
- * Strategy:
- * 1. Try loading the iframe URL directly first (preserves original domain context
- *    so video players/CDNs that check origin work correctly).
- * 2. If the direct load fails (error event) or times out (8 seconds without onReady),
- *    automatically retry with the iframe proxy URL which strips X-Frame-Options.
- *
- * The addAutoplay function has been REMOVED — it broke pages that use the hash
- * fragment for routing or configuration (e.g., #player=clappr&autoplay=1).
- */
-export function IframePlayer({ src, onReady, onError, originalUrl, onSwitchToProxy }: IframePlayerProps) {
+export function IframePlayer({ src, onReady, onError }: IframePlayerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const [mode, setMode] = useState<'direct' | 'proxy'>('direct')
-  const readyFiredRef = useRef(false)
-  const modeSwitchedRef = useRef(false)
 
-  // Extract URL from iframe HTML if a full iframe tag is provided
+  // Extract URL from iframe HTML if full iframe tag is provided
   const getSrcUrl = (input: string): string => {
     const srcMatch = input.match(/src=["']([^"']+)["']/)
     if (srcMatch) return srcMatch[1]
-    if (input.startsWith('http') || input.startsWith('/') || input.startsWith('/api/')) return input
+    if (input.startsWith('http') || input.startsWith('/')) return input
     return input
   }
 
-  // Compute the URLs for each mode
-  const extractedUrl = getSrcUrl(src)
-  const directUrl = extractedUrl
-  const proxyUrl = `/api/iframe-proxy?url=${encodeURIComponent(originalUrl || extractedUrl)}`
-  const currentUrl = mode === 'direct' ? directUrl : proxyUrl
-
-  // Switch to proxy mode when direct loading fails
-  const switchToProxy = useCallback(() => {
-    if (modeSwitchedRef.current) return // Already switched
-    modeSwitchedRef.current = true
-    console.log('[iframe-player] Direct load failed, switching to proxy mode')
-    setMode('proxy')
-    onSwitchToProxy?.()
-  }, [onSwitchToProxy])
-
-  // Handle iframe load event
-  const handleLoad = useCallback(() => {
-    readyFiredRef.current = true
-    onReady?.()
-  }, [onReady])
-
-  // Handle iframe error event
-  const handleError = useCallback(() => {
-    if (mode === 'direct') {
-      // Direct load failed — try proxy mode
-      switchToProxy()
-    } else {
-      // Proxy mode also failed
-      onError?.('Failed to load iframe (both direct and proxy modes failed)')
-    }
-  }, [mode, switchToProxy, onError])
-
-  // Timeout: if direct iframe doesn't trigger onReady within 8 seconds, switch to proxy
-  useEffect(() => {
-    if (mode !== 'direct') return
-
-    const timer = setTimeout(() => {
-      if (!readyFiredRef.current) {
-        console.log('[iframe-player] Direct load timeout (8s), switching to proxy mode')
-        switchToProxy()
-      }
-    }, 8000)
-
-    return () => clearTimeout(timer)
-  }, [mode, switchToProxy])
+  const url = getSrcUrl(src)
 
   // ── Popup / Ad Blocker (Parent-level) ──
   // Since the iframe is cross-origin, we can't inject scripts inside it.
@@ -168,9 +105,8 @@ export function IframePlayer({ src, onReady, onError, originalUrl, onSwitchToPro
     /* Outer container clips the iframe — hides any scrollbar */
     <div className="absolute inset-0 bg-black overflow-hidden">
       <iframe
-        key={mode} // Force re-mount when switching modes
         ref={iframeRef}
-        src={currentUrl}
+        src={url}
         className="absolute inset-0 w-full h-full border-0"
         style={{
           overflow: 'hidden',
@@ -182,17 +118,10 @@ export function IframePlayer({ src, onReady, onError, originalUrl, onSwitchToPro
         // Ad blocking is handled via parent-level window.open override + focus management.
         allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
         allowFullScreen
-        // No referrerPolicy — use the default which sends the full Referer.
-        // Many sites that allow embedding expect the full Referer header.
-        onLoad={handleLoad}
-        onError={handleError}
+        referrerPolicy="no-referrer"
+        onLoad={() => onReady?.()}
+        onError={() => onError?.('Failed to load iframe')}
       />
-      {/* Mode indicator — subtle, for debugging */}
-      {mode === 'proxy' && (
-        <div className="absolute top-1 left-1 z-10 px-1.5 py-0.5 rounded bg-black/50 text-white/40 text-[9px] pointer-events-none">
-          proxy
-        </div>
-      )}
     </div>
   )
 }

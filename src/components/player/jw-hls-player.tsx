@@ -20,11 +20,11 @@ interface JwHlsPlayerProps {
  * JW-style HLS Player for m3u8 streams that don't work with the regular HlsPlayer.
  *
  * STRATEGY:
- * 1. Proxy FIRST — uses /api/stream-proxy to bypass CORS
- *    The stream-proxy rewrites all URLs in m3u8 to go through itself,
- *    so master playlists with relative sub-playlist references work correctly.
+ * 1. Direct FIRST — tries the original URL directly
+ *    If the server allows CORS, this works and is fastest.
  *
- * 2. Direct hls.js — fallback for servers with CORS headers
+ * 2. Proxy — uses /api/stream-proxy to bypass CORS
+ *    The stream-proxy rewrites all URLs in m3u8 to go through itself.
  *
  * 3. Native HLS — Safari/iOS only
  */
@@ -50,13 +50,19 @@ export function JwHlsPlayer({
   const destroyedRef = useRef(false)
   const triedModesRef = useRef<Set<PlayerMode>>(new Set())
 
-  const cb = useRef({ onReady, onError, onBuffering })
+  const directTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const cb = useRef({ onReady, onError, onBuffering, proxySrc })
   useEffect(() => {
-    cb.current = { onReady, onError, onBuffering }
+    cb.current = { onReady, onError, onBuffering, proxySrc }
   })
 
   const cleanup = useCallback(() => {
     destroyedRef.current = true
+    if (directTimeoutRef.current) {
+      clearTimeout(directTimeoutRef.current)
+      directTimeoutRef.current = null
+    }
     if (hlsRef.current) {
       hlsRef.current.destroy()
       hlsRef.current = null
@@ -128,6 +134,11 @@ export function JwHlsPlayer({
 
     hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
       console.log(`[jw-hls-player] Manifest parsed (${mode}), ${data.levels.length} levels ✅`)
+      // Clear the direct timeout if manifest is parsed
+      if (directTimeoutRef.current) {
+        clearTimeout(directTimeoutRef.current)
+        directTimeoutRef.current = null
+      }
       fireReady()
       videoRef.current?.play().catch(() => {})
     })
@@ -168,9 +179,9 @@ export function JwHlsPlayer({
     destroyedRef.current = false
     mediaErrorCountRef.current = 0
 
-    // Order: proxy → direct → native
-    if (failedMode === 'proxy' && !triedModesRef.current.has('direct')) {
-      startDirect()
+    // Order: direct → proxy → native
+    if (failedMode === 'direct' && !triedModesRef.current.has('proxy')) {
+      startProxy()
     } else if (!triedModesRef.current.has('native')) {
       startNative()
     } else {
@@ -178,7 +189,43 @@ export function JwHlsPlayer({
     }
   }
 
-  // Step 1: Proxy (PRIMARY — bypasses CORS, rewrites m3u8 URLs)
+  // Step 1: Direct (PRIMARY — try original URL first for speed)
+  function startDirect() {
+    if (destroyedRef.current) return
+    if (triedModesRef.current.has('direct')) {
+      tryNextMode('direct')
+      return
+    }
+    triedModesRef.current.add('direct')
+
+    if (!Hls.isSupported()) {
+      startProxy()
+      return
+    }
+
+    console.log('[jw-hls-player] Step 1: Direct mode (original URL)')
+
+    const hls = createHls(src, 'direct')
+    if (hls) {
+      hlsRef.current = hls
+      // 10-second timeout: if manifest not parsed, switch to proxy
+      directTimeoutRef.current = setTimeout(() => {
+        if (readyFiredRef.current) return
+        console.log('[jw-hls-player] Direct mode timed out (10s) → switching to proxy')
+        if (hlsRef.current) {
+          hlsRef.current.destroy()
+          hlsRef.current = null
+        }
+        destroyedRef.current = false
+        mediaErrorCountRef.current = 0
+        startProxy()
+      }, 10000)
+    } else {
+      tryNextMode('direct')
+    }
+  }
+
+  // Step 2: Proxy (fallback — bypasses CORS, rewrites m3u8 URLs)
   function startProxy() {
     if (destroyedRef.current) return
     if (triedModesRef.current.has('proxy')) {
@@ -192,43 +239,20 @@ export function JwHlsPlayer({
       return
     }
 
-    if (!proxySrc) {
-      console.log('[jw-hls-player] No proxy URL, trying direct')
-      startDirect()
-      return
-    }
-
-    console.log('[jw-hls-player] Step 1: Proxy mode (/api/stream-proxy) — bypasses CORS ✨')
-
-    const hls = createHls(proxySrc, 'proxy')
-    if (hls) {
-      hlsRef.current = hls
-    } else {
-      startDirect()
-    }
-  }
-
-  // Step 2: Direct (fallback — works if server has CORS headers)
-  function startDirect() {
-    if (destroyedRef.current) return
-    if (triedModesRef.current.has('direct')) {
-      tryNextMode('direct')
-      return
-    }
-    triedModesRef.current.add('direct')
-
-    if (!Hls.isSupported()) {
+    const proxyUrl = cb.current.proxySrc
+    if (!proxyUrl) {
+      console.log('[jw-hls-player] No proxy URL, trying native')
       startNative()
       return
     }
 
-    console.log('[jw-hls-player] Step 2: Direct mode (no proxy)')
+    console.log('[jw-hls-player] Step 2: Proxy mode (/api/stream-proxy) — bypasses CORS ✨')
 
-    const hls = createHls(src, 'direct')
+    const hls = createHls(proxyUrl, 'proxy')
     if (hls) {
       hlsRef.current = hls
     } else {
-      tryNextMode('direct')
+      startNative()
     }
   }
 
@@ -303,8 +327,8 @@ export function JwHlsPlayer({
     video.addEventListener('playing', handlePlaying)
     video.addEventListener('canplay', handleCanPlay)
 
-    // Start with proxy → direct → native
-    startProxy()
+    // Start with direct → proxy → native
+    startDirect()
 
     return () => {
       video.removeEventListener('waiting', handleWaiting)

@@ -39,11 +39,12 @@ export interface SubtitleTrack {
   default: boolean
 }
 
-export type LoadMode = 'proxy' | 'direct' | 'mpegts'
+export type LoadMode = 'direct' | 'proxy' | 'mpegts'
 
 interface HlsPlayerProps {
   src: string
   originalUrl?: string
+  proxyUrl?: string
   onReady?: () => void
   onError?: (error: string) => void
   onQualityLevels?: (levels: QualityLevel[]) => void
@@ -102,6 +103,7 @@ function buildStats(hlsInstance: Hls, video: HTMLVideoElement): HlsStats {
 export function HlsPlayer({
   src,
   originalUrl,
+  proxyUrl,
   onReady,
   onError,
   onQualityLevels,
@@ -126,9 +128,11 @@ export function HlsPlayer({
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const statsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const loadModeRef = useRef<LoadMode>('proxy')
-  const triedDirectRef = useRef(false)
+  const loadModeRef = useRef<LoadMode>('direct')
+  const triedProxyRef = useRef(false)
   const triedMpegtsRef = useRef(false)
+  const directTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const manifestParsedRef = useRef(false)
   const fatalErrorCountRef = useRef(0)
   const mediaErrorCountRef = useRef(0)
 
@@ -136,15 +140,21 @@ export function HlsPlayer({
   const cb = useRef({
     onReady, onError, onQualityLevels, onStatsUpdate,
     onAudioTracks, onSubtitleTracks, onLoadModeChange, onRequestMpegts,
+    proxyUrl,
   })
   useEffect(() => {
     cb.current = {
       onReady, onError, onQualityLevels, onStatsUpdate,
       onAudioTracks, onSubtitleTracks, onLoadModeChange, onRequestMpegts,
+      proxyUrl,
     }
   })
 
   const cleanup = useCallback(() => {
+    if (directTimeoutRef.current) {
+      clearTimeout(directTimeoutRef.current)
+      directTimeoutRef.current = null
+    }
     if (statsTimerRef.current) {
       clearInterval(statsTimerRef.current)
       statsTimerRef.current = null
@@ -179,17 +189,16 @@ export function HlsPlayer({
       liveDurationInfinity: true,
       progressive: true,
 
-      // KEY CHANGE: Proxy mode — fail fast (4s timeout, 0 retries for manifest)
-      // This ensures we try direct mode quickly when the proxy can't reach the server
-      // Direct mode — moderate timeouts (user's browser may reach the server directly)
-      // Both modes should fail fast enough to try the next fallback within ~20s total
+      // KEY CHANGE: Direct mode — moderate timeouts (browser may reach server directly)
+      // Proxy mode — fail fast (4s timeout, 0 retries for manifest) so mpegts fallback is quick
+      // Fallback chain: direct → proxy → mpegts — total time ~25s worst case
       fragLoadingMaxRetry: isDirect ? 2 : 1,
       fragLoadingMaxRetryTimeout: isDirect ? 12000 : 6000,
       fragLoadingTimeOut: isDirect ? 12000 : 6000,
 
       manifestLoadingMaxRetry: isDirect ? 1 : 0,  // 0 retries for proxy = fail on first timeout
       manifestLoadingMaxRetryTimeout: isDirect ? 6000 : 3000,
-      manifestLoadingTimeOut: isDirect ? 8000 : 4000,  // 4s for proxy, 8s for direct
+      manifestLoadingTimeOut: isDirect ? 8000 : 4000,  // 8s for direct, 4s for proxy
 
       levelLoadingMaxRetry: isDirect ? 1 : 0,
       levelLoadingMaxRetryTimeout: isDirect ? 6000 : 3000,
@@ -216,6 +225,14 @@ export function HlsPlayer({
     // ── Manifest Parsed ──
     hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
       console.log(`[hls-player] ✅ Manifest parsed (${loadModeRef.current}), ${data.levels.length} levels`)
+
+      // Mark manifest as parsed and clear the direct-mode timeout
+      manifestParsedRef.current = true
+      if (directTimeoutRef.current) {
+        clearTimeout(directTimeoutRef.current)
+        directTimeoutRef.current = null
+      }
+
       const levels: QualityLevel[] = data.levels.map((level, index) => ({
         index, width: level.width || 0, height: level.height || 0, bitrate: level.bitrate || 0,
         label: buildQualityLabel(level.height || 0, level.bitrate || 0),
@@ -284,42 +301,41 @@ export function HlsPlayer({
   }
 
   // Handle fatal network errors with aggressive fallback
+  // Fallback chain: direct → proxy → mpegts
   function handleFatalNetworkError(video: HTMLVideoElement) {
     fatalErrorCountRef.current += 1
     const mode = loadModeRef.current
 
-    if (mode === 'proxy') {
-      // KEY: Switch to direct mode IMMEDIATELY on first fatal network error from proxy
-      // Don't waste time with proxy retries — if the server can't reach the stream,
-      // trying again won't help. The browser might be able to reach it directly.
-      if (!triedDirectRef.current && originalUrl) {
-        console.log('[hls-player] 🔄 Proxy failed → trying direct connection')
-        triedDirectRef.current = true
-        loadModeRef.current = 'direct'
-        cb.current.onLoadModeChange?.('direct')
+    if (mode === 'direct') {
+      // KEY: Direct connection failed — switch to proxy mode IMMEDIATELY
+      // The browser couldn't reach the stream directly, try through our server proxy
+      if (!triedProxyRef.current && cb.current.proxyUrl) {
+        console.log('[hls-player] 🔄 Direct failed → trying proxy connection')
+        triedProxyRef.current = true
+        loadModeRef.current = 'proxy'
+        cb.current.onLoadModeChange?.('proxy')
         fatalErrorCountRef.current = 0
         mediaErrorCountRef.current = 0
 
-        // Destroy proxy HLS and create direct HLS
+        // Destroy direct HLS and create proxy HLS
         cleanup()
-        const directHls = initHls(originalUrl, video, true)
-        if (directHls) {
-          hlsRef.current = directHls
+        const proxyHls = initHls(cb.current.proxyUrl, video, false)
+        if (proxyHls) {
+          hlsRef.current = proxyHls
         } else {
-          cb.current.onError?.('Failed to create direct HLS player')
+          cb.current.onError?.('Failed to create proxy HLS player')
         }
-      } else if (!triedMpegtsRef.current && originalUrl) {
-        // Skip direct if already tried, go to mpegts
-        console.log('[hls-player] 🔄 Proxy failed → trying mpegts.js')
+      } else if (!triedMpegtsRef.current) {
+        // Skip proxy if already tried, go to mpegts
+        console.log('[hls-player] 🔄 Direct failed → trying mpegts.js')
         switchToMpegts()
       } else {
-        finalError('Server proxy failed and no fallback available')
+        finalError('Direct connection failed and no fallback available')
       }
-    } else if (mode === 'direct') {
-      // In direct mode — switch to mpegts.js on first fatal error
-      // (startLoad() doesn't work when HLS.js has exhausted its own retries)
-      if (!triedMpegtsRef.current && originalUrl) {
-        console.log('[hls-player] 🔄 Direct failed → trying mpegts.js')
+    } else if (mode === 'proxy') {
+      // In proxy mode — switch to mpegts.js on first fatal error
+      if (!triedMpegtsRef.current) {
+        console.log('[hls-player] 🔄 Proxy failed → trying mpegts.js')
         switchToMpegts()
       } else {
         finalError('Could not connect to stream server. It may be offline or blocking connections.')
@@ -339,7 +355,7 @@ export function HlsPlayer({
       // Try recreating the player
       const mode = loadModeRef.current
       console.log(`[hls-player] Media error too many times, recreating player (mode=${mode})`)
-      const url = mode === 'direct' && originalUrl ? originalUrl : (hlsRef.current?.url || src)
+      const url = mode === 'direct' ? src : (cb.current.proxyUrl || hlsRef.current?.url || src)
       cleanup()
       mediaErrorCountRef.current = 0
       const newHls = initHls(url, video, mode === 'direct')
@@ -378,10 +394,11 @@ export function HlsPlayer({
     cleanup()
     fatalErrorCountRef.current = 0
     mediaErrorCountRef.current = 0
-    triedDirectRef.current = false
+    triedProxyRef.current = false
     triedMpegtsRef.current = false
-    loadModeRef.current = 'proxy'
-    cb.current.onLoadModeChange?.('proxy')
+    manifestParsedRef.current = false
+    loadModeRef.current = 'direct'
+    cb.current.onLoadModeChange?.('direct')
 
     // Buffering events
     const handleWaiting = () => onBuffering?.(true)
@@ -394,13 +411,40 @@ export function HlsPlayer({
     const nativeHls = video.canPlayType('application/vnd.apple.mpegurl')
 
     if (Hls.isSupported()) {
-      // Start with proxy URL
-      const hls = initHls(src, video, false)
+      // Start with DIRECT URL (src is the original stream URL)
+      // If direct fails or takes too long (10s), fall back to proxy mode
+      const directUrl = src
+      const hls = initHls(directUrl, video, true)
       if (!hls) {
         cb.current.onError?.('HLS.js not supported')
         return () => { video.removeEventListener('waiting', handleWaiting); video.removeEventListener('playing', handlePlaying); video.removeEventListener('canplay', handleCanPlay); cleanup() }
       }
       hlsRef.current = hls
+
+      // 10-second timeout: if manifest not parsed within 10s, switch to proxy mode
+      directTimeoutRef.current = setTimeout(() => {
+        if (manifestParsedRef.current) return // already parsed, no need to switch
+        if (triedProxyRef.current) return // already tried proxy
+        console.log('[hls-player] ⏱️ Direct mode timed out (10s) → switching to proxy')
+        triedProxyRef.current = true
+        loadModeRef.current = 'proxy'
+        cb.current.onLoadModeChange?.('proxy')
+        fatalErrorCountRef.current = 0
+        mediaErrorCountRef.current = 0
+        cleanup()
+        if (cb.current.proxyUrl) {
+          const proxyHls = initHls(cb.current.proxyUrl, video, false)
+          if (proxyHls) {
+            hlsRef.current = proxyHls
+          } else {
+            cb.current.onError?.('Failed to create proxy HLS player')
+          }
+        } else if (!triedMpegtsRef.current) {
+          switchToMpegts()
+        } else {
+          finalError('Direct connection timed out and no proxy fallback available')
+        }
+      }, 10000)
 
       // Stats timer
       statsTimerRef.current = setInterval(() => {
@@ -409,18 +453,28 @@ export function HlsPlayer({
       }, 2000)
 
     } else if (nativeHls) {
-      // Safari/iOS native HLS
+      // Safari/iOS native HLS — try direct first, then proxy
       video.src = src
       const handleLoadedMetadata = () => {
+        manifestParsedRef.current = true
+        if (directTimeoutRef.current) {
+          clearTimeout(directTimeoutRef.current)
+          directTimeoutRef.current = null
+        }
         cb.current.onReady?.()
         cb.current.onQualityLevels?.([])
         video.removeEventListener('loadedmetadata', handleLoadedMetadata)
       }
       video.addEventListener('loadedmetadata', handleLoadedMetadata)
       const handleError = () => {
-        if (originalUrl && video.src !== originalUrl) {
-          console.log('[hls-player] Native HLS failed with proxy, trying direct')
-          video.src = originalUrl
+        // Direct failed — try proxy URL if available
+        const proxyFallback = cb.current.proxyUrl
+        if (proxyFallback && video.src !== proxyFallback) {
+          console.log('[hls-player] Native HLS direct failed, trying proxy')
+          triedProxyRef.current = true
+          loadModeRef.current = 'proxy'
+          cb.current.onLoadModeChange?.('proxy')
+          video.src = proxyFallback
           video.play().catch(() => {})
         } else {
           cb.current.onError?.('Native HLS playback error')

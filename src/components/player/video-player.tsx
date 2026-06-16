@@ -91,12 +91,9 @@ function proxyIframeUrl(url: string): string {
   return `/api/iframe-proxy?url=${encodeURIComponent(url)}`
 }
 
-// Load iframe URL directly — preserves original domain context so video players work.
-// If the direct load fails, IframePlayer will auto-switch to proxy mode (dual-mode approach).
-function directIframeUrl(url: string): string {
-  if (!url) return url
-  return url
-}
+// Note: iframe streams are routed through /api/iframe-proxy by the IframePlayer
+// component itself (it injects an ad-blocker and strips X-Frame-Options).
+// video-player passes the RAW iframe URL; IframePlayer does the proxying.
 
 // Route all streams through Next.js stream-proxy.
 // Previously, live .ts streams used a dedicated mini-service on port 3031,
@@ -115,12 +112,14 @@ function getInitialResolved(url: string, type: string): { resolvedUrl: string; r
   if (!url) return { resolvedUrl: url, resolvedType: type }
   // Check for .ts URLs first — regardless of what type is stored
   if (type === 'mpegts' || isTsUrl(url)) return { resolvedUrl: proxyStreamUrl(url, 'mpegts'), resolvedType: 'mpegts' }
-  if (type === 'redirect') return { resolvedUrl: proxyIframeUrl(url), resolvedType: 'iframe' }
-  if (type === 'iframe') return { resolvedUrl: directIframeUrl(url), resolvedType: 'iframe' }
+  if (type === 'redirect') return { resolvedUrl: url, resolvedType: 'iframe' } // IframePlayer proxies it
+  if (type === 'iframe') return { resolvedUrl: url, resolvedType: 'iframe' }
   if (type === 'github_m3u') return { resolvedUrl: url, resolvedType: type } // resolved async
   if (type === 'm3u8_jw') return { resolvedUrl: url, resolvedType: 'm3u8_jw' } // JW Player handles its own proxy
   if (type === 'direct' || type === 'm3u' || type === 'm3u8') {
-    return { resolvedUrl: proxyStreamUrl(url, type), resolvedType: type === 'direct' ? 'm3u' : type }
+    // Return the ORIGINAL URL directly — the HlsPlayer will try direct first,
+    // then fall back to proxy (via the proxyUrl prop) if direct fails or times out
+    return { resolvedUrl: url, resolvedType: type === 'direct' ? 'm3u' : type }
   }
   return { resolvedUrl: url, resolvedType: type }
 }
@@ -161,8 +160,8 @@ export function VideoPlayer({
   const isHls = resolvedType === 'm3u' || resolvedType === 'm3u8'
   const isJw = resolvedType === 'm3u8_jw'
 
-  // HLS load mode tracking (proxy → direct → mpegts fallback chain)
-  const [hlsLoadMode, setHlsLoadMode] = useState<'proxy' | 'direct' | 'mpegts'>('proxy')
+  // HLS load mode tracking (direct → proxy → mpegts fallback chain)
+  const [hlsLoadMode, setHlsLoadMode] = useState<'direct' | 'proxy' | 'mpegts'>('direct')
   // When HLS falls back to mpegts mode, switch the player type
   const [hlsFallbackMpegts, setHlsFallbackMpegts] = useState(false)
 
@@ -284,21 +283,23 @@ export function VideoPlayer({
           setLoading(false)
         }
       } else if (streamType === 'redirect' && streamUrl) {
+        // Treat redirect as iframe — IframePlayer will proxy the URL
         setResolvedType('iframe')
-        setResolvedUrl(proxyIframeUrl(streamUrl))
+        setResolvedUrl(streamUrl)
       } else {
         // Detect .ts URLs for MPEG-TS player (or explicit mpegts type)
         if (streamType === 'mpegts' || isTsUrl(streamUrl)) {
           setResolvedUrl(proxyStreamUrl(streamUrl, 'mpegts'))
           setResolvedType('mpegts')
         } else if (streamType === 'direct' || streamType === 'm3u' || streamType === 'm3u8') {
-          // Use CORS proxy for HLS streams to bypass CORS
-          setResolvedUrl(proxyStreamUrl(streamUrl, streamType))
+          // Use the ORIGINAL URL directly — HlsPlayer tries direct first,
+          // then falls back to proxy via the proxyUrl prop
+          setResolvedUrl(streamUrl)
           setResolvedType(streamType === 'direct' ? 'm3u' : streamType)
         } else if (streamType === 'iframe' && streamUrl) {
-          // Load iframe URLs directly first — IframePlayer will auto-fallback
-          // to proxy mode if direct loading fails (dual-mode approach)
-          setResolvedUrl(directIframeUrl(streamUrl))
+          // Pass the RAW URL — IframePlayer routes it through the proxy itself
+          // (the proxy injects an ad-blocker and strips X-Frame-Options).
+          setResolvedUrl(streamUrl)
           setResolvedType('iframe')
         } else {
           setResolvedUrl(streamUrl)
@@ -534,7 +535,7 @@ export function VideoPlayer({
     setHlsStats(null)
     setCurrentQuality(-1)
     // Reset HLS fallback state
-    setHlsLoadMode('proxy')
+    setHlsLoadMode('direct')
     setHlsFallbackMpegts(false)
     // Force player re-creation by toggling the URL
     const currentUrl = resolvedUrl
@@ -598,12 +599,12 @@ export function VideoPlayer({
     setSeekToLive(true)
   }, [])
 
-  // HLS load mode change handler — tracks proxy → direct → mpegts fallback
-  const handleHlsLoadModeChange = useCallback((mode: 'proxy' | 'direct' | 'mpegts') => {
+  // HLS load mode change handler — tracks direct → proxy → mpegts fallback
+  const handleHlsLoadModeChange = useCallback((mode: 'direct' | 'proxy' | 'mpegts') => {
     console.log(`[video-player] HLS load mode changed: ${mode}`)
     setHlsLoadMode(mode)
-    if (mode === 'direct') {
-      // Show loading indicator for direct connection attempt
+    if (mode === 'proxy') {
+      // Show loading indicator for proxy connection attempt (direct failed/timed out)
       setLoading(true)
       setBuffering(true)
     }
@@ -958,6 +959,7 @@ export function VideoPlayer({
           <HlsPlayer
             src={resolvedUrl}
             originalUrl={streamUrl}
+            proxyUrl={proxyStreamUrl(streamUrl, streamType)}
             onReady={handleReady}
             onError={handleError}
             onQualityLevels={handleQualityLevels}
@@ -1008,19 +1010,13 @@ export function VideoPlayer({
       )}
 
       {/* iFrame Player — for embed streams */}
-      {/* originalUrl is the raw URL before any proxy — needed for dual-mode fallback */}
+      {/* resolvedUrl is already the proxy URL (set in getInitialResolved / resolve effect) */}
       {isIframe && resolvedUrl && (
         <IframePlayer
           src={resolvedUrl}
           originalUrl={streamUrl}
           onReady={handleReady}
           onError={handleError}
-          onSwitchToProxy={() => {
-            // When IframePlayer switches from direct to proxy mode,
-            // update our resolvedUrl so retry/reload uses the proxy URL
-            console.log('[video-player] IframePlayer switched to proxy mode')
-            setResolvedUrl(`/api/iframe-proxy?url=${encodeURIComponent(streamUrl)}`)
-          }}
         />
       )}
 

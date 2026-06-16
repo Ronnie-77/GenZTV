@@ -3,7 +3,6 @@ import { Plus_Jakarta_Sans, Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/providers/theme-provider";
-import { SecurityProvider } from "@/components/providers/security-provider";
 
 const plusJakarta = Plus_Jakarta_Sans({
   variable: "--font-plus-jakarta",
@@ -78,15 +77,13 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange={false}
         >
-          <SecurityProvider>
-            {children}
-            <Toaster
-              position="bottom-right"
-              toastOptions={{
-                className: 'bg-card text-card-foreground border border-border',
-              }}
-            />
-          </SecurityProvider>
+          {children}
+          <Toaster
+            position="bottom-right"
+            toastOptions={{
+              className: 'bg-card text-card-foreground border border-border',
+            }}
+          />
         </ThemeProvider>
       </body>
     </html>
