@@ -80,6 +80,8 @@ model AppSetting {
   homeAdsEnabled   Boolean @default(true)
   videoAdsEnabled  Boolean @default(true)
   apkUrl           String  @default("")
+  ga4MeasurementId String  @default("")  // GA4 Measurement ID (e.g. G-XXXXXXXXXX)
+  firebaseConfig   String  @default("{}")  // Firebase config JSON
 }
 
 model PushSubscription {

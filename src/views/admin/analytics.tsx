@@ -16,8 +16,6 @@ import {
   Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-
 // --- Types ---
 
 interface DayStat {
@@ -124,13 +122,13 @@ export function AdminAnalytics() {
   }, [])
 
   useEffect(() => {
-    fetchData()
+    fetchData() // eslint-disable-line react-hooks/set-state-in-effect
   }, [fetchData])
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchData(true)
+      void fetchData(true)
     }, 30_000)
     return () => clearInterval(interval)
   }, [fetchData])
@@ -209,81 +207,77 @@ export function AdminAnalytics() {
       </div>
 
       {/* ─── Top Stats Row ─── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Online Now */}
-        <div className="bg-card rounded-xl border border-border shadow-sm p-5 hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-4">
-            <div className="p-2.5 rounded-xl bg-emerald-500/15 text-emerald-600">
-              <Wifi className="h-5 w-5" />
+        <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-4 sm:p-5 group hover:shadow-lg hover:shadow-emerald-500/5 transition-all duration-300">
+          <div className="absolute -top-6 -right-6 w-20 h-20 rounded-full bg-emerald-500/8 group-hover:scale-150 transition-transform duration-500" />
+          <div className="relative flex items-center gap-3 sm:gap-4">
+            <div className="p-2 sm:p-2.5 rounded-xl bg-emerald-500/10">
+              <Wifi className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-500" />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-2xl font-bold tracking-tight">{data.onlineNow}</p>
-                <span className="relative flex h-2.5 w-2.5">
+              <div className="flex items-center gap-1.5">
+                <p className="text-xl sm:text-2xl font-bold tracking-tight tabular-nums">{data.onlineNow}</p>
+                <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">Online Now</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wider">Online Now</p>
             </div>
           </div>
         </div>
 
         {/* Today's Views */}
-        <div className="bg-card rounded-xl border border-border shadow-sm p-5 hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-4">
-            <div className="p-2.5 rounded-xl bg-teal-500/15 text-teal-600">
-              <Eye className="h-5 w-5" />
+        <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-4 sm:p-5 group hover:shadow-lg hover:shadow-teal-500/5 transition-all duration-300">
+          <div className="absolute -top-6 -right-6 w-20 h-20 rounded-full bg-teal-500/8 group-hover:scale-150 transition-transform duration-500" />
+          <div className="relative flex items-center gap-3 sm:gap-4">
+            <div className="p-2 sm:p-2.5 rounded-xl bg-teal-500/10">
+              <Eye className="h-4 w-4 sm:h-5 sm:w-5 text-teal-500" />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-2xl font-bold tracking-tight">{formatNumber(data.today.views)}</p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-xl sm:text-2xl font-bold tracking-tight tabular-nums">{formatNumber(data.today.views)}</p>
                 {todayViewsChange !== null && (
-                  <Badge
-                    variant="secondary"
-                    className={`text-[10px] px-1.5 h-4 font-medium ${
-                      todayViewsChange >= 0
-                        ? 'bg-emerald-500/15 text-emerald-600'
-                        : 'bg-red-500/15 text-red-500'
-                    }`}
-                  >
-                    {todayViewsChange >= 0 ? (
-                      <TrendingUp className="h-2.5 w-2.5 mr-0.5" />
-                    ) : (
-                      <TrendingDown className="h-2.5 w-2.5 mr-0.5" />
-                    )}
-                    {todayViewsChange >= 0 ? '+' : ''}
-                    {todayViewsChange}%
-                  </Badge>
+                  <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] sm:text-[10px] font-semibold ${
+                    todayViewsChange >= 0
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-red-500/10 text-red-600 dark:text-red-400'
+                  }`}>
+                    {todayViewsChange >= 0 ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+                    {todayViewsChange >= 0 ? '+' : ''}{todayViewsChange}%
+                  </span>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">Today&apos;s Views</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wider">Today&apos;s Views</p>
             </div>
           </div>
         </div>
 
-        {/* Today's Unique Visitors */}
-        <div className="bg-card rounded-xl border border-border shadow-sm p-5 hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-4">
-            <div className="p-2.5 rounded-xl bg-violet-500/15 text-violet-600">
-              <Users className="h-5 w-5" />
+        {/* Today's Visitors */}
+        <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-4 sm:p-5 group hover:shadow-lg hover:shadow-violet-500/5 transition-all duration-300">
+          <div className="absolute -top-6 -right-6 w-20 h-20 rounded-full bg-violet-500/8 group-hover:scale-150 transition-transform duration-500" />
+          <div className="relative flex items-center gap-3 sm:gap-4">
+            <div className="p-2 sm:p-2.5 rounded-xl bg-violet-500/10">
+              <Users className="h-4 w-4 sm:h-5 sm:w-5 text-violet-500" />
             </div>
             <div className="min-w-0">
-              <p className="text-2xl font-bold tracking-tight">{formatNumber(data.today.uniqueVisitors)}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Today&apos;s Visitors</p>
+              <p className="text-xl sm:text-2xl font-bold tracking-tight tabular-nums">{formatNumber(data.today.uniqueVisitors)}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wider">Today&apos;s Visitors</p>
             </div>
           </div>
         </div>
 
-        {/* Total All-Time Views */}
-        <div className="bg-card rounded-xl border border-border shadow-sm p-5 hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-4">
-            <div className="p-2.5 rounded-xl bg-amber-500/15 text-amber-600">
-              <BarChart3 className="h-5 w-5" />
+        {/* All-Time Views */}
+        <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-4 sm:p-5 group hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300">
+          <div className="absolute -top-6 -right-6 w-20 h-20 rounded-full bg-amber-500/8 group-hover:scale-150 transition-transform duration-500" />
+          <div className="relative flex items-center gap-3 sm:gap-4">
+            <div className="p-2 sm:p-2.5 rounded-xl bg-amber-500/10">
+              <BarChart3 className="h-4 w-4 sm:h-5 sm:w-5 text-amber-500" />
             </div>
             <div className="min-w-0">
-              <p className="text-2xl font-bold tracking-tight">{formatNumber(data.totalAllTime.views)}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">All-Time Views</p>
+              <p className="text-xl sm:text-2xl font-bold tracking-tight tabular-nums">{formatNumber(data.totalAllTime.views)}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wider">All-Time Views</p>
             </div>
           </div>
         </div>

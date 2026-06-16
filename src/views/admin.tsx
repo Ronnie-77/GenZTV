@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { useAppStore } from '@/lib/store'
-import { Shield, Eye, EyeOff, LogOut, AlertCircle, Loader2, Tv, BarChart3, Radio, FolderOpen, Settings, Menu, X, Activity, Database } from 'lucide-react'
+import { Shield, Eye, EyeOff, LogOut, AlertCircle, Loader2, Tv, BarChart3, Radio, FolderOpen, Settings, Menu, X, Activity, Database, Home } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -38,6 +38,16 @@ const AdminSettings = lazyWithRetry(() => import('@/views/admin/settings').then(
 const AdminAnalytics = lazyWithRetry(() => import('@/views/admin/analytics').then(m => ({ default: m.AdminAnalytics })))
 const AdminData = lazyWithRetry(() => import('@/views/admin/data').then(m => ({ default: m.AdminData })))
 
+// Bottom nav items (mobile) — icons only, no labels
+const bottomNavItems = [
+  { id: 'dashboard' as const, label: 'Home', icon: Home },
+  { id: 'analytics' as const, label: 'Stats', icon: Activity },
+  { id: 'channels' as const, label: 'Channels', icon: Tv },
+  { id: 'matches' as const, label: 'Matches', icon: Radio },
+  { id: 'settings' as const, label: 'Settings', icon: Settings },
+]
+
+// Sidebar nav items (all pages, for hamburger menu + desktop sidebar)
 const sidebarNavItems = [
   { id: 'dashboard' as const, label: 'Dashboard', icon: BarChart3 },
   { id: 'analytics' as const, label: 'Analytics', icon: Activity },
@@ -96,7 +106,7 @@ export function AdminPage() {
 
   // Close mobile sidebar when navigating
   useEffect(() => {
-    setMobileSidebarOpen(false)
+    setMobileSidebarOpen(false) // eslint-disable-line react-hooks/set-state-in-effect
   }, [adminPage])
 
   const handleLogin = async () => {
@@ -297,7 +307,7 @@ export function AdminPage() {
 
   return (
     <div className="admin-layout">
-      {/* Mobile sidebar overlay */}
+      {/* Sidebar overlay — mobile only */}
       {mobileSidebarOpen && (
         <div
           className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 lg:hidden"
@@ -364,8 +374,8 @@ export function AdminPage() {
 
       {/* Main content area */}
       <main className="admin-content">
-        {/* Mobile header bar */}
-        <div className="admin-mobile-header lg:hidden">
+        {/* Header bar — visible on all screens */}
+        <div className="admin-mobile-header">
           <button
             onClick={() => setMobileSidebarOpen(true)}
             className="p-2 rounded-lg hover:bg-secondary transition-colors"
@@ -381,9 +391,26 @@ export function AdminPage() {
         </div>
 
         {/* Page content */}
-        <div className="admin-page-content">
+        <div className="admin-page-content admin-page-content-with-bottom-nav">
           {renderAdminContent()}
         </div>
+
+        {/* Bottom Tab Navigation (mobile only) */}
+        <nav className="admin-bottom-nav">
+          {bottomNavItems.map((item) => {
+            const Icon = item.icon
+            const isActive = adminPage === item.id
+            return (
+              <button
+                key={item.id}
+                onClick={() => setAdminPage(item.id)}
+                className={`admin-bottom-nav-item ${isActive ? 'admin-bottom-nav-item-active' : ''}`}
+              >
+                <Icon className="h-5 w-5" />
+              </button>
+            )
+          })}
+        </nav>
       </main>
     </div>
   )

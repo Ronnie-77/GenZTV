@@ -137,6 +137,49 @@
   }
 }
 
+/* ===== Security Protections (CSS layer) ===== */
+/* Disable text selection on non-input elements */
+body {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Re-enable selection for inputs and textareas */
+input,
+textarea,
+[contenteditable="true"] {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+}
+
+/* Disable drag on images and links */
+img,
+a,
+video {
+  -webkit-user-drag: none;
+  -khtml-user-drag: none;
+  -moz-user-drag: none;
+  -o-user-drag: none;
+  user-drag: none;
+  pointer-events: auto;
+}
+
+/* Prevent touch callout on iOS */
+* {
+  -webkit-touch-callout: none;
+}
+
+/* Disable print styles — blank page when printing */
+@media print {
+  body {
+    display: none !important;
+  }
+}
+
 /* ===== Mobile GPU Scroll Glitch Fix ===== */
 /* MOVED TO END OF FILE — must come after all desktop style definitions
    so CSS cascade doesn't override the mobile fixes. */
@@ -1656,7 +1699,7 @@ input[type="number"]::-webkit-outer-spin-button {
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Mobile: sidebar hidden by default */
+/* Sidebar: hidden on mobile, always visible on desktop */
 @media (max-width: 1023px) {
   .admin-sidebar {
     transform: translateX(-100%);
@@ -1739,13 +1782,14 @@ input[type="number"]::-webkit-outer-spin-button {
   background: var(--background);
 }
 
+/* Desktop: content pushed right by sidebar width */
 @media (min-width: 1024px) {
   .admin-content {
     margin-left: 240px;
   }
 }
 
-/* Mobile header bar — hidden on desktop, shown on mobile */
+/* Header bar — mobile only (hamburger + title) */
 .admin-mobile-header {
   position: sticky;
   top: 0;
@@ -1773,10 +1817,91 @@ input[type="number"]::-webkit-outer-spin-button {
   overflow-y: auto;
 }
 
+.admin-page-content-with-bottom-nav {
+  padding-bottom: 72px;
+}
+
 @media (min-width: 1024px) {
   .admin-page-content {
     padding: 24px 48px 24px 48px;
   }
+  .admin-page-content-with-bottom-nav {
+    padding-bottom: 24px;
+  }
+}
+
+/* ─── Bottom Tab Navigation (mobile only) ─── */
+.admin-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: none; /* hidden by default */
+  align-items: center;
+  justify-content: space-around;
+  height: 56px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Show only on mobile */
+@media (max-width: 1023px) {
+  .admin-bottom-nav {
+    display: flex !important;
+  }
+}
+
+/* Extra safety: hide on desktop */
+@media (min-width: 1024px) {
+  .admin-bottom-nav {
+    display: none !important;
+  }
+}
+
+.admin-bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex: 1;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: color 0.15s ease, transform 0.1s ease;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.admin-bottom-nav-item:active {
+  transform: scale(0.88);
+}
+
+.admin-bottom-nav-item:hover {
+  color: var(--foreground);
+}
+
+.admin-bottom-nav-item-active {
+  color: var(--primary) !important;
+  position: relative;
+}
+
+.admin-bottom-nav-item-active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--primary);
 }
 
 /* Admin table header styling */
@@ -1784,4 +1909,60 @@ input[type="number"]::-webkit-outer-spin-button {
   position: sticky;
   top: 0;
   z-index: 1;
+}
+
+/* ─── Channel List Box (Watch Page) ─── */
+
+/* Custom scrollbar for channel list */
+.channel-list-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.channel-list-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.channel-list-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.channel-list-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 10px;
+}
+.channel-list-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+
+/* Active channel item — colorful shimmer animation */
+.channel-list-item-active {
+  position: relative;
+  background: linear-gradient(135deg, hsl(var(--primary) / 0.08), hsl(var(--primary) / 0.03));
+  border-left: 3px solid hsl(var(--primary));
+  overflow: hidden;
+}
+
+.channel-list-item-active::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    hsl(var(--primary) / 0.12) 25%,
+    hsl(var(--primary) / 0.06) 50%,
+    transparent 100%
+  );
+  animation: channel-shimmer 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes channel-shimmer {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Active channel item hover glow */
+.channel-list-item-active:hover {
+  background: linear-gradient(135deg, hsl(var(--primary) / 0.14), hsl(var(--primary) / 0.06));
+  box-shadow: inset 0 0 16px hsl(var(--primary) / 0.06);
 }

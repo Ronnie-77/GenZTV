@@ -6,9 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
-import { Checkbox } from '@/components/ui/checkbox'
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
-import { fetchChannels, createChannel, updateChannel, deleteChannel, bulkDeleteChannels, parseM3U, importFileContent, type Channel } from '@/lib/api'
+import { fetchChannels, createChannel, updateChannel, deleteChannel, parseM3U, importFileContent, type Channel } from '@/lib/api'
 import { toast } from 'sonner'
 
 const categoryOptions = [
@@ -95,11 +93,6 @@ export function AdminChannels() {
 
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
-
-  // Bulk selection
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false)
-  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   // Ref for scrolling to form on edit
   const formRef = useRef<HTMLDivElement>(null)
@@ -202,43 +195,9 @@ export function AdminChannels() {
       await deleteChannel(id)
       toast.success('Channel Deleted', { description: 'Channel has been removed' })
       setDeleteConfirm(null)
-      setSelectedIds(prev => { const next = new Set(prev); next.delete(id); return next })
       loadChannels()
     } catch {
       toast.error('Error', { description: 'Failed to delete channel' })
-    }
-  }
-
-  const toggleSelectChannel = (id: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  const toggleSelectAll = () => {
-    if (selectedIds.size === channels.length) {
-      setSelectedIds(new Set())
-    } else {
-      setSelectedIds(new Set(channels.map(ch => ch.id)))
-    }
-  }
-
-  const handleBulkDelete = async () => {
-    if (selectedIds.size === 0) return
-    setBulkDeleting(true)
-    try {
-      const result = await bulkDeleteChannels(Array.from(selectedIds))
-      toast.success('Channels Deleted', { description: `${result.deleted} channel${result.deleted !== 1 ? 's' : ''} removed successfully` })
-      setSelectedIds(new Set())
-      setShowBulkDeleteDialog(false)
-      loadChannels()
-    } catch {
-      toast.error('Error', { description: 'Failed to delete channels' })
-    } finally {
-      setBulkDeleting(false)
     }
   }
 
@@ -888,13 +847,6 @@ export function AdminChannels() {
             <table className="w-full">
               <thead className="bg-secondary/50">
                 <tr>
-                  <th className="p-3 w-10">
-                    <Checkbox
-                      checked={channels.length > 0 && selectedIds.size === channels.length}
-                      onCheckedChange={toggleSelectAll}
-                      aria-label="Select all channels"
-                    />
-                  </th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Channel</th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Category</th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Type</th>
@@ -905,14 +857,7 @@ export function AdminChannels() {
               </thead>
               <tbody>
                 {channels.map((ch) => (
-                  <tr key={ch.id} className={`border-t border-border hover:bg-secondary/30 transition-colors ${selectedIds.has(ch.id) ? 'bg-primary/5' : ''}`}>
-                    <td className="p-3 w-10">
-                      <Checkbox
-                        checked={selectedIds.has(ch.id)}
-                        onCheckedChange={() => toggleSelectChannel(ch.id)}
-                        aria-label={`Select ${ch.name}`}
-                      />
-                    </td>
+                  <tr key={ch.id} className="border-t border-border hover:bg-secondary/30 transition-colors">
                     <td className="p-3 text-sm">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center overflow-hidden shrink-0 p-0.5">
@@ -1007,82 +952,9 @@ export function AdminChannels() {
           </div>
           <div className="p-3 border-t border-border text-xs text-muted-foreground text-center">
             Showing {channels.length} channel{channels.length !== 1 ? 's' : ''}
-            {selectedIds.size > 0 && (
-              <span className="ml-2 text-primary font-medium">
-                ({selectedIds.size} selected)
-              </span>
-            )}
           </div>
         </div>
       )}
-
-      {/* Bulk Action Bar — shows when channels are selected */}
-      {selectedIds.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
-          <div className="bg-card border border-border shadow-2xl rounded-2xl px-5 py-3 flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                checked={channels.length > 0 && selectedIds.size === channels.length}
-                onCheckedChange={toggleSelectAll}
-                aria-label="Select all channels"
-              />
-              <span className="text-sm font-medium">
-                {selectedIds.size} selected
-              </span>
-            </div>
-            <div className="h-5 w-px bg-border" />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSelectedIds(new Set())}
-              className="h-8 text-xs"
-            >
-              Clear
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => setShowBulkDeleteDialog(true)}
-              className="gap-1.5 h-8 text-xs"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete ({selectedIds.size})
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Bulk Delete Confirmation Dialog */}
-      <AlertDialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete {selectedIds.size} Channel{selectedIds.size !== 1 ? 's' : ''}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action cannot be undone. {selectedIds.size} channel{selectedIds.size !== 1 ? 's' : ''} will be permanently deleted along with all their data.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={bulkDeleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleBulkDelete}
-              disabled={bulkDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {bulkDeleting ? (
-                <>
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1.5" />
-                  Deleting...
-                </>
-              ) : (
-                <>
-                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                  Delete {selectedIds.size} Channel{selectedIds.size !== 1 ? 's' : ''}
-                </>
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

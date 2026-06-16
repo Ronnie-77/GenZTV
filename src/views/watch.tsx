@@ -2,10 +2,9 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useAppStore } from '@/lib/store'
-import { fetchChannel, fetchMatch, type Channel, type Match } from '@/lib/api'
+import { fetchChannel, fetchMatch, fetchChannels, type Channel, type Match } from '@/lib/api'
 import { VideoPlayer } from '@/components/player/video-player'
-import { ChatBox } from '@/components/chat/chat-box'
-import { ArrowLeft, Heart, Share2, Tv, ExternalLink, Radio } from 'lucide-react'
+import { ArrowLeft, Heart, Share2, Tv, ExternalLink, Radio, List } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -89,6 +88,7 @@ export function WatchPage() {
   const [videoAboveMobileAds, setVideoAboveMobileAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
   const [videoAbovePcAds, setVideoAbovePcAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
   const [nativeBannerAds, setNativeBannerAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
+  const [allChannels, setAllChannels] = useState<Channel[]>([])
 
   // Fetch ad settings
   useEffect(() => {
@@ -102,6 +102,11 @@ export function WatchPage() {
         setNativeBannerAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'native-banner' && enabled(a)))
       } catch { /* ignore */ }
     }).catch(() => {})
+  }, [])
+
+  // Fetch all channels for sidebar list
+  useEffect(() => {
+    fetchChannels().then(setAllChannels).catch(() => {})
   }, [])
 
   // Fetch channel or match data
@@ -246,31 +251,31 @@ export function WatchPage() {
         </div>
       </div>
 
-      {/* Video Player + Banner Ad */}
+      {/* Banner Ad — above video player (outside flex row) */}
+      {videoAdsEnabled && (
+        <div className="px-4 md:px-6 mb-4">
+          {/* 📱 Mobile */}
+          <div className="flex lg:hidden flex-col items-center gap-3">
+            {videoAboveMobileAds.map((ad) => (
+              <DynamicAdSlot key={ad.id} script={ad.script} />
+            ))}
+            {videoAboveMobileAds.length === 0 && <BannerAd />}
+          </div>
+          {/* 🖥️ PC */}
+          <div className="hidden lg:flex flex-col items-center gap-3">
+            {videoAbovePcAds.map((ad) => (
+              <DynamicAdSlot key={ad.id} script={ad.script} />
+            ))}
+            {videoAbovePcAds.length === 0 && <BannerAd />}
+          </div>
+        </div>
+      )}
+
+      {/* Video Player + Channel List */}
       <div className="px-4 md:px-6">
         <div className="flex flex-col lg:flex-row gap-4">
-          {/* Left: Ad + Video Player + Stream Selector */}
+          {/* Left: Video Player + Stream Selector */}
           <div className="flex-1 min-w-0 max-w-4xl relative">
-            {/* 📱 Banner Ad above player — Mobile only */}
-            {videoAdsEnabled && (
-              <div className="flex lg:hidden flex-col items-center gap-3 mb-4">
-                {videoAboveMobileAds.map((ad) => (
-                  <DynamicAdSlot key={ad.id} script={ad.script} />
-                ))}
-                {videoAboveMobileAds.length === 0 && <BannerAd />}
-              </div>
-            )}
-
-            {/* 🖥️ Banner Ad above player — PC only */}
-            {videoAdsEnabled && (
-              <div className="hidden lg:flex flex-col items-center gap-3 mb-4">
-                {videoAbovePcAds.map((ad) => (
-                  <DynamicAdSlot key={ad.id} script={ad.script} />
-                ))}
-                {videoAbovePcAds.length === 0 && <BannerAd />}
-              </div>
-            )}
-
             <div className="relative w-full bg-black rounded-xl overflow-hidden z-10">
               {loading ? (
                 <div className="w-full aspect-video flex items-center justify-center bg-black">
@@ -307,17 +312,71 @@ export function WatchPage() {
                 </div>
               </div>
             )}
+          </div>
 
-            {/* Mobile: Chat Box below player */}
-            <div className="flex lg:hidden mt-4">
-              <ChatBox matchId={viewMode === 'match' && match ? match.id : undefined} matchTitle={viewMode === 'match' && match ? match.title : undefined} />
+          {/* Right: Channel List — PC only, top-aligned with video player */}
+          <div className="hidden lg:flex lg:flex-col w-72 xl:w-80 shrink-0">
+            <div className="rounded-xl border bg-card overflow-hidden">
+              {/* Channel list header */}
+              <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/30">
+                <List className="h-4 w-4 text-primary" />
+                <span className="text-sm font-semibold">Channels</span>
+                <span className="ml-auto text-xs text-muted-foreground">{allChannels.length}</span>
+              </div>
+              {/* Channel list */}
+              <div className="overflow-y-auto max-h-[calc(340px+6rem)] channel-list-scroll" style={{ scrollbarGutter: 'stable' }}>
+                {allChannels.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-muted-foreground">No channels</div>
+                ) : (
+                  allChannels.map((ch) => {
+                    const isActive = currentChannelId === ch.id
+                    return (
+                      <button
+                        key={ch.id}
+                        onClick={() => {
+                          useAppStore.getState().setCurrentChannelId(ch.id)
+                          useAppStore.getState().setCurrentPage('watch')
+                        }}
+                        className={`channel-list-item w-full flex items-center gap-3 px-4 py-3 text-left transition-all duration-200 hover:bg-muted/50 ${
+                          isActive ? 'channel-list-item-active' : ''
+                        }`}
+                      >
+                        {ch.logo ? (
+                          <img
+                            src={ch.logo}
+                            alt={ch.name}
+                            className={`w-10 h-10 rounded-lg object-cover bg-muted shrink-0 transition-all duration-300 ${isActive ? 'ring-2 ring-primary shadow-md shadow-primary/20' : ''}`}
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className={`w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0 transition-all duration-300 ${isActive ? 'ring-2 ring-primary shadow-md shadow-primary/20' : ''}`}>
+                            <Tv className={`h-5 w-5 transition-colors duration-300 ${isActive ? 'text-primary' : 'text-muted-foreground'}`} />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm truncate transition-all duration-300 ${isActive ? 'font-bold text-primary' : 'font-medium'}`}>
+                            {ch.name}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground capitalize truncate">
+                            {ch.category}{ch.country ? ` · ${ch.country}` : ''}
+                          </p>
+                        </div>
+                        {isActive && (
+                          <div className="shrink-0 flex items-center gap-1">
+                            <span className="relative flex h-2 w-2">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                            </span>
+                          </div>
+                        )}
+                      </button>
+                    )
+                  })
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Right: Chat Box — PC only */}
-          <div className="hidden lg:flex lg:flex-col w-80 xl:w-96 shrink-0 relative z-20">
-            <ChatBox className="flex-1" messagesMaxHeight="max-h-[600px]" matchId={viewMode === 'match' && match ? match.id : undefined} matchTitle={viewMode === 'match' && match ? match.title : undefined} />
-          </div>
         </div>
       </div>
 
