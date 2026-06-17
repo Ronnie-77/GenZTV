@@ -55,8 +55,8 @@ export function AdminData() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
 
-      const counts = data._meta?.counts
-      const totalItems = counts ? Object.values(counts).reduce((a: number, b: number) => a + b, 0) : 0
+      const counts = data._meta?.counts as Record<string, number> | undefined
+      const totalItems = counts ? Object.values(counts).reduce<number>((sum, n) => sum + (typeof n === 'number' ? n : 0), 0) : 0
       toast.success(`Export successful! ${totalItems} items exported.`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Export failed')
@@ -137,9 +137,6 @@ export function AdminData() {
 
     setResetting(true)
     try {
-      // Delete all data in correct order (respect foreign keys)
-      const { db } = await import('@/lib/db') // won't work client-side, use API
-
       const res = await fetch('/api/data/reset', {
         method: 'POST',
         credentials: 'same-origin',

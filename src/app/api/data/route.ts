@@ -11,7 +11,10 @@ export async function GET(req: NextRequest) {
       const settings = await db.appSetting.findUnique({ where: { id: 'app' } })
       const dailyStats = await db.dailyStat.findMany()
       const visitorSessions = await db.visitorSession.findMany()
-      const pageViews = await db.pageView.findMany({ take: 5000 })
+      // Export ALL page views — a backup must be complete so it can be fully
+      // restored when changing hosting. (The 100MB import cap protects against
+      // abuse; SQLite + JSON easily handles tens of thousands of rows.)
+      const pageViews = await db.pageView.findMany()
       const pushSubscriptions = await db.pushSubscription.findMany()
 
       return NextResponse.json({

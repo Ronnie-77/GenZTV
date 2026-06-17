@@ -3,6 +3,13 @@ import { db } from '@/lib/db'
 import { requireAdminAuth } from '@/lib/auth'
 
 // POST /api/data/import — Import data from JSON (admin only)
+//
+// Restores a GenZ TV backup file produced by GET /api/data. Merges with
+// existing data: same-ID records are updated, new-ID records are created.
+// No data is deleted. All schema fields are preserved including the
+// analytics enrichment fields (device, browser, peakVisitors, topDevices,
+// topBrowsers) and the GA4 / Firebase settings — so a hosting change via
+// export → import loses nothing.
 export async function POST(req: NextRequest) {
   return requireAdminAuth(req, async () => {
     try {
@@ -34,7 +41,7 @@ export async function POST(req: NextRequest) {
         pushSubscriptions: { imported: 0, skipped: 0 },
       }
 
-      // Settings
+      // Settings — ALL fields including GA4 / Firebase config
       if (body.settings && (body.settings as Record<string, unknown>)?.id) {
         const s = body.settings as Record<string, unknown>
         try {
@@ -48,6 +55,8 @@ export async function POST(req: NextRequest) {
               customAdScripts: s.customAdScripts as string, adsEnabled: s.adsEnabled as boolean,
               homeAdsEnabled: s.homeAdsEnabled as boolean, videoAdsEnabled: s.videoAdsEnabled as boolean,
               apkUrl: s.apkUrl as string,
+              ga4MeasurementId: (s.ga4MeasurementId as string) ?? '',
+              firebaseConfig: (s.firebaseConfig as string) ?? '{}',
             },
             create: {
               id: 'app', appName: (s.appName as string) || 'GenZ TV', logoUrl: (s.logoUrl as string) || '',
@@ -59,6 +68,8 @@ export async function POST(req: NextRequest) {
               homeAdsEnabled: s.homeAdsEnabled !== undefined ? (s.homeAdsEnabled as boolean) : true,
               videoAdsEnabled: s.videoAdsEnabled !== undefined ? (s.videoAdsEnabled as boolean) : true,
               apkUrl: (s.apkUrl as string) || '',
+              ga4MeasurementId: (s.ga4MeasurementId as string) || '',
+              firebaseConfig: (s.firebaseConfig as string) || '{}',
             },
           })
           r.settings = true
@@ -130,21 +141,40 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Daily Stats
+      // Daily Stats — ALL fields including peakVisitors / topDevices / topBrowsers
       if (Array.isArray(body.dailyStats)) {
         for (const d of body.dailyStats as Record<string, unknown>[]) {
           try {
             await db.dailyStat.upsert({
               where: { date: d.date as string },
-              update: { totalViews: (d.totalViews as number) ?? 0, uniqueVisitors: (d.uniqueVisitors as number) ?? 0, topPages: (d.topPages as string) ?? '{}', topChannels: (d.topChannels as string) ?? '{}', topCountries: (d.topCountries as string) ?? '{}' },
-              create: { date: d.date as string, totalViews: (d.totalViews as number) ?? 0, uniqueVisitors: (d.uniqueVisitors as number) ?? 0, topPages: (d.topPages as string) ?? '{}', topChannels: (d.topChannels as string) ?? '{}', topCountries: (d.topCountries as string) ?? '{}' },
+              update: {
+                totalViews: (d.totalViews as number) ?? 0,
+                uniqueVisitors: (d.uniqueVisitors as number) ?? 0,
+                peakVisitors: (d.peakVisitors as number) ?? 0,
+                topPages: (d.topPages as string) ?? '{}',
+                topChannels: (d.topChannels as string) ?? '{}',
+                topCountries: (d.topCountries as string) ?? '{}',
+                topDevices: (d.topDevices as string) ?? '{}',
+                topBrowsers: (d.topBrowsers as string) ?? '{}',
+              },
+              create: {
+                date: d.date as string,
+                totalViews: (d.totalViews as number) ?? 0,
+                uniqueVisitors: (d.uniqueVisitors as number) ?? 0,
+                peakVisitors: (d.peakVisitors as number) ?? 0,
+                topPages: (d.topPages as string) ?? '{}',
+                topChannels: (d.topChannels as string) ?? '{}',
+                topCountries: (d.topCountries as string) ?? '{}',
+                topDevices: (d.topDevices as string) ?? '{}',
+                topBrowsers: (d.topBrowsers as string) ?? '{}',
+              },
             })
             r.dailyStats.imported++
           } catch { r.dailyStats.skipped++ }
         }
       }
 
-      // Visitor Sessions
+      // Visitor Sessions — ALL fields including device / browser
       if (Array.isArray(body.visitorSessions)) {
         for (const v of body.visitorSessions as Record<string, unknown>[]) {
           try {
@@ -156,17 +186,26 @@ export async function POST(req: NextRequest) {
             }
             await db.visitorSession.upsert({
               where: { sessionId: v.sessionId as string },
-              update: { lastSeen, pageCount: (v.pageCount as number) ?? 0, country: (v.country as string) ?? '', userAgent: (v.userAgent as string) ?? '', ip: (v.ip as string) ?? '' },
-              create: { sessionId: v.sessionId as string, firstSeen, lastSeen, pageCount: (v.pageCount as number) ?? 0, country: (v.country as string) ?? '', userAgent: (v.userAgent as string) ?? '', ip: (v.ip as string) ?? '' },
+              update: {
+                lastSeen, pageCount: (v.pageCount as number) ?? 0, country: (v.country as string) ?? '',
+                userAgent: (v.userAgent as string) ?? '', ip: (v.ip as string) ?? '',
+                device: (v.device as string) ?? '', browser: (v.browser as string) ?? '',
+              },
+              create: {
+                sessionId: v.sessionId as string, firstSeen, lastSeen,
+                pageCount: (v.pageCount as number) ?? 0, country: (v.country as string) ?? '',
+                userAgent: (v.userAgent as string) ?? '', ip: (v.ip as string) ?? '',
+                device: (v.device as string) ?? '', browser: (v.browser as string) ?? '',
+              },
             })
             r.visitorSessions.imported++
           } catch { r.visitorSessions.skipped++ }
         }
       }
 
-      // Page Views (create only, limit 5000)
+      // Page Views — upsert by id (avoids duplicates on re-import) + device / browser
       if (Array.isArray(body.pageViews)) {
-        const pageViews = (body.pageViews as Record<string, unknown>[]).slice(0, 5000)
+        const pageViews = (body.pageViews as Record<string, unknown>[]).slice(0, 50000)
         for (const p of pageViews) {
           try {
             const createdAt = p.createdAt ? new Date(p.createdAt as string) : new Date()
@@ -174,7 +213,24 @@ export async function POST(req: NextRequest) {
               r.pageViews.skipped++
               continue
             }
-            await db.pageView.create({ data: { sessionId: (p.sessionId as string) ?? '', page: (p.page as string) ?? '', channelId: (p.channelId as string) ?? null, referrer: (p.referrer as string) ?? '', userAgent: (p.userAgent as string) ?? '', country: (p.country as string) ?? '', ip: (p.ip as string) ?? '', createdAt } })
+            await db.pageView.upsert({
+              where: { id: p.id as string },
+              update: {
+                sessionId: (p.sessionId as string) ?? '', page: (p.page as string) ?? '',
+                channelId: (p.channelId as string) || null, referrer: (p.referrer as string) ?? '',
+                userAgent: (p.userAgent as string) ?? '', country: (p.country as string) ?? '',
+                ip: (p.ip as string) ?? '', device: (p.device as string) ?? '',
+                browser: (p.browser as string) ?? '', createdAt,
+              },
+              create: {
+                id: p.id as string, sessionId: (p.sessionId as string) ?? '',
+                page: (p.page as string) ?? '', channelId: (p.channelId as string) || null,
+                referrer: (p.referrer as string) ?? '', userAgent: (p.userAgent as string) ?? '',
+                country: (p.country as string) ?? '', ip: (p.ip as string) ?? '',
+                device: (p.device as string) ?? '', browser: (p.browser as string) ?? '',
+                createdAt,
+              },
+            })
             r.pageViews.imported++
           } catch { r.pageViews.skipped++ }
         }
