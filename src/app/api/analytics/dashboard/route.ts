@@ -3,7 +3,9 @@ import { db } from '@/lib/db'
 import { requireAdminAuth } from '@/lib/auth'
 
 // GET /api/analytics/dashboard — admin analytics dashboard data
-// Uses sequential DB queries to reduce memory spikes
+// Returns REAL data only (no fake/mock). Includes daily peak concurrent
+// visitors, top devices (mobile/desktop/tv) and top browsers, in addition
+// to the existing views / visitors / countries / channels metrics.
 export async function GET(request: NextRequest) {
   return requireAdminAuth(request, async () => {
     try {
@@ -47,7 +49,6 @@ export async function GET(request: NextRequest) {
       const allTimeStats = fourteenDaysAgo <= thirtyDaysAgo
         ? last30DaysStats
         : await db.dailyStat.findMany()
-      // If we only have partial data from last30DaysStats, fetch all
       const totalAllTime = fourteenDaysAgo > thirtyDaysAgo
         ? {
             views: allTimeStats.reduce((sum, s) => sum + s.totalViews, 0),
@@ -58,26 +59,59 @@ export async function GET(request: NextRequest) {
             uniqueVisitors: last30DaysStats.reduce((sum, s) => sum + s.uniqueVisitors, 0),
           }
 
-      // Online now
+      // Online now (real: sessions active in last 5 minutes)
       const onlineNow = await db.visitorSession.count({
         where: { lastSeen: { gte: fiveMinAgo } },
       })
 
-      // Recent page views
-      const recentPageViews = await db.pageView.findMany({
-        take: 20,
-        orderBy: { createdAt: 'desc' },
-        select: { page: true, channelId: true, createdAt: true },
-      })
+      // Recent page views.
+      // NOTE: We intentionally do NOT use an explicit `select` here. Earlier
+      // versions selected `device`, `browser`, `country` — but if a developer's
+      // LOCAL Prisma client / SQLite DB hasn't been migrated to the Task-17
+      // schema yet, those fields are "Unknown" and the query throws a 500.
+      // Fetching all fields is safe on both old and new schemas: on old schemas
+      // the new columns simply won't be present in the returned rows (we read
+      // them defensively with `|| ''` below).
+      let recentPageViews: Array<{
+        page: string
+        channelId: string | null
+        createdAt: Date
+        country?: string
+        device?: string
+        browser?: string
+      }> = []
+      try {
+        recentPageViews = await db.pageView.findMany({
+          take: 20,
+          orderBy: { createdAt: 'desc' },
+        }) as typeof recentPageViews
+      } catch (e) {
+        console.error('[Analytics] recentPageViews fetch failed (degraded):', e)
+        recentPageViews = []
+      }
 
       // Top channels all time — from all DailyStats
       const allStats = await db.dailyStat.findMany()
       const channelCounts: Record<string, number> = {}
+      const deviceCounts: Record<string, number> = {}
+      const browserCounts: Record<string, number> = {}
       for (const stat of allStats) {
         try {
-          const parsed: Record<string, number> = JSON.parse(stat.topChannels || '{}')
-          for (const [chId, count] of Object.entries(parsed)) {
-            channelCounts[chId] = (channelCounts[chId] || 0) + count
+          const ch: Record<string, number> = JSON.parse(stat.topChannels || '{}')
+          for (const [id, count] of Object.entries(ch)) {
+            channelCounts[id] = (channelCounts[id] || 0) + count
+          }
+        } catch { /* skip */ }
+        try {
+          const dev: Record<string, number> = JSON.parse(stat.topDevices || '{}')
+          for (const [d, count] of Object.entries(dev)) {
+            deviceCounts[d] = (deviceCounts[d] || 0) + count
+          }
+        } catch { /* skip */ }
+        try {
+          const br: Record<string, number> = JSON.parse(stat.topBrowsers || '{}')
+          for (const [b, count] of Object.entries(br)) {
+            browserCounts[b] = (browserCounts[b] || 0) + count
           }
         } catch { /* skip */ }
       }
@@ -105,26 +139,46 @@ export async function GET(request: NextRequest) {
           views,
         }))
 
+      // Top devices all-time (mobile/desktop/tv)
+      const topDevicesAllTime = Object.entries(deviceCounts)
+        .sort(([, a], [, b]) => b - a)
+        .map(([device, count]) => ({ device, count }))
+
+      // Top browsers all-time
+      const topBrowsersAllTime = Object.entries(browserCounts)
+        .sort(([, a], [, b]) => b - a)
+        .map(([browser, count]) => ({ browser, count }))
+
       const dailyChart = dailyStats.map((s) => ({
         date: s.date,
         views: s.totalViews,
         uniqueVisitors: s.uniqueVisitors,
+        // `peakVisitors` was added in Task-17. On a DB that hasn't been
+        // migrated yet the column is absent → value is undefined → fall back
+        // to 0 so the chart still renders.
+        peakVisitors: (s as { peakVisitors?: number }).peakVisitors || 0,
       }))
 
       const formatStat = (
         stat: {
           totalViews: number
           uniqueVisitors: number
-          topPages: string
-          topChannels: string
-          topCountries: string
+          peakVisitors?: number
+          topPages?: string
+          topChannels?: string
+          topCountries?: string
+          topDevices?: string
+          topBrowsers?: string
         } | null
       ) => ({
         views: stat?.totalViews || 0,
         uniqueVisitors: stat?.uniqueVisitors || 0,
+        peakVisitors: stat?.peakVisitors || 0,
         topPages: JSON.parse(stat?.topPages || '{}'),
         topChannels: JSON.parse(stat?.topChannels || '{}'),
         topCountries: JSON.parse(stat?.topCountries || '{}'),
+        topDevices: JSON.parse(stat?.topDevices || '{}'),
+        topBrowsers: JSON.parse(stat?.topBrowsers || '{}'),
       })
 
       return NextResponse.json({
@@ -135,11 +189,17 @@ export async function GET(request: NextRequest) {
         totalAllTime,
         dailyChart,
         topChannelsAllTime,
+        topDevicesAllTime,
+        topBrowsersAllTime,
         onlineNow,
         recentPageViews: recentPageViews.map((pv) => ({
           page: pv.page,
           channelId: pv.channelId,
           createdAt: pv.createdAt.toISOString(),
+          // Defensive reads — these columns may be absent on an unmigrated DB.
+          country: pv.country || '',
+          device: pv.device || '',
+          browser: pv.browser || '',
         })),
       })
     } catch (error) {

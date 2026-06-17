@@ -2,24 +2,37 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-// Dynamic import to avoid compiling the entire app during initial page load
+// Dynamic import to avoid compiling the entire app during initial page load.
 // This reduces memory usage during Turbopack/webpack compilation.
-// Includes retry logic (3 attempts) + a timeout fallback so that older
-// browsers (e.g. Smart TVs) that fail to fetch/parse the chunk don't get
-// stuck on the "Loading..." screen forever.
-const LOAD_TIMEOUT_MS = 20000
+//
+// Reliability strategy:
+//   - 5 retry attempts with backoff (handles transient network/parse failures
+//     on weak Smart TV connections, or when the dev server is briefly unreachable).
+//   - NO artificial timeout. Slow-but-progressing loads on Smart TVs are NOT
+//     interrupted — the user just sees a friendly "Connecting..." screen with
+//     live retry progress until the app is ready.
+//   - The loading screen shows the current retry attempt number, so the user
+//     can see the app is actively trying (not stuck).
+//   - A "Try again now" button appears after the first failed attempt, so the
+//     user can immediately retry instead of waiting for the next backoff.
+//   - If all retries are exhausted, a friendly "Connection problem" screen
+//     with Retry + Hard refresh buttons is shown.
+const MAX_RETRIES = 5
 
-async function loadAppShellWithRetry(retries = 3): Promise<React.ComponentType> {
+async function loadAppShellWithRetry(
+  onAttempt: (attempt: number, max: number) => void
+): Promise<React.ComponentType> {
   let lastError: unknown = null
-  for (let i = 0; i < retries; i++) {
+  for (let i = 0; i < MAX_RETRIES; i++) {
+    onAttempt(i + 1, MAX_RETRIES)
     try {
       const mod = await import('@/components/layout/app-shell')
       return mod.AppShell
     } catch (err) {
       lastError = err
-      // Exponential backoff between retries
-      if (i < retries - 1) {
-        await new Promise((r) => setTimeout(r, 1000 * (i + 1)))
+      // Exponential backoff between retries: 1s, 2s, 4s, 8s, 16s
+      if (i < MAX_RETRIES - 1) {
+        await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, i)))
       }
     }
   }
@@ -29,63 +42,55 @@ async function loadAppShellWithRetry(retries = 3): Promise<React.ComponentType> 
 export default function Home() {
   const [AppShell, setAppShell] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [timedOut, setTimedOut] = useState(false)
-  // Ref tracks the *current* loaded state so the setTimeout callback
-  // reads the live value when it fires (avoids stale-closure bug where
-  // the captured `AppShell` was always null and triggered a false timeout
-  // 20s after a successful load).
-  const loadedRef = useRef(false)
+  const [attempt, setAttempt] = useState(0)
+  // Forces the loading screen to re-render and restart retries when clicked.
+  const [retryNonce, setRetryNonce] = useState(0)
+  const mountedRef = useRef(false)
 
   useEffect(() => {
+    mountedRef.current = true
     let cancelled = false
-    // Timeout safety net: if the import hasn't resolved in LOAD_TIMEOUT_MS,
-    // surface a helpful error instead of leaving the user stuck on "Loading..."
-    const timeoutId = setTimeout(() => {
-      if (!cancelled && !loadedRef.current) {
-        setTimedOut(true)
-      }
-    }, LOAD_TIMEOUT_MS)
 
-    loadAppShellWithRetry(3)
+    setAttempt(0)
+    setError(null)
+
+    loadAppShellWithRetry((a, max) => {
+      if (!cancelled) setAttempt(a)
+    })
       .then((Comp) => {
         if (!cancelled) {
-          loadedRef.current = true
           setAppShell(() => Comp)
         }
       })
       .catch((err) => {
         if (!cancelled) {
-          console.error('Failed to load AppShell:', err)
-          setError('Failed to load app')
+          console.error('Failed to load AppShell after retries:', err)
+          setError('connection-failed')
         }
       })
 
     return () => {
       cancelled = true
-      clearTimeout(timeoutId)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [retryNonce])
 
-  if (error || timedOut) {
+  if (error) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background text-foreground p-4">
         <div className="text-center max-w-md">
-          <div className="text-5xl mb-4">📺</div>
-          <p className="text-lg font-semibold mb-2">
-            {timedOut ? 'Taking too long to load' : 'Something went wrong'}
-          </p>
+          <div className="text-5xl mb-4">📡</div>
+          <p className="text-lg font-semibold mb-2">Connection problem</p>
           <p className="text-sm text-muted-foreground mb-4">
-            {timedOut
-              ? 'The app could not load on this browser. This often happens on older Smart TV browsers. Please try refreshing, or use a phone or computer for the best experience.'
-              : error}
+            The app couldn't reach the server after multiple attempts. This is
+            usually temporary — please check your internet connection and try again.
           </p>
           <div className="flex flex-col gap-2 items-center">
             <button
-              onClick={() => window.location.reload()}
+              onClick={() => setRetryNonce((n) => n + 1)}
               className="px-6 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium"
             >
-              Retry
+              Try again
             </button>
             <a
               href="/"
@@ -107,9 +112,22 @@ export default function Home() {
   if (!AppShell) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="text-center">
+        <div className="text-center px-6">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
-          <p className="text-sm text-muted-foreground">Loading...</p>
+          <p className="text-sm text-muted-foreground">Connecting to GenZ TV…</p>
+          {attempt > 0 && (
+            <p className="text-xs text-muted-foreground/70 mt-1">
+              Attempt {attempt} of {MAX_RETRIES}
+            </p>
+          )}
+          {attempt >= 2 && (
+            <button
+              onClick={() => setRetryNonce((n) => n + 1)}
+              className="mt-3 px-4 py-1.5 text-xs border border-border rounded-md text-muted-foreground hover:bg-muted transition-colors"
+            >
+              Try again now
+            </button>
+          )}
         </div>
       </div>
     )

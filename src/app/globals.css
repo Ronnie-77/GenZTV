@@ -484,6 +484,17 @@ video {
   display: none;
 }
 
+/* ===== Hide scrollbars (content still scrolls) — for charts & dense lists ===== */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 /* ===== Hide number input spinners ===== */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
@@ -2439,6 +2450,8 @@ body.tv-mode * {
 .tv-watch-player {
   position: relative;
   width: 100%;
+  max-width: 48rem; /* 768px — compact video player, centered on TV */
+  margin: 0 auto;
   aspect-ratio: 16 / 9;
   background: #000;
   border-radius: 1rem;
@@ -2511,6 +2524,38 @@ body.tv-mode * {
   background: var(--primary);
   border-color: var(--primary);
   color: var(--primary-foreground);
+}
+
+/* ── TV Ad Slots ──
+   Banner + social bar ad containers for TV mode (home + watch pages).
+   Designed for 10-foot UI: centered, max-width so ads don't stretch full-width
+   on a 1920px TV, subtle border so they read as discrete units. */
+.tv-ad-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0 auto 1.25rem;
+}
+.tv-ad-banner {
+  max-width: 56rem; /* 896px — standard 728×90 banner scaled up for TV */
+}
+.tv-ad-social {
+  max-width: 48rem; /* 768px — social bar (taller, narrower) */
+}
+.tv-ad-label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  font-weight: 600;
+  opacity: 0.7;
+}
+.tv-ad-slot iframe {
+  width: 100% !important;
+  border: none;
+  display: block;
 }
 
 /* On-screen remote hint (appears briefly) */

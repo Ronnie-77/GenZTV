@@ -5,6 +5,7 @@ import { useAppStore } from '@/lib/store'
 import { fetchChannel, fetchMatch, fetchChannels, type Channel, type Match } from '@/lib/api'
 import { VideoPlayer } from '@/components/player/video-player'
 import { DynamicAdSlot } from '@/components/ads/dynamic-ad-slot'
+import { SocialBarAd } from '@/components/ads/social-bar-ad'
 import { ArrowLeft, Heart, Share2, Tv, ExternalLink, Radio, List } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -32,18 +33,22 @@ export function WatchPage() {
   const [videoAboveMobileAds, setVideoAboveMobileAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
   const [videoAbovePcAds, setVideoAbovePcAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
   const [nativeBannerAds, setNativeBannerAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
+  const [socialBarAds, setSocialBarAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
+  const [legacySocialBarScript, setLegacySocialBarScript] = useState('')
   const [allChannels, setAllChannels] = useState<Channel[]>([])
 
   // Fetch ad settings
   useEffect(() => {
     fetchSettings().then(s => {
       setVideoAdsEnabled(s.adsEnabled && (s.videoAdsEnabled ?? true))
+      setLegacySocialBarScript(s.socialBarAdScript || '')
       try {
         const all = JSON.parse(s.customAdScripts || '[]')
         const enabled = (a: {enabled: boolean}) => a.enabled
         setVideoAboveMobileAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'video-above-mobile' && enabled(a)))
         setVideoAbovePcAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'video-above-pc' && enabled(a)))
         setNativeBannerAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'native-banner' && enabled(a)))
+        setSocialBarAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'social-bar' && enabled(a)))
       } catch { /* ignore */ }
     }).catch(() => {})
   }, [])
@@ -215,6 +220,13 @@ export function WatchPage() {
         </div>
       )}
 
+      {/* Social Bar Ad (universal — works on mobile/PC/TV) */}
+      {/* Renders below the banner ad, immediately above the video player. Falls
+          back to the legacy socialBarAdScript single-field setting. */}
+      {videoAdsEnabled && (
+        <SocialBarAd ads={socialBarAds} legacyScript={legacySocialBarScript} />
+      )}
+
       {/* Video Player + Channel List */}
       <div className="px-4 md:px-6">
         <div className="flex flex-col lg:flex-row gap-4">
@@ -289,7 +301,7 @@ export function WatchPage() {
                           <img
                             src={ch.logo}
                             alt={ch.name}
-                            className={`w-10 h-10 rounded-lg object-cover bg-muted shrink-0 transition-all duration-300 ${isActive ? 'ring-2 ring-primary shadow-md shadow-primary/20' : ''}`}
+                            className={`w-10 h-10 rounded-lg object-contain bg-white p-1 shrink-0 transition-all duration-300 ${isActive ? 'ring-2 ring-primary shadow-md shadow-primary/20' : ''}`}
                             loading="lazy"
                           />
                         ) : (

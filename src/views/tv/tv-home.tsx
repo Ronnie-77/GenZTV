@@ -4,11 +4,24 @@ import { useMemo, useState, useEffect } from 'react'
 import { useAppStore } from '@/lib/store'
 import { useChannels, useMatches } from '@/lib/hooks'
 import { TVChannelCard } from '@/components/tv/tv-channel-card'
+import { useTVAds, TVAdSection } from '@/components/tv/tv-ads'
 import { Play, ChevronRight, Antenna, Trophy, Globe, Zap, Tv } from 'lucide-react'
 import { type Match } from '@/lib/api'
 
 export function TVHome() {
   const { setCurrentPage } = useAppStore()
+  const tvAds = useTVAds()
+  const homeBannerAds = tvAds.adsByPositions('tv-home-banner')
+  // Universal `social-bar` position takes PRECEDENCE over the TV-specific
+  // `tv-home-social` position — this way an admin who configures the universal
+  // social bar sees it on ALL platforms (mobile/PC/TV) without a duplicate
+  // appearing on TV from the TV-only slot. Falls back to tv-home-social only
+  // when no universal social-bar scripts are configured.
+  const universalSocialAds = tvAds.adsByPositions('social-bar')
+  const homeSocialAds = universalSocialAds.length > 0
+    ? universalSocialAds
+    : tvAds.adsByPositions('tv-home-social')
+  const homeAdsOn = tvAds.adsEnabled && tvAds.homeAdsEnabled
 
   const { matches: liveMatches, loading: loadingLive } = useMatches({ status: 'live' })
   const { matches: upcomingMatches, loading: loadingUpcoming } = useMatches({ status: 'upcoming' })
@@ -58,6 +71,14 @@ export function TVHome() {
 
   return (
     <div>
+      {/* Banner Ad — top of TV home */}
+      <TVAdSection
+        ads={homeBannerAds}
+        legacyScript={tvAds.bannerAdScript}
+        variant="banner"
+        label="Advertisement"
+      />
+
       {/* Hero */}
       <section className="tv-hero">
         <div className="tv-hero-content">
@@ -139,6 +160,14 @@ export function TVHome() {
           </div>
         </div>
       </section>
+
+      {/* Social Bar Ad — below hero, above content sections */}
+      <TVAdSection
+        ads={homeSocialAds}
+        legacyScript={tvAds.socialBarAdScript}
+        variant="social"
+        label="Advertisement"
+      />
 
       {/* Live matches */}
       <section className="tv-section">

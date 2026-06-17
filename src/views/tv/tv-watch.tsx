@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@/lib/store'
 import { fetchChannel, fetchMatch, type Channel, type Match } from '@/lib/api'
 import { VideoPlayer } from '@/components/player/video-player'
+import { useTVAds, TVAdSection } from '@/components/tv/tv-ads'
 import { ArrowLeft, Heart, Maximize, Minimize, RotateCw, List } from 'lucide-react'
 
 export function TVWatch() {
@@ -14,6 +15,18 @@ export function TVWatch() {
     toggleFavorite,
     favorites,
   } = useAppStore()
+  const tvAds = useTVAds()
+  const watchBannerAds = tvAds.adsByPositions('tv-watch-banner')
+  // Universal `social-bar` position takes PRECEDENCE over the TV-specific
+  // `tv-watch-social` position — avoids duplicate social bars on TV when the
+  // admin has configured the universal social bar (which also shows on
+  // mobile/PC). Falls back to tv-watch-social only when no universal social-bar
+  // scripts are configured.
+  const universalSocialAds = tvAds.adsByPositions('social-bar')
+  const watchSocialAds = universalSocialAds.length > 0
+    ? universalSocialAds
+    : tvAds.adsByPositions('tv-watch-social')
+  const watchAdsOn = tvAds.adsEnabled && tvAds.videoAdsEnabled
 
   const [channel, setChannel] = useState<Channel | null>(null)
   const [match, setMatch] = useState<Match | null>(null)
@@ -175,6 +188,22 @@ export function TVWatch() {
   if (loading) {
     return (
       <div className="tv-watch">
+        {watchAdsOn && (
+          <>
+            <TVAdSection
+              ads={watchBannerAds}
+              legacyScript={tvAds.bannerAdScript}
+              variant="banner"
+              label="Advertisement"
+            />
+            <TVAdSection
+              ads={watchSocialAds}
+              legacyScript={tvAds.socialBarAdScript}
+              variant="social"
+              label="Advertisement"
+            />
+          </>
+        )}
         <div className="tv-watch-player">
           <div
             className="tv-skeleton"
@@ -188,14 +217,33 @@ export function TVWatch() {
 
   return (
     <div className="tv-watch">
+      {/* Banner + Social Bar ads — above video player */}
+      {watchAdsOn && (
+        <>
+          <TVAdSection
+            ads={watchBannerAds}
+            legacyScript={tvAds.bannerAdScript}
+            variant="banner"
+            label="Advertisement"
+          />
+          <TVAdSection
+            ads={watchSocialAds}
+            legacyScript={tvAds.socialBarAdScript}
+            variant="social"
+            label="Advertisement"
+          />
+        </>
+      )}
+
       {/* Player */}
       <div className="tv-watch-player" ref={playerWrapRef}>
         {currentStreamUrl ? (
           <VideoPlayer
             key={currentStreamUrl}
-            url={currentStreamUrl}
-            type={currentStreamType}
+            streamUrl={currentStreamUrl}
+            streamType={currentStreamType}
             title={currentTitle}
+            isLive={viewMode === 'match' ? match?.status === 'live' : true}
           />
         ) : (
           <div

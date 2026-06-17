@@ -7,25 +7,50 @@ import { fetchSettings } from '@/lib/api'
 import { MatchCard } from '@/components/matches/match-card'
 import { ChannelCard } from '@/components/channels/channel-card'
 import { DynamicAdSlot } from '@/components/ads/dynamic-ad-slot'
+import { SocialBarAd } from '@/components/ads/social-bar-ad'
 import { Play, Trophy, Globe, Antenna, ChevronRight, Tv, Zap, Download, Smartphone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { TimezoneSelector } from '@/components/timezone/timezone-selector'
+import { usePwaInstall } from '@/lib/use-pwa-install'
+import { InstallAppDialog } from '@/components/pwa/install-app-dialog'
+import { toast } from 'sonner'
 import Image from 'next/image'
 
 export function HomePage() {
   const { setCurrentPage } = useAppStore()
 
+  // PWA install (used when no APK is built yet — installs on mobile / PC / TV)
+  const { install, device, platform } = usePwaInstall()
+  const [installDialogOpen, setInstallDialogOpen] = useState(false)
+
   // Fetch APK URL and ad settings from settings
   const [apkUrl, setApkUrl] = useState('')
+
+  const handleInstallApp = async () => {
+    const outcome = await install()
+    if (outcome === 'manual') {
+      // No native prompt available (iOS Safari, Firefox, some TVs) OR the
+      // user dismissed the native prompt → show device-specific instructions
+      // so they can install manually.
+      setInstallDialogOpen(true)
+    } else if (outcome === 'installed') {
+      toast('GenZ TV is already installed on this device.', { duration: 2500 })
+    }
+    // outcome === 'native' → browser's own install dialog was accepted, done
+  }
+
   const [homeAdsEnabled, setHomeAdsEnabled] = useState(true)
   const [homeAdScripts, setHomeAdScripts] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
   const [homeUpcomingMobileAds, setHomeUpcomingMobileAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
   const [homeUpcomingPcAds, setHomeUpcomingPcAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
   const [nativeBannerAds, setNativeBannerAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
+  const [socialBarAds, setSocialBarAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
+  const [legacySocialBarScript, setLegacySocialBarScript] = useState('')
   useEffect(() => {
     fetchSettings().then(s => {
       setApkUrl(s.apkUrl || '')
       setHomeAdsEnabled(s.adsEnabled && (s.homeAdsEnabled ?? true))
+      setLegacySocialBarScript(s.socialBarAdScript || '')
       // Parse custom ad scripts for home page
       try {
         const all = JSON.parse(s.customAdScripts || '[]')
@@ -34,6 +59,7 @@ export function HomePage() {
         setHomeUpcomingMobileAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'home-upcoming-mobile' && enabled(a)))
         setHomeUpcomingPcAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'home-upcoming-pc' && enabled(a)))
         setNativeBannerAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'native-banner' && enabled(a)))
+        setSocialBarAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'social-bar' && enabled(a)))
       } catch { /* ignore */ }
     }).catch(() => {})
   }, [])
@@ -161,15 +187,16 @@ export function HomePage() {
               <div className="hero-new-download">
                 <div className="hero-new-download-text">
                   <Smartphone className="h-5 w-5" />
-                  <span>Get the Mobile App</span>
+                  <span>Get the GenZ TV App</span>
                 </div>
                 <p className="hero-new-download-desc">
-                  Watch live TV &amp; sports on the go. Download now.
+                  Install as an app on your phone, PC or TV for instant access.
                 </p>
                 <button
                   className="hero-new-download-btn"
                   onClick={() => {
                     if (apkUrl) {
+                      // APK is built → download the native APK file (Android)
                       const a = document.createElement('a')
                       a.href = apkUrl
                       // Extract filename from URL for proper download
@@ -178,14 +205,21 @@ export function HomePage() {
                       document.body.appendChild(a)
                       a.click()
                       document.body.removeChild(a)
+                    } else {
+                      // No APK yet → install the PWA (mobile / PC / TV)
+                      handleInstallApp()
                     }
                   }}
                 >
-                  <svg className="hero-new-android-icon" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M17.523 2.232l1.368-2.637c.14-.27-.065-.522-.307-.39l-1.395 2.69C15.852 1.198 14.478.75 13 .75s-2.852.448-4.189 1.145L7.416-.795c-.143-.133-.447.12-.307.39l1.368 2.637C5.731 3.746 4 6.303 4 9.25h18c0-2.947-1.731-5.504-4.477-7.018zM9.5 7.5a1 1 0 110-2 1 1 0 010 2zm7 0a1 1 0 110-2 1 1 0 010 2zM4 10.25h18v1H4v-1zm0 2h18c0 5.523-4.029 10-9 10s-9-4.477-9-10z"/>
-                  </svg>
-                  <span>{apkUrl ? 'Download APK' : 'Coming Soon'}</span>
-                  {apkUrl && <Download className="h-4 w-4" />}
+                  {apkUrl ? (
+                    <svg className="hero-new-android-icon" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M17.523 2.232l1.368-2.637c.14-.27-.065-.522-.307-.39l-1.395 2.69C15.852 1.198 14.478.75 13 .75s-2.852.448-4.189 1.145L7.416-.795c-.143-.133-.447.12-.307.39l1.368 2.637C5.731 3.746 4 6.303 4 9.25h18c0-2.947-1.731-5.504-4.477-7.018zM9.5 7.5a1 1 0 110-2 1 1 0 010 2zm7 0a1 1 0 110-2 1 1 0 010 2zM4 10.25h18v1H4v-1zm0 2h18c0 5.523-4.029 10-9 10s-9-4.477-9-10z"/>
+                    </svg>
+                  ) : (
+                    <Download className="h-5 w-5" />
+                  )}
+                  <span>{apkUrl ? 'Download APK' : 'Install App'}</span>
+                  <Download className="h-4 w-4" />
                 </button>
               </div>
             </div>
@@ -211,6 +245,13 @@ export function HomePage() {
             <DynamicAdSlot key={ad.id} script={ad.script} />
           ))}
         </div>
+      )}
+
+      {/* ── Social Bar Ad (universal — works on mobile/PC/TV) ── */}
+      {/* Renders below the top banner, above content sections. Falls back to the
+          legacy socialBarAdScript single-field setting for backward compat. */}
+      {homeAdsEnabled && (
+        <SocialBarAd ads={socialBarAds} legacyScript={legacySocialBarScript} />
       )}
 
       {/* ── Content Sections ── */}
@@ -393,6 +434,15 @@ export function HomePage() {
           </div>
         )}
       </div>
+
+      {/* PWA install instructions (shown when the browser has no native
+          beforeinstallprompt — e.g. iOS Safari, Firefox, some Smart TVs) */}
+      <InstallAppDialog
+        open={installDialogOpen}
+        onOpenChange={setInstallDialogOpen}
+        device={device}
+        platform={platform}
+      />
     </div>
   )
 }

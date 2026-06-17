@@ -3,7 +3,19 @@
 // - Provides offline app-shell caching (network-first, cache fallback)
 //   so the PWA can be installed and launched on Smart TVs / phones / PCs.
 
-const CACHE_NAME = 'genztv-v2'
+// Bumped to v4 (2025-06-17) to forcibly invalidate all previously cached
+// Next.js chunks. Prior versions cached `/_next/static/chunks/*.js` with a
+// cache-first strategy, which broke in dev mode: every recompile changes
+// chunk contents (and sometimes their module factory graph), so a stale
+// cached chunk produced the runtime error:
+//   "Module ... was instantiated ... but the module factory is not available.
+//    This is often caused by a stale browser cache, misconfigured
+//    Cache-Control headers, or a service worker serving outdated responses."
+// Fix: v4 NEVER caches `_next/static/chunks/` (or any `_next/` path) — these
+// are always fetched from network. Only the explicit APP_SHELL assets below
+// (manifest, logos) are cached. Navigations remain network-first with the
+// cached `/` HTML as offline fallback.
+const CACHE_NAME = 'genztv-v4'
 const APP_SHELL = [
   '/',
   '/manifest.json',
@@ -20,7 +32,7 @@ self.addEventListener('install', (event) => {
   self.skipWaiting()
 })
 
-// Activate event — clean up old caches
+// Activate event — clean up ALL old caches (including any prior genztv-vN)
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -44,6 +56,13 @@ self.addEventListener('fetch', (event) => {
 
   // Skip API requests (always go to network)
   if (url.pathname.startsWith('/api/')) return
+
+  // CRITICAL: never intercept `_next/*` (Webpack/Turbopack chunks, HMR,
+  // build manifests). Caching these in dev mode breaks the app because chunk
+  // contents change on every recompile — a stale cached chunk then raises
+  // "module factory is not available" at runtime. Always let these go to
+  // network directly (browser HTTP cache is enough for production builds).
+  if (url.pathname.startsWith('/_next/')) return
 
   // For navigations: network-first, fall back to cached app shell
   if (req.mode === 'navigate') {
