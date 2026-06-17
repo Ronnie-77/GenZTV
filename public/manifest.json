@@ -8,21 +8,33 @@
   "display_override": ["standalone", "minimal-ui", "browser"],
   "background_color": "#0A0A0F",
   "theme_color": "#E05555",
-  "orientation": "landscape-primary",
+  "orientation": "portrait",
   "lang": "en",
   "dir": "ltr",
   "categories": ["entertainment", "sports", "video"],
   "icons": [
     {
-      "src": "/logo.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/logo.svg",
-      "sizes": "192x192 512x512",
-      "type": "image/svg+xml",
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "maskable"
     }
   ],
@@ -32,21 +44,21 @@
       "short_name": "Live",
       "description": "Browse all live TV channels",
       "url": "/#/live",
-      "icons": [{ "src": "/logo.svg", "sizes": "any" }]
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     },
     {
       "name": "Sports",
       "short_name": "Sports",
       "description": "Live sports and matches",
       "url": "/#/sports",
-      "icons": [{ "src": "/logo.svg", "sizes": "any" }]
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     },
     {
       "name": "Favorites",
       "short_name": "Favorites",
       "description": "Your favorite channels",
       "url": "/#/favorites",
-      "icons": [{ "src": "/logo.svg", "sizes": "any" }]
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     }
   ],
   "gcm_sender_id": "103953800507"

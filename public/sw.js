@@ -3,25 +3,36 @@
 // - Provides offline app-shell caching (network-first, cache fallback)
 //   so the PWA can be installed and launched on Smart TVs / phones / PCs.
 
-// Bumped to v4 (2025-06-17) to forcibly invalidate all previously cached
-// Next.js chunks. Prior versions cached `/_next/static/chunks/*.js` with a
+// v5 (2025-06-17): rebuilt PWA icon set from the uploaded GenZ TV logo
+// (center-cropped) and switched manifest orientation to portrait. Bump
+// invalidates the previously cached manifest.json (which had landscape
+// orientation + SVG icons) so installed clients pick up the new icons and
+// portrait lock on next launch / reinstall.
+//
+// Earlier history: v4 forcibly invalidated all previously cached Next.js
+// chunks. Prior versions cached `/_next/static/chunks/*.js` with a
 // cache-first strategy, which broke in dev mode: every recompile changes
 // chunk contents (and sometimes their module factory graph), so a stale
 // cached chunk produced the runtime error:
 //   "Module ... was instantiated ... but the module factory is not available.
 //    This is often caused by a stale browser cache, misconfigured
 //    Cache-Control headers, or a service worker serving outdated responses."
-// Fix: v4 NEVER caches `_next/static/chunks/` (or any `_next/` path) — these
+// Fix (v4+): NEVER cache `_next/static/chunks/` (or any `_next/` path) — these
 // are always fetched from network. Only the explicit APP_SHELL assets below
 // (manifest, logos) are cached. Navigations remain network-first with the
 // cached `/` HTML as offline fallback.
-const CACHE_NAME = 'genztv-v4'
+const CACHE_NAME = 'genztv-v5'
 const APP_SHELL = [
   '/',
   '/manifest.json',
-  '/logo.svg',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/icon-192-maskable.png',
+  '/icon-512-maskable.png',
+  '/apple-touch-icon.png',
   '/favicon.svg',
   '/favicon-dark.svg',
+  '/logo.svg',
 ]
 
 // Install event — pre-cache the app shell
@@ -101,7 +112,7 @@ self.addEventListener('push', (event) => {
   let data = {
     title: 'GenZ TV',
     body: 'New update available!',
-    icon: '/logo.svg',
+    icon: '/icon-192.png',
     url: '/',
     tag: 'genztv-notification',
   }
@@ -117,7 +128,7 @@ self.addEventListener('push', (event) => {
   const options = {
     body: data.body,
     icon: data.icon,
-    badge: '/logo.svg',
+    badge: '/icon-192.png',
     tag: data.tag,
     data: {
       url: data.url,
