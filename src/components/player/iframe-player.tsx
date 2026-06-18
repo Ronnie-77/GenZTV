@@ -118,7 +118,11 @@ export function IframePlayer({ src, onReady, onError }: IframePlayerProps) {
         // Ad blocking is handled via parent-level window.open override + focus management.
         allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
         allowFullScreen
-        referrerPolicy="no-referrer"
+        // Send origin referrer so downstream anti-bot scripts (e.g. lastzone's
+        // isSandboxed / newucaster.js) see a valid referrer chain. Using
+        // "no-referrer" breaks sites like go.webcric.com → new.lastzone.top
+        // whose embed scripts reject requests with an empty Referer.
+        referrerPolicy="no-referrer-when-downgrade"
         onLoad={() => onReady?.()}
         onError={() => onError?.('Failed to load iframe')}
       />

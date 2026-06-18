@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { HlsPlayer } from './hls-player'
 import type { QualityLevel, HlsStats, LiveStatus, AudioTrack, SubtitleTrack } from './hls-player'
 import { IframePlayer } from './iframe-player'
+import { IframeDirectPlayer } from './iframe-direct-player'
 import { TsPlayer } from './ts-player'
 import { JwHlsPlayer } from './jw-hls-player'
 import { PlayerControls } from './player-controls'
@@ -55,7 +56,7 @@ function isTsUrl(url: string): boolean {
 
 interface VideoPlayerProps {
   streamUrl: string
-  streamType: string // m3u, iframe, github_m3u, direct, redirect, m3u8_jw
+  streamType: string // m3u, iframe, iframe_direct, github_m3u, direct, redirect, m3u8_jw
   title?: string
   isLive?: boolean
   poster?: string
@@ -114,6 +115,7 @@ function getInitialResolved(url: string, type: string): { resolvedUrl: string; r
   if (type === 'mpegts' || isTsUrl(url)) return { resolvedUrl: proxyStreamUrl(url, 'mpegts'), resolvedType: 'mpegts' }
   if (type === 'redirect') return { resolvedUrl: url, resolvedType: 'iframe' } // IframePlayer proxies it
   if (type === 'iframe') return { resolvedUrl: url, resolvedType: 'iframe' }
+  if (type === 'iframe_direct') return { resolvedUrl: url, resolvedType: 'iframe_direct' } // Raw iframe, no proxy / no controls
   if (type === 'github_m3u') return { resolvedUrl: url, resolvedType: type } // resolved async
   if (type === 'm3u8_jw') return { resolvedUrl: url, resolvedType: 'm3u8_jw' } // JW Player handles its own proxy
   if (type === 'direct' || type === 'm3u' || type === 'm3u8') {
@@ -146,7 +148,7 @@ export function VideoPlayer({
   const [loading, setLoading] = useState(true)
   const [buffering, setBuffering] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [controlsVisible, setControlsVisible] = useState(streamType === 'iframe' || streamType === 'mpegts' ? false : true)
+  const [controlsVisible, setControlsVisible] = useState(streamType === 'iframe' || streamType === 'iframe_direct' || streamType === 'mpegts' ? false : true)
   const [controlsBusy, setControlsBusy] = useState(false)
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -156,6 +158,7 @@ export function VideoPlayer({
 
   // Determine player type early (derived from state, needed by hooks below)
   const isIframe = resolvedType === 'iframe'
+  const isIframeDirect = resolvedType === 'iframe_direct'
   const isMpegTs = resolvedType === 'mpegts'
   const isHls = resolvedType === 'm3u' || resolvedType === 'm3u8'
   const isJw = resolvedType === 'm3u8_jw'
@@ -301,6 +304,11 @@ export function VideoPlayer({
           // (the proxy injects an ad-blocker and strips X-Frame-Options).
           setResolvedUrl(streamUrl)
           setResolvedType('iframe')
+        } else if (streamType === 'iframe_direct' && streamUrl) {
+          // Raw iframe — no proxy, no controls, no injection. The embed runs
+          // untouched (e.g. https://junkieembeds.pages.dev/embed/fox4k-usa).
+          setResolvedUrl(streamUrl)
+          setResolvedType('iframe_direct')
         } else {
           setResolvedUrl(streamUrl)
           setResolvedType(streamType)
@@ -1020,6 +1028,16 @@ export function VideoPlayer({
         />
       )}
 
+      {/* iFrame Direct Player — raw iframe, NO proxy, NO controls, NO injection. */}
+      {/* The embed (e.g. junkieembeds.pages.dev/embed/...) owns the full UI.    */}
+      {isIframeDirect && resolvedUrl && (
+        <IframeDirectPlayer
+          src={resolvedUrl}
+          onReady={handleReady}
+          onError={handleError}
+        />
+      )}
+
       {/* JW-style HLS Player — proxy first (bypasses CORS, rewrites m3u8 URLs), then direct, then native */}
       {isJw && resolvedUrl && (
         <JwHlsPlayer
@@ -1105,7 +1123,8 @@ export function VideoPlayer({
       )}
 
       {/* Loading/buffering indicator — spinner only, no text */}
-      {(loading || buffering) && !error && (
+      {/* (Hidden for iframe_direct — the embed owns its own loading UI.) */}
+      {(loading || buffering) && !error && !isIframeDirect && (
         <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
           <div className="w-10 h-10 border-3 border-white/30 border-t-white rounded-full animate-spin" />
         </div>
@@ -1122,52 +1141,55 @@ export function VideoPlayer({
       )}
 
       {/* Controls overlay */}
-      <PlayerControls
-        isPlaying={playing}
-        onTogglePlay={togglePlay}
-        volume={volume}
-        onVolumeChange={(vol: number) => { setVolume(vol); if (muted && vol > 0) setMuted(false) }}
-        isMuted={muted}
-        onToggleMute={() => setMuted(m => !m)}
-        isFullscreen={fullscreen}
-        onToggleFullscreen={toggleFullscreen}
-        onTogglePiP={togglePiP}
-        onToggleControlsVisibility={toggleControlsVisibility}
-        title={title}
-        isLive={isLive}
-        isBehindLive={isHls && isBehindLive}
-        onBackToLive={handleBackToLive}
-        isLoading={loading}
-        hasError={!!error}
-        errorMessage={error || undefined}
-        onRetry={handleRetry}
-        visible={controlsVisible}
-        onControlsBusy={setControlsBusy}
-        qualityLevels={qualityLevels}
-        currentQuality={currentQuality}
-        onQualityChange={handleQualityChange}
-        hlsStats={isHls ? hlsStats : null}
-        playbackRate={playbackRate}
-        onPlaybackRateChange={setPlaybackRate}
-        aspectMode={aspectMode}
-        onAspectModeChange={setAspectMode}
-        isIframe={isIframe}
-        iframeTouchLocked={isIframe && isMobileDevice && iframeTouchLocked}
-        onToggleIframeTouchLock={() => setIframeTouchLocked(prev => !prev)}
-        onScreenshot={isHls || isMpegTs ? handleScreenshot : undefined}
-        canSeek={seekable}
-        audioTracks={audioTracks}
-        currentAudioTrack={currentAudioTrack}
-        onAudioTrackChange={handleAudioTrackChange}
-        subtitleTracks={subtitleTracks}
-        currentSubtitleTrack={currentSubtitleTrack}
-        onSubtitleTrackChange={handleSubtitleTrackChange}
-        zoomLevel={zoomLevel}
-        onZoomChange={handleZoomChange}
-        deinterlace={deinterlace}
-        onDeinterlaceChange={setDeinterlace}
-        showDeinterlace={isMpegTs}
-      />
+      {/* (Hidden entirely for iframe_direct — no controls, the embed runs raw.) */}
+      {!isIframeDirect && (
+        <PlayerControls
+          isPlaying={playing}
+          onTogglePlay={togglePlay}
+          volume={volume}
+          onVolumeChange={(vol: number) => { setVolume(vol); if (muted && vol > 0) setMuted(false) }}
+          isMuted={muted}
+          onToggleMute={() => setMuted(m => !m)}
+          isFullscreen={fullscreen}
+          onToggleFullscreen={toggleFullscreen}
+          onTogglePiP={togglePiP}
+          onToggleControlsVisibility={toggleControlsVisibility}
+          title={title}
+          isLive={isLive}
+          isBehindLive={isHls && isBehindLive}
+          onBackToLive={handleBackToLive}
+          isLoading={loading}
+          hasError={!!error}
+          errorMessage={error || undefined}
+          onRetry={handleRetry}
+          visible={controlsVisible}
+          onControlsBusy={setControlsBusy}
+          qualityLevels={qualityLevels}
+          currentQuality={currentQuality}
+          onQualityChange={handleQualityChange}
+          hlsStats={isHls ? hlsStats : null}
+          playbackRate={playbackRate}
+          onPlaybackRateChange={setPlaybackRate}
+          aspectMode={aspectMode}
+          onAspectModeChange={setAspectMode}
+          isIframe={isIframe}
+          iframeTouchLocked={isIframe && isMobileDevice && iframeTouchLocked}
+          onToggleIframeTouchLock={() => setIframeTouchLocked(prev => !prev)}
+          onScreenshot={isHls || isMpegTs ? handleScreenshot : undefined}
+          canSeek={seekable}
+          audioTracks={audioTracks}
+          currentAudioTrack={currentAudioTrack}
+          onAudioTrackChange={handleAudioTrackChange}
+          subtitleTracks={subtitleTracks}
+          currentSubtitleTrack={currentSubtitleTrack}
+          onSubtitleTrackChange={handleSubtitleTrackChange}
+          zoomLevel={zoomLevel}
+          onZoomChange={handleZoomChange}
+          deinterlace={deinterlace}
+          onDeinterlaceChange={setDeinterlace}
+          showDeinterlace={isMpegTs}
+        />
+      )}
 
       {/* Fullscreen rotate hint — shows on mobile in portrait mode */}
       {fullscreen && (

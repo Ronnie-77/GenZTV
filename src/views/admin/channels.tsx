@@ -22,6 +22,7 @@ const streamTypeOptions = [
   { value: 'm3u', label: 'M3U/HLS' },
   { value: 'm3u8_jw', label: 'M3U8 JW Player' },
   { value: 'iframe', label: 'iFrame' },
+  { value: 'iframe_direct', label: 'iFrame Direct' },
   { value: 'mpegts', label: 'MPEG-TS (.ts)' },
   { value: 'github_m3u', label: 'GitHub M3U' },
 ]
@@ -44,7 +45,7 @@ const emptyForm: ChannelFormData = {
   name: '',
   logo: '',
   categories: ['entertainment'],
-  streamType: 'iframe',
+  streamType: 'm3u',
   streamUrl: '',
   githubM3uPath: '',
   language: '',
@@ -804,7 +805,7 @@ export function AdminChannels() {
             <div className={form.streamType === 'github_m3u' ? 'md:col-span-1' : 'md:col-span-2'}>
               <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Stream URL</label>
               <Input
-                placeholder={form.streamType === 'iframe' ? 'iFrame HTML or URL' : form.streamType === 'm3u' ? 'M3U8/HLS stream URL' : form.streamType === 'mpegts' ? 'MPEG-TS stream URL (.ts)' : 'Stream URL'}
+                placeholder={form.streamType === 'iframe' ? 'iFrame HTML or URL' : form.streamType === 'iframe_direct' ? 'Direct embed URL (e.g. https://junkieembeds.pages.dev/embed/fox4k-usa)' : form.streamType === 'm3u' ? 'M3U8/HLS stream URL' : form.streamType === 'mpegts' ? 'MPEG-TS stream URL (.ts)' : 'Stream URL'}
                 value={form.streamUrl}
                 onChange={(e) => setForm({ ...form, streamUrl: e.target.value })}
               />
