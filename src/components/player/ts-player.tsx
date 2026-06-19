@@ -78,6 +78,9 @@ export function TsPlayer({
     let cancelled = false
     let retryCount = 0
     const maxRetries = 5
+    // Declare reconnectTimer at the effect scope so the cleanup return function
+    // can clear it. (The .then() callback assigns to this variable.)
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
     // Determine stream type based on URL
     const streamType = isHlsUrl(src) ? 'hls' : 'mpegts'
@@ -102,46 +105,52 @@ export function TsPlayer({
         return
       }
 
+      // Config aligned with sports-fire.lovable.app's proven-working setup.
+      // Their exact config: { type, url, isLive, enableWorker, enableStashBuffer: false, stashInitialSize: 128 }
+      // We add generous buffer settings for smoothness (no lazyLoad, no latency
+      // chasing, 30s maxBufferLength) to eliminate the 3–4s stutter.
       const player = mpegtsLib.createPlayer({
         type: streamType, // 'mpegts' for .ts streams, 'hls' for m3u8 streams
         url: src,
         isLive: true,
         cors: true,
+        // Offload TS demuxing to a Web Worker so the main thread stays free.
+        enableWorker: true,
+        // Match sports-fire: no stash buffer, tiny initial stash.
+        enableStashBuffer: false,
+        stashInitialSize: 128,
       }, {
-        // Live stream optimization
-        liveBufferLatencyChasing: true,
-        liveBufferLatencyChasingOnPaused: true,
+        // --- Live latency management ---
+        // DISABLE aggressive latency chasing — was the #1 cause of the
+        // 3–4 second micro-stutter (player kept jumping forward to "catch up").
+        liveBufferLatencyChasing: false,
+        liveBufferLatencyChasingOnPaused: false,
         liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 6,
+        liveMaxLatencyDurationCount: 10,
 
-        // Buffer management — keep buffers small for live streams
-        maxBufferLength: 10,
-        maxMaxBufferLength: 30,
-        bufferSize: 30 * 1000 * 1000, // 30MB
+        // --- Buffer management (generous for smoothness) ---
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        bufferSize: 60 * 1000 * 1000, // 60MB
 
-        // Auto cleanup
+        // --- Auto cleanup of old SourceBuffer segments ---
         autoCleanupSourceBuffer: true,
-        autoCleanupMaxBackwardDuration: 15,
-        autoCleanupMinBackwardDuration: 5,
+        autoCleanupMaxBackwardDuration: 30,
+        autoCleanupMinBackwardDuration: 10,
 
-        // Lazy load
-        lazyLoad: true,
-        lazyLoadMaxDuration: 60,
-        lazyLoadRecoverDuration: 30,
+        // --- NO lazy loading — causes periodic re-buffer cycles ---
+        lazyLoad: false,
 
-        // Enable stash buffer for smoother playback
-        enableStashBuffer: true,
-        stashInitialSize: 1024 * 256, // 256KB initial stash (smaller for live)
-
-        // Auto reconnection for live streams
-        liveStreamInfinity: true,
+        // Stash buffer (also set on mediaDataSource above; set here too for
+        // older mpegts.js versions that read it from config)
+        enableStashBuffer: false,
+        stashInitialSize: 128,
 
         // Deinterlace
         ...(deinterlace ? { deinterlace: true } : {}),
 
-        // For HLS streams, add custom headers via XHR
+        // For HLS streams
         ...(streamType === 'hls' ? {
-          // Custom loader for adding headers to HLS requests
           customSeekHandler: undefined,
         } : {}),
       })
@@ -149,9 +158,51 @@ export function TsPlayer({
       player.attachMediaElement(video)
       player.load()
 
+      // --- Initial play attempt ---
+      // The video element has autoPlay + playsInline. We also call play()
+      // explicitly as a fallback. The VideoPlayer's onReady callback also
+      // calls play(). If the browser blocks unmuted autoplay, the user can
+      // click the play button in the controls.
+      video.play().catch(() => {
+        // Autoplay blocked — user must click play. This is expected on some
+        // browsers when there was no recent user gesture.
+      })
+
+      // --- Auto-reconnect for live streams ---
+      // Many IPTV upstream servers (e.g. rgkkw.live) close the HTTP connection
+      // after ~60–90s. mpegts.js fires LOADING_COMPLETE when the stream ends.
+      // For live streams we manually reload the player to re-fetch the stream,
+      // creating a new connection to the upstream. Without this, the video
+      // would freeze when the buffer runs dry after the connection closes.
+      let reconnectCount = 0
+      const MAX_RECONNECTS = 50  // ~enough for hours of viewing
+      const scheduleReconnect = (reason: string) => {
+        if (cancelled || reconnectCount >= MAX_RECONNECTS) return
+        reconnectCount++
+        const delay = Math.min(500 * reconnectCount, 3000) // 0.5s → 3s backoff
+        console.log(`[TsPlayer] Auto-reconnect ${reconnectCount}/${MAX_RECONNECTS} in ${delay}ms (${reason})`)
+        reconnectTimer = setTimeout(() => {
+          if (cancelled || !playerRef.current) return
+          try {
+            // Unload + reload: creates a fresh fetch to the proxy/upstream
+            playerRef.current.unload()
+            playerRef.current.load()
+            // Try to resume playback (browser may block unmuted autoplay, but
+            // since the user already interacted with the page, it should work)
+            playerRef.current.play().catch(() => {})
+          } catch (e) {
+            console.error('[TsPlayer] Reconnect failed:', e)
+          }
+        }, delay)
+      }
+
       // Events
       player.on(mpegtsLib.Events.LOADING_COMPLETE, () => {
-        // Stream loaded (VOD only, not for live)
+        // For live streams, the upstream connection ended. Auto-reconnect to
+        // resume playback. (For VOD this means the video finished — don't reconnect.)
+        if (streamType === 'mpegts' || streamType === 'hls') {
+          scheduleReconnect('upstream connection ended (LOADING_COMPLETE)')
+        }
       })
 
       player.on(mpegtsLib.Events.METADATA_ARRIVED, () => {
@@ -248,6 +299,11 @@ export function TsPlayer({
     return () => {
       cancelled = true
       clearTimeout(startupTimer)
+      // Clear any pending reconnect timer so it doesn't fire after unmount
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = null
+      }
       cleanup()
     }
   }, [src, cleanup, onReady, onError, onVideoRef, onBuffering])

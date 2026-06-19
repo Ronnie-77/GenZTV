@@ -113,8 +113,16 @@ function getInitialResolved(url: string, type: string): { resolvedUrl: string; r
   if (!url) return { resolvedUrl: url, resolvedType: type }
   // Check for .ts URLs first — regardless of what type is stored
   if (type === 'mpegts' || isTsUrl(url)) return { resolvedUrl: proxyStreamUrl(url, 'mpegts'), resolvedType: 'mpegts' }
-  if (type === 'redirect') return { resolvedUrl: url, resolvedType: 'iframe' } // IframePlayer proxies it
-  if (type === 'iframe') return { resolvedUrl: url, resolvedType: 'iframe' }
+  // Both 'iframe' and 'redirect' types route through /api/iframe-proxy so the
+  // server-side ad-blocker (script stripping + CSS + JS injection + recursive
+  // nested-iframe proxying) actually applies. Without this, the iframe would
+  // load the upstream embed directly and our ad-blocking would never run.
+  //
+  // NOTE: For known m3u8-extractable embeds (ntv.cx, cdnlivetv.tv), the async
+  // resolve effect below will try to extract the underlying m3u8 URL and switch
+  // to HlsPlayer for a cleaner, ad-free experience. If extraction fails, we
+  // fall back to the iframe proxy.
+  if (type === 'redirect' || type === 'iframe') return { resolvedUrl: proxyIframeUrl(url), resolvedType: 'iframe' }
   if (type === 'iframe_direct') return { resolvedUrl: url, resolvedType: 'iframe_direct' } // Raw iframe, no proxy / no controls
   if (type === 'github_m3u') return { resolvedUrl: url, resolvedType: type } // resolved async
   if (type === 'm3u8_jw') return { resolvedUrl: url, resolvedType: 'm3u8_jw' } // JW Player handles its own proxy
@@ -124,6 +132,20 @@ function getInitialResolved(url: string, type: string): { resolvedUrl: string; r
     return { resolvedUrl: url, resolvedType: type === 'direct' ? 'm3u' : type }
   }
   return { resolvedUrl: url, resolvedType: type }
+}
+
+// Check if an iframe URL points to a known m3u8-extractable embed site.
+// For these sites, we can fetch the page server-side, extract the underlying
+// m3u8 URL, and play it directly with HlsPlayer — no ads, no loading-splash
+// issues, no nested-iframe "content blocked" errors.
+function isM3u8Extractable(url: string): boolean {
+  if (!url) return false
+  try {
+    const hostname = new URL(url).hostname
+    return /ntv\.cx|cdnlivetv\.tv/i.test(hostname)
+  } catch {
+    return false
+  }
 }
 
 export function VideoPlayer({
@@ -143,7 +165,10 @@ export function VideoPlayer({
   const [resolvedType, setResolvedType] = useState(initial.resolvedType)
   const [playing, setPlaying] = useState(false)
   const [volume, setVolume] = useState(1)
-  const [muted, setMuted] = useState(false)
+  // Start MUTED for mpegts (.ts) streams — browsers block unmuted autoplay.
+  // Muted autoplay is always allowed. The user can unmute via the player
+  // controls (a click counts as a user gesture, so unmuting then works).
+  const [muted, setMuted] = useState(initial.resolvedType === 'mpegts')
   const [fullscreen, setFullscreen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [buffering, setBuffering] = useState(false)
@@ -286,9 +311,9 @@ export function VideoPlayer({
           setLoading(false)
         }
       } else if (streamType === 'redirect' && streamUrl) {
-        // Treat redirect as iframe — IframePlayer will proxy the URL
+        // Treat redirect as iframe — route through /api/iframe-proxy for ad-blocking
         setResolvedType('iframe')
-        setResolvedUrl(streamUrl)
+        setResolvedUrl(proxyIframeUrl(streamUrl))
       } else {
         // Detect .ts URLs for MPEG-TS player (or explicit mpegts type)
         if (streamType === 'mpegts' || isTsUrl(streamUrl)) {
@@ -300,10 +325,41 @@ export function VideoPlayer({
           setResolvedUrl(streamUrl)
           setResolvedType(streamType === 'direct' ? 'm3u' : streamType)
         } else if (streamType === 'iframe' && streamUrl) {
-          // Pass the RAW URL — IframePlayer routes it through the proxy itself
-          // (the proxy injects an ad-blocker and strips X-Frame-Options).
-          setResolvedUrl(streamUrl)
-          setResolvedType('iframe')
+          // For known m3u8-extractable embed sites (ntv.cx, cdnlivetv.tv),
+          // try to extract the underlying m3u8 URL server-side and play it
+          // directly with HlsPlayer. This avoids: ads, loading-splash issues,
+          // nested-iframe "content blocked" errors, and autoplay policy
+          // problems. Falls back to iframe proxy if extraction fails.
+          if (isM3u8Extractable(streamUrl)) {
+            // Start with iframe proxy as fallback while we try to extract
+            setResolvedUrl(proxyIframeUrl(streamUrl))
+            setResolvedType('iframe')
+            // Attempt m3u8 extraction in parallel
+            try {
+              const extractRes = await fetch(
+                `/api/extract-m3u8?url=${encodeURIComponent(streamUrl)}`
+              )
+              if (extractRes.ok) {
+                const data = await extractRes.json()
+                if (data.m3u8) {
+                  // Success — switch to HlsPlayer with the extracted m3u8
+                  setResolvedUrl(data.m3u8)
+                  setResolvedType('m3u')
+                  onStreamResolved?.(data.m3u8)
+                  return
+                }
+              }
+            } catch {
+              // Extraction failed — stay on iframe proxy fallback
+            }
+          } else {
+            // Route through /api/iframe-proxy so the server-side ad-blocker
+            // (script stripping + CSS + JS injection + recursive nested-iframe
+            // proxying) actually applies. Without this, the iframe would load
+            // the upstream embed directly and no ad-blocking would run.
+            setResolvedUrl(proxyIframeUrl(streamUrl))
+            setResolvedType('iframe')
+          }
         } else if (streamType === 'iframe_direct' && streamUrl) {
           // Raw iframe — no proxy, no controls, no injection. The embed runs
           // untouched (e.g. https://junkieembeds.pages.dev/embed/fox4k-usa).
@@ -967,7 +1023,7 @@ export function VideoPlayer({
           <HlsPlayer
             src={resolvedUrl}
             originalUrl={streamUrl}
-            proxyUrl={proxyStreamUrl(streamUrl, streamType)}
+            proxyUrl={proxyStreamUrl(resolvedUrl, streamType)}
             onReady={handleReady}
             onError={handleError}
             onQualityLevels={handleQualityLevels}

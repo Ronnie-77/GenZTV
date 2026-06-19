@@ -144,15 +144,22 @@ export async function GET(req: NextRequest) {
       const reader = response.body.getReader()
       const writer = writable.getWriter()
 
-      // Pipe data in the background
+      // Pipe data in the background.
+      // NOTE: We do NOT cap the total bytes for live streams. A previous 100MB
+      // cap meant the proxy would cut the connection after ~44s–2.5min of video
+      // (depending on bitrate), forcing mpegts.js to re-fetch — causing a
+      // periodic stutter/rebuffer. Live streams should stay open until the
+      // client disconnects. The finally block below handles cleanup when the
+      // client (browser/mpegts.js) closes the connection.
       ;(async () => {
         try {
-          let bytesStreamed = 0
-          const MAX_BYTES = 100 * 1024 * 1024 // 100MB max per request
-          while (bytesStreamed < MAX_BYTES) {
+          // Read → write loop runs until upstream ends or client disconnects.
+          // TransformStream applies natural backpressure: if the client reads
+          // slowly, writer.write() awaits, which pauses reader.read(),
+          // preventing memory bloat.
+          for (;;) {
             const { done, value } = await reader.read()
             if (done) break
-            bytesStreamed += value.byteLength
             await writer.write(value)
           }
         } catch {
