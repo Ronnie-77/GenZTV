@@ -95,9 +95,20 @@ export async function GET(req: NextRequest) {
         : isTs
           ? 'video/mp2t,*/*'
           : '*/*',
-      // Send Referer and Origin matching the upstream origin — many CDNs require these
-      Referer: parsedUrl.origin + '/',
-      Origin: parsedUrl.origin,
+    }
+
+    // Determine the correct Referer/Origin for the upstream request.
+    // Most CDNs accept the upstream's own origin as Referer. However, some
+    // streaming backends (notably bhalocast.pro:7059 used by playeraio.top
+    // embeds) validate the Referer strictly and reject requests whose Referer
+    // includes the non-standard port. For bhalocast, use the canonical
+    // https://bhalocast.pro/ origin (matching what the embed iframe sends).
+    if (/bhalocast\.(pro|com)/i.test(parsedUrl.hostname)) {
+      fetchHeaders.Referer = 'https://bhalocast.pro/'
+      fetchHeaders.Origin = 'https://bhalocast.pro'
+    } else {
+      fetchHeaders.Referer = parsedUrl.origin + '/'
+      fetchHeaders.Origin = parsedUrl.origin
     }
 
     // For live .ts streams, use ReadableStream to pipe data incrementally

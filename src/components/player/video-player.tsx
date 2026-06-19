@@ -4,7 +4,6 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { HlsPlayer } from './hls-player'
 import type { QualityLevel, HlsStats, LiveStatus, AudioTrack, SubtitleTrack } from './hls-player'
 import { IframePlayer } from './iframe-player'
-import { IframeDirectPlayer } from './iframe-direct-player'
 import { TsPlayer } from './ts-player'
 import { JwHlsPlayer } from './jw-hls-player'
 import { PlayerControls } from './player-controls'
@@ -56,7 +55,7 @@ function isTsUrl(url: string): boolean {
 
 interface VideoPlayerProps {
   streamUrl: string
-  streamType: string // m3u, iframe, iframe_direct, github_m3u, direct, redirect, m3u8_jw
+  streamType: string // m3u, iframe, github_m3u, direct, redirect, m3u8_jw
   title?: string
   isLive?: boolean
   poster?: string
@@ -113,17 +112,8 @@ function getInitialResolved(url: string, type: string): { resolvedUrl: string; r
   if (!url) return { resolvedUrl: url, resolvedType: type }
   // Check for .ts URLs first — regardless of what type is stored
   if (type === 'mpegts' || isTsUrl(url)) return { resolvedUrl: proxyStreamUrl(url, 'mpegts'), resolvedType: 'mpegts' }
-  // Both 'iframe' and 'redirect' types route through /api/iframe-proxy so the
-  // server-side ad-blocker (script stripping + CSS + JS injection + recursive
-  // nested-iframe proxying) actually applies. Without this, the iframe would
-  // load the upstream embed directly and our ad-blocking would never run.
-  //
-  // NOTE: For known m3u8-extractable embeds (ntv.cx, cdnlivetv.tv), the async
-  // resolve effect below will try to extract the underlying m3u8 URL and switch
-  // to HlsPlayer for a cleaner, ad-free experience. If extraction fails, we
-  // fall back to the iframe proxy.
-  if (type === 'redirect' || type === 'iframe') return { resolvedUrl: proxyIframeUrl(url), resolvedType: 'iframe' }
-  if (type === 'iframe_direct') return { resolvedUrl: url, resolvedType: 'iframe_direct' } // Raw iframe, no proxy / no controls
+  if (type === 'redirect') return { resolvedUrl: url, resolvedType: 'iframe' } // IframePlayer proxies it
+  if (type === 'iframe') return { resolvedUrl: url, resolvedType: 'iframe' }
   if (type === 'github_m3u') return { resolvedUrl: url, resolvedType: type } // resolved async
   if (type === 'm3u8_jw') return { resolvedUrl: url, resolvedType: 'm3u8_jw' } // JW Player handles its own proxy
   if (type === 'direct' || type === 'm3u' || type === 'm3u8') {
@@ -132,20 +122,6 @@ function getInitialResolved(url: string, type: string): { resolvedUrl: string; r
     return { resolvedUrl: url, resolvedType: type === 'direct' ? 'm3u' : type }
   }
   return { resolvedUrl: url, resolvedType: type }
-}
-
-// Check if an iframe URL points to a known m3u8-extractable embed site.
-// For these sites, we can fetch the page server-side, extract the underlying
-// m3u8 URL, and play it directly with HlsPlayer — no ads, no loading-splash
-// issues, no nested-iframe "content blocked" errors.
-function isM3u8Extractable(url: string): boolean {
-  if (!url) return false
-  try {
-    const hostname = new URL(url).hostname
-    return /ntv\.cx|cdnlivetv\.tv/i.test(hostname)
-  } catch {
-    return false
-  }
 }
 
 export function VideoPlayer({
@@ -165,15 +141,12 @@ export function VideoPlayer({
   const [resolvedType, setResolvedType] = useState(initial.resolvedType)
   const [playing, setPlaying] = useState(false)
   const [volume, setVolume] = useState(1)
-  // Start MUTED for mpegts (.ts) streams — browsers block unmuted autoplay.
-  // Muted autoplay is always allowed. The user can unmute via the player
-  // controls (a click counts as a user gesture, so unmuting then works).
-  const [muted, setMuted] = useState(initial.resolvedType === 'mpegts')
+  const [muted, setMuted] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [buffering, setBuffering] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [controlsVisible, setControlsVisible] = useState(streamType === 'iframe' || streamType === 'iframe_direct' || streamType === 'mpegts' ? false : true)
+  const [controlsVisible, setControlsVisible] = useState(streamType === 'iframe' || streamType === 'mpegts' ? false : true)
   const [controlsBusy, setControlsBusy] = useState(false)
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -183,7 +156,6 @@ export function VideoPlayer({
 
   // Determine player type early (derived from state, needed by hooks below)
   const isIframe = resolvedType === 'iframe'
-  const isIframeDirect = resolvedType === 'iframe_direct'
   const isMpegTs = resolvedType === 'mpegts'
   const isHls = resolvedType === 'm3u' || resolvedType === 'm3u8'
   const isJw = resolvedType === 'm3u8_jw'
@@ -311,9 +283,9 @@ export function VideoPlayer({
           setLoading(false)
         }
       } else if (streamType === 'redirect' && streamUrl) {
-        // Treat redirect as iframe — route through /api/iframe-proxy for ad-blocking
+        // Treat redirect as iframe — IframePlayer will proxy the URL
         setResolvedType('iframe')
-        setResolvedUrl(proxyIframeUrl(streamUrl))
+        setResolvedUrl(streamUrl)
       } else {
         // Detect .ts URLs for MPEG-TS player (or explicit mpegts type)
         if (streamType === 'mpegts' || isTsUrl(streamUrl)) {
@@ -325,46 +297,10 @@ export function VideoPlayer({
           setResolvedUrl(streamUrl)
           setResolvedType(streamType === 'direct' ? 'm3u' : streamType)
         } else if (streamType === 'iframe' && streamUrl) {
-          // For known m3u8-extractable embed sites (ntv.cx, cdnlivetv.tv),
-          // try to extract the underlying m3u8 URL server-side and play it
-          // directly with HlsPlayer. This avoids: ads, loading-splash issues,
-          // nested-iframe "content blocked" errors, and autoplay policy
-          // problems. Falls back to iframe proxy if extraction fails.
-          if (isM3u8Extractable(streamUrl)) {
-            // Start with iframe proxy as fallback while we try to extract
-            setResolvedUrl(proxyIframeUrl(streamUrl))
-            setResolvedType('iframe')
-            // Attempt m3u8 extraction in parallel
-            try {
-              const extractRes = await fetch(
-                `/api/extract-m3u8?url=${encodeURIComponent(streamUrl)}`
-              )
-              if (extractRes.ok) {
-                const data = await extractRes.json()
-                if (data.m3u8) {
-                  // Success — switch to HlsPlayer with the extracted m3u8
-                  setResolvedUrl(data.m3u8)
-                  setResolvedType('m3u')
-                  onStreamResolved?.(data.m3u8)
-                  return
-                }
-              }
-            } catch {
-              // Extraction failed — stay on iframe proxy fallback
-            }
-          } else {
-            // Route through /api/iframe-proxy so the server-side ad-blocker
-            // (script stripping + CSS + JS injection + recursive nested-iframe
-            // proxying) actually applies. Without this, the iframe would load
-            // the upstream embed directly and no ad-blocking would run.
-            setResolvedUrl(proxyIframeUrl(streamUrl))
-            setResolvedType('iframe')
-          }
-        } else if (streamType === 'iframe_direct' && streamUrl) {
-          // Raw iframe — no proxy, no controls, no injection. The embed runs
-          // untouched (e.g. https://junkieembeds.pages.dev/embed/fox4k-usa).
+          // Pass the RAW URL — IframePlayer routes it through the proxy itself
+          // (the proxy injects an ad-blocker and strips X-Frame-Options).
           setResolvedUrl(streamUrl)
-          setResolvedType('iframe_direct')
+          setResolvedType('iframe')
         } else {
           setResolvedUrl(streamUrl)
           setResolvedType(streamType)
@@ -1023,7 +959,7 @@ export function VideoPlayer({
           <HlsPlayer
             src={resolvedUrl}
             originalUrl={streamUrl}
-            proxyUrl={proxyStreamUrl(resolvedUrl, streamType)}
+            proxyUrl={proxyStreamUrl(streamUrl, streamType)}
             onReady={handleReady}
             onError={handleError}
             onQualityLevels={handleQualityLevels}
@@ -1079,16 +1015,6 @@ export function VideoPlayer({
         <IframePlayer
           src={resolvedUrl}
           originalUrl={streamUrl}
-          onReady={handleReady}
-          onError={handleError}
-        />
-      )}
-
-      {/* iFrame Direct Player — raw iframe, NO proxy, NO controls, NO injection. */}
-      {/* The embed (e.g. junkieembeds.pages.dev/embed/...) owns the full UI.    */}
-      {isIframeDirect && resolvedUrl && (
-        <IframeDirectPlayer
-          src={resolvedUrl}
           onReady={handleReady}
           onError={handleError}
         />
@@ -1179,8 +1105,7 @@ export function VideoPlayer({
       )}
 
       {/* Loading/buffering indicator — spinner only, no text */}
-      {/* (Hidden for iframe_direct — the embed owns its own loading UI.) */}
-      {(loading || buffering) && !error && !isIframeDirect && (
+      {(loading || buffering) && !error && (
         <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
           <div className="w-10 h-10 border-3 border-white/30 border-t-white rounded-full animate-spin" />
         </div>
@@ -1197,55 +1122,52 @@ export function VideoPlayer({
       )}
 
       {/* Controls overlay */}
-      {/* (Hidden entirely for iframe_direct — no controls, the embed runs raw.) */}
-      {!isIframeDirect && (
-        <PlayerControls
-          isPlaying={playing}
-          onTogglePlay={togglePlay}
-          volume={volume}
-          onVolumeChange={(vol: number) => { setVolume(vol); if (muted && vol > 0) setMuted(false) }}
-          isMuted={muted}
-          onToggleMute={() => setMuted(m => !m)}
-          isFullscreen={fullscreen}
-          onToggleFullscreen={toggleFullscreen}
-          onTogglePiP={togglePiP}
-          onToggleControlsVisibility={toggleControlsVisibility}
-          title={title}
-          isLive={isLive}
-          isBehindLive={isHls && isBehindLive}
-          onBackToLive={handleBackToLive}
-          isLoading={loading}
-          hasError={!!error}
-          errorMessage={error || undefined}
-          onRetry={handleRetry}
-          visible={controlsVisible}
-          onControlsBusy={setControlsBusy}
-          qualityLevels={qualityLevels}
-          currentQuality={currentQuality}
-          onQualityChange={handleQualityChange}
-          hlsStats={isHls ? hlsStats : null}
-          playbackRate={playbackRate}
-          onPlaybackRateChange={setPlaybackRate}
-          aspectMode={aspectMode}
-          onAspectModeChange={setAspectMode}
-          isIframe={isIframe}
-          iframeTouchLocked={isIframe && isMobileDevice && iframeTouchLocked}
-          onToggleIframeTouchLock={() => setIframeTouchLocked(prev => !prev)}
-          onScreenshot={isHls || isMpegTs ? handleScreenshot : undefined}
-          canSeek={seekable}
-          audioTracks={audioTracks}
-          currentAudioTrack={currentAudioTrack}
-          onAudioTrackChange={handleAudioTrackChange}
-          subtitleTracks={subtitleTracks}
-          currentSubtitleTrack={currentSubtitleTrack}
-          onSubtitleTrackChange={handleSubtitleTrackChange}
-          zoomLevel={zoomLevel}
-          onZoomChange={handleZoomChange}
-          deinterlace={deinterlace}
-          onDeinterlaceChange={setDeinterlace}
-          showDeinterlace={isMpegTs}
-        />
-      )}
+      <PlayerControls
+        isPlaying={playing}
+        onTogglePlay={togglePlay}
+        volume={volume}
+        onVolumeChange={(vol: number) => { setVolume(vol); if (muted && vol > 0) setMuted(false) }}
+        isMuted={muted}
+        onToggleMute={() => setMuted(m => !m)}
+        isFullscreen={fullscreen}
+        onToggleFullscreen={toggleFullscreen}
+        onTogglePiP={togglePiP}
+        onToggleControlsVisibility={toggleControlsVisibility}
+        title={title}
+        isLive={isLive}
+        isBehindLive={isHls && isBehindLive}
+        onBackToLive={handleBackToLive}
+        isLoading={loading}
+        hasError={!!error}
+        errorMessage={error || undefined}
+        onRetry={handleRetry}
+        visible={controlsVisible}
+        onControlsBusy={setControlsBusy}
+        qualityLevels={qualityLevels}
+        currentQuality={currentQuality}
+        onQualityChange={handleQualityChange}
+        hlsStats={isHls ? hlsStats : null}
+        playbackRate={playbackRate}
+        onPlaybackRateChange={setPlaybackRate}
+        aspectMode={aspectMode}
+        onAspectModeChange={setAspectMode}
+        isIframe={isIframe}
+        iframeTouchLocked={isIframe && isMobileDevice && iframeTouchLocked}
+        onToggleIframeTouchLock={() => setIframeTouchLocked(prev => !prev)}
+        onScreenshot={isHls || isMpegTs ? handleScreenshot : undefined}
+        canSeek={seekable}
+        audioTracks={audioTracks}
+        currentAudioTrack={currentAudioTrack}
+        onAudioTrackChange={handleAudioTrackChange}
+        subtitleTracks={subtitleTracks}
+        currentSubtitleTrack={currentSubtitleTrack}
+        onSubtitleTrackChange={handleSubtitleTrackChange}
+        zoomLevel={zoomLevel}
+        onZoomChange={handleZoomChange}
+        deinterlace={deinterlace}
+        onDeinterlaceChange={setDeinterlace}
+        showDeinterlace={isMpegTs}
+      />
 
       {/* Fullscreen rotate hint — shows on mobile in portrait mode */}
       {fullscreen && (
