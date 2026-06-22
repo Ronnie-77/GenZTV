@@ -172,11 +172,16 @@ export function DynamicAdSlot({
         display: 'block',
         background: 'transparent',
       }}
-      // Strict sandbox: NO allow-same-origin (would let ad access
-      // parent.document), NO allow-popups-to-escape-sandbox (would let
-      // popups run unsandboxed), NO allow-top-navigation (would let ad
-      // redirect our top page).
-      sandbox="allow-scripts allow-popups allow-forms"
+      // Sandbox policy (restored to original 2025-06-16 version that Adsterra
+      // banner ads were designed for). `allow-same-origin` is REQUIRED for
+      // Adsterra's nested ad iframes to load — without it the iframe gets an
+      // opaque/null origin and the browser blocks the nested iframe (CORS /
+      // sandbox refusal), so banners silently fail. `allow-popups-to-escape-
+      // sandbox` lets ad click popups function normally.
+      // iOS Monetag auto-redirect bug is handled separately via the isIOS()
+      // short-circuit at the top of this component (we skip rendering entirely
+      // on iPhone), so we don't need to strip these flags globally.
+      sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
     />
   )
 }
