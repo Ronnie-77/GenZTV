@@ -1,5 +1,8 @@
+[variables]
+NODE_VERSION = "22"
+
 [phases.install]
-cmd = "npm ci"
+cmd = "npm install --no-audit --no-fund"
 
 [phases.build]
 cmd = "prisma generate && next build"
