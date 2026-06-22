@@ -1,11 +1,12 @@
 [variables]
 NODE_VERSION = "22"
+NIXPACKS_PACKAGE_MANAGER = "npm"
 
 [phases.install]
-cmd = "npm install --no-audit --no-fund"
+cmds = ["npm install --no-audit --no-fund"]
 
 [phases.build]
-cmd = "prisma generate && next build"
+cmds = ["prisma generate && next build"]
 
 [start]
 cmd = "npx prisma db push --accept-data-loss && next start"
