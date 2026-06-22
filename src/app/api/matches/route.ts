@@ -1,21 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { sendNewMatchNotification } from '@/lib/push'
+import { syncMatchStatusesAndNotify } from '@/lib/match-sync'
 import { requireAdminAuth } from '@/lib/auth'
 
 // GET /api/matches — list all matches (auto-syncs statuses based on time)
 export async function GET(req: NextRequest) {
   try {
-    // Auto-sync match statuses based on current time (fire and forget, don't block response)
-    const now = new Date()
-    db.match.updateMany({
-      where: { status: 'upcoming', startTime: { lte: now } },
-      data: { status: 'live' },
-    }).catch(() => {})
-    db.match.updateMany({
-      where: { status: 'live', endTime: { lte: now } },
-      data: { status: 'ended' },
-    }).catch(() => {})
+    // Auto-sync match statuses based on current time AND fire live
+    // notifications for matches that just went live. Fire-and-forget so
+    // the list response isn't blocked by notification sends.
+    syncMatchStatusesAndNotify().catch((err) => {
+      console.error('[Matches] Background status sync failed:', err)
+    })
 
     const { searchParams } = new URL(req.url)
     const sport = searchParams.get('sport')
@@ -53,6 +49,10 @@ export async function GET(req: NextRequest) {
 }
 
 // POST /api/matches — create a new match (admin only)
+//
+// NOTE: Per the new product decision, creating a match does NOT send a push
+// notification. Users are notified when the match goes LIVE (at the actual
+// scheduled start time), not when it's merely scheduled.
 export async function POST(req: NextRequest) {
   return requireAdminAuth(req, async () => {
   try {
@@ -85,17 +85,8 @@ export async function POST(req: NextRequest) {
       include: { streams: true },
     })
 
-    // Send push notification to all subscribers about new match (fire and forget)
-    sendNewMatchNotification({
-      id: match.id,
-      title: match.title,
-      sport: match.sport,
-      teamA: match.teamA,
-      teamB: match.teamB,
-      league: match.league,
-    }).catch((err) => {
-      console.error('Failed to send push notification for new match:', err)
-    })
+    // No push notification on match creation — users are notified when the
+    // match goes LIVE (handled by syncMatchStatusesAndNotify above).
 
     return NextResponse.json(match, { status: 201 })
   } catch (error) {

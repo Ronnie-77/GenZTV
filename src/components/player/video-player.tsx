@@ -248,11 +248,34 @@ export function VideoPlayer({
   isIframeRef.current = isIframe
 
   // Resolve stream URLs — detect .ts files and apply CORS proxy
+  //
+  // IMPORTANT: this effect re-runs whenever the user switches to a different
+  // stream channel (the `streamUrl` / `streamType` props change). When that
+  // happens we MUST clear the previous stream's transient player state —
+  // most importantly the `error` message — so that a stale error from the
+  // previous stream doesn't keep covering the new stream's playback area.
+  // (User complaint: switching streams after an error kept the old error
+  // message on screen.)
   useEffect(() => {
     async function resolve() {
+      // Reset all transient state so the new stream starts fresh.
+      setError(null)
+      setLoading(true)
+      setBuffering(false)
+      setQualityLevels([])
+      setHlsStats(null)
+      setCurrentQuality(-1)
+      setHlsLoadMode('direct')
+      setHlsFallbackMpegts(false)
+      setPlaying(false)
+      setIsBehindLive(false)
+      setAudioTracks([])
+      setCurrentAudioTrack(-1)
+      setSubtitleTracks([])
+      setCurrentSubtitleTrack(-1)
+
       if (streamType === 'github_m3u' && streamUrl) {
         try {
-          setLoading(true)
           let url = streamUrl
           if (url.includes('github.com') && !url.includes('raw.githubusercontent.com')) {
             url = url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/')
@@ -995,7 +1018,7 @@ export function VideoPlayer({
           }}
         >
           <TsPlayer
-            src={hlsFallbackMpegts ? streamUrl : resolvedUrl}
+            src={hlsFallbackMpegts ? proxyStreamUrl(streamUrl, streamType) : resolvedUrl}
             onReady={handleReady}
             onError={handleError}
             onVideoRef={handleVideoRef}
@@ -1104,10 +1127,13 @@ export function VideoPlayer({
         </div>
       )}
 
-      {/* Loading/buffering indicator — spinner only, no text */}
+      {/* Loading/buffering indicator — same simple border-arc spinner as the
+          site's entry loading screen (src/app/page.tsx), so the player
+          loading state visually matches the rest of the app. White border
+          instead of primary so it stays visible on the dark video surface. */}
       {(loading || buffering) && !error && (
         <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-          <div className="w-10 h-10 border-3 border-white/30 border-t-white rounded-full animate-spin" />
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white" />
         </div>
       )}
 

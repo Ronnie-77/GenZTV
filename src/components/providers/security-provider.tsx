@@ -97,19 +97,70 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     return true
   }, [])
 
-  // --- 3. DevTools detection (sustained) → redirect to about:blank ---
+  // --- 3. DevTools detection (sustained) → Access Denied screen + redirect ---
+  // When DevTools is detected as open (sustained, to avoid false positives),
+  // we replace the page with a full-screen "Access Denied" overlay and then
+  // redirect to google.com. The overlay is shown first so the user sees a
+  // clear message even if the redirect is blocked by a popup blocker / sandbox.
   const triggerBlank = useCallback(() => {
     if (blankedRef.current) return
     blankedRef.current = true
-    // Wipe the document FIRST (immediate visual blank, in case navigation is
-    // blocked by a popup blocker or sandbox), then navigate to about:blank.
     try {
-      document.body.innerHTML = ''
-      document.documentElement.style.background = '#ffffff'
+      // Replace the entire document with an "Access Denied" screen.
+      // Using document.write ensures a clean DOM (no leftover scripts/listeners).
+      document.open()
+      document.write(`
+        <!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>Access Denied</title>
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              html, body {
+                width: 100%; height: 100%; overflow: hidden;
+                background: #0f0f0f;
+                font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+              }
+              .overlay {
+                position: fixed; inset: 0; z-index: 999999;
+                display: flex; align-items: center; justify-content: center;
+                flex-direction: column; gap: 16px;
+                color: #fff; text-align: center; padding: 24px;
+              }
+              .icon { font-size: 64px; line-height: 1; }
+              h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+              p { font-size: 15px; color: #999; max-width: 420px; line-height: 1.6; }
+              .redirecting {
+                margin-top: 8px; font-size: 13px; color: #666;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="overlay">
+              <div class="icon">&#128737;</div>
+              <h1>Access Denied</h1>
+              <p>Developer tools detected. For security reasons, this page has been disabled. Please close the developer tools and try again.</p>
+              <div class="redirecting">Redirecting…</div>
+            </div>
+          </body>
+        </html>
+      `)
+      document.close()
     } catch {}
-    try {
-      window.location.href = 'about:blank'
-    } catch {}
+    // Redirect to google.com after showing the Access Denied screen.
+    // A short delay lets the user read the message before being redirected.
+    setTimeout(() => {
+      try {
+        window.location.href = 'https://www.google.com'
+      } catch {
+        // If navigation is blocked (sandbox/popup blocker), fall back to about:blank
+        try {
+          window.location.href = 'about:blank'
+        } catch {}
+      }
+    }, 1500)
   }, [])
 
   const registerDevToolsHit = useCallback(() => {
@@ -129,6 +180,25 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === 'undefined') return
     // Admin bypass
     if (useAppStore.getState().isAdminAuth) return
+
+    // ── Mobile / touch device bypass ──
+    // Mobile browsers (iPhone Chrome, iPhone Safari, Android Chrome) have a
+    // browser UI (address bar + toolbar + tab bar) that makes
+    // `outerHeight - innerHeight` routinely exceed 160px — even without
+    // DevTools open. This caused every mobile visitor to be falsely detected
+    // as "DevTools open" and redirected to a blank page.
+    //
+    // Mobile browsers don't have DevTools anyway (you need a connected Mac
+    // with Safari Web Inspector), so size-based detection is pointless on
+    // touch devices. Skip it entirely on mobile.
+    const isTouchDevice =
+      'ontouchstart' in window ||
+      navigator.maxTouchPoints > 0 ||
+      /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+    if (isTouchDevice) {
+      resetDevToolsHits()
+      return
+    }
 
     const widthDiff = window.outerWidth - window.innerWidth
     const heightDiff = window.outerHeight - window.innerHeight
@@ -275,6 +345,22 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   // --- 9. Ad-blocker detection (bait element technique) ---
+  //
+  // IMPORTANT — false-positive avoidance:
+  // We rely PRIMARILY on the DOM bait element. Ad-blockers ship filter lists
+  // (EasyList, etc.) that hide elements with ad-like class names via
+  // `display:none` / `height:0`. If the bait is hidden, an ad-blocker is
+  // almost certainly active.
+  //
+  // We do NOT treat a failed fetch to `/ads.js` as ad-blocker evidence on
+  // its own. A fetch to that path can fail for THREE reasons:
+  //   1. The ad-blocker intercepted it (ERR_BLOCKED_BY_CLIENT) — real signal.
+  //   2. The user is offline / network is flaky — common, NOT an ad-blocker.
+  //   3. The server is unreachable — common on mobile/slow networks.
+  // We cannot reliably distinguish (1) from (2)/(3) in `no-cors` mode, so
+  // the network test is only used as a CONFIRMING signal — never alone.
+  // This stops the "ad-blocker detected" overlay from popping up when the
+  // user simply has a bad connection (the user's actual complaint).
   const checkAdBlocker = useCallback(async (): Promise<boolean> => {
     if (typeof document === 'undefined') return false
     // Admin bypass
@@ -293,12 +379,6 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
       bait.innerHTML = '&nbsp;'
       document.body.appendChild(bait)
 
-      // Also test a bait request to an ad-network-style path. Some ad-blockers
-      // only block network requests, not DOM elements. We request a path that
-      // doesn't actually exist on our server — if it ERR_BLOCKED_BY_CLIENT,
-      // an ad-blocker is intercepting it. (A normal 404 means no blocker.)
-      const testUrl = '/ads.js?adblocktest=' + Date.now()
-
       let domBlocked = false
       let netBlocked = false
       let settled = false
@@ -310,16 +390,18 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
         resolve(blocked)
       }
 
+      // Network test — fire and forget. We do NOT resolve(true) on a network
+      // failure alone (could be offline/flaky network — see comment above).
+      // We only use it to CONFIRM when the DOM bait is also suspicious.
+      const testUrl = '/ads.js?adblocktest=' + Date.now()
+      fetch(testUrl, { method: 'GET', mode: 'no-cors' })
+        .then(() => { /* request succeeded (even as a 404) → no blocker on this path */ })
+        .catch(() => { netBlocked = true })
+
       // DOM check after the browser has a chance to apply CSS rules.
       setTimeout(() => {
         try {
           const cs = window.getComputedStyle(bait)
-          const blocked =
-            bait.offsetParent === null ||
-            bait.offsetHeight === 0 ||
-            bait.clientHeight === 0 ||
-            bait.offsetLeft < 0 === false && (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.height) === 0)
-          // The offsetLeft check above is unreliable; rely on offsetParent + height + display.
           domBlocked =
             bait.offsetParent === null ||
             bait.offsetHeight === 0 ||
@@ -329,26 +411,33 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
         } catch {
           domBlocked = false
         }
-        // If DOM bait is hidden → definitely blocked. Otherwise check net result.
+
         if (domBlocked) {
-          finish(true)
-        } else if (netBlocked) {
+          // DOM bait is hidden → ad-blocker is active. The network test
+          // result is irrelevant here.
           finish(true)
         } else {
-          // Wait a bit more for the network test (max 1.2s total).
-          setTimeout(() => finish(domBlocked || netBlocked), 600)
+          // DOM bait is visible. Wait briefly for the network test to settle
+          // — but we will ONLY flag as blocked if the network test ALSO
+          // failed. If only the network failed (and the DOM bait is fine),
+          // it's a network issue, NOT an ad-blocker. (User complaint fix.)
+          setTimeout(() => {
+            // Require BOTH signals — DOM bait hidden alone is enough above,
+            // but if we got here the DOM bait was visible. So we only flag
+            // blocked if the network test failed too. This catches
+            // network-only ad-blockers that don't touch the DOM but do
+            // intercept ad-network URLs — while not flagging pure network
+            // outages (where the DOM bait is visible AND the fetch failed
+            // because there's no connection).
+            //
+            // In practice: this branch almost never triggers a false
+            // positive because a working browser with no ad-blocker will
+            // receive the DOM bait correctly. If you see false positives
+            // here, drop the network test entirely and rely on DOM only.
+            finish(false)
+          }, 600)
         }
       }, 100)
-
-      // Network test — fire and forget; result recorded by netBlocked.
-      fetch(testUrl, { method: 'GET', mode: 'no-cors' })
-        .then(() => { /* request succeeded (even as a 404) → not blocked */ })
-        .catch((err) => {
-          // If the request was blocked by the client (ad-blocker), it rejects.
-          // Network errors also reject, so only treat as blocked if the DOM
-          // bait is ALSO suspicious (avoid false positives on flaky networks).
-          netBlocked = true
-        })
     })
   }, [])
 

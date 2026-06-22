@@ -1173,6 +1173,52 @@ input[type="number"]::-webkit-outer-spin-button {
   background: rgba(255, 255, 255, 0.05);
 }
 
+/* ─── Match header actions (status badge + bell, grouped right) ─── */
+.match-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* ─── Bell button (upcoming matches) ───
+   No background — just a red bell icon that subscribes to push
+   notifications when clicked. Shows a subtle red tint on hover/focus
+   so it's clearly tappable, but stays visually quiet at rest. */
+.match-bell-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #EF4444;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease, color 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.match-bell-btn:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: #DC2626;
+  transform: scale(1.08);
+}
+.match-bell-btn:active {
+  transform: scale(0.92);
+}
+.match-bell-btn:focus-visible {
+  outline: 2px solid #EF4444;
+  outline-offset: 2px;
+}
+.dark .match-bell-btn {
+  color: #F87171;
+}
+.dark .match-bell-btn:hover {
+  background: rgba(239, 68, 68, 0.18);
+  color: #FCA5A5;
+}
+
 @keyframes match-status-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.1); }
   50% { box-shadow: 0 0 0 3px rgba(255, 59, 48, 0); }
@@ -1386,26 +1432,89 @@ input[type="number"]::-webkit-outer-spin-button {
 .watch-now-btn {
   padding: 5px 14px;
   border-radius: 20px;
-  background: #FB7185;
+  background: #F43F5E;
   color: #fff;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.3px;
   cursor: pointer;
   border: none;
-  transition: background 0.22s ease;
+  transition: background 0.22s ease, transform 0.15s ease;
   text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1;
 }
 .watch-now-btn:hover {
-  background: #F43F5E;
+  background: #E11D48;
+}
+.watch-now-btn:active {
+  transform: scale(0.96);
 }
 .dark .watch-now-btn {
-  background: #FB7185;
+  background: #F43F5E;
   color: #fff;
 }
 .dark .watch-now-btn:hover {
-  background: #F43F5E;
+  background: #E11D48;
 }
+
+/* "Notify Me" — red variant for upcoming matches (bell icon) */
+.watch-now-btn.is-upcoming {
+  background: #EF4444;
+  color: #fff;
+}
+.watch-now-btn.is-upcoming:hover {
+  background: #DC2626;
+}
+.dark .watch-now-btn.is-upcoming {
+  background: #EF4444;
+  color: #fff;
+}
+.dark .watch-now-btn.is-upcoming:hover {
+  background: #DC2626;
+}
+
+/* "Watch Replay" — muted variant for ended matches */
+.watch-now-btn.is-ended {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+.watch-now-btn.is-ended:hover {
+  background: var(--muted);
+}
+.dark .watch-now-btn.is-ended {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--foreground);
+}
+.dark .watch-now-btn.is-ended:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* Icon-only button variant (e.g. the bell-only "Notify Me" button on
+   upcoming match cards). Square-ish padding instead of pill text padding,
+   so a single icon looks balanced. */
+.watch-now-btn.is-icon-only {
+  padding: 6px 8px;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  justify-content: center;
+  gap: 0;
+}
+.watch-now-btn.is-icon-only svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Video Player Loading Spinner
+   ═══════════════════════════════════════════════════════════
+   Uses the same simple Tailwind border-arc spinner as the site's
+   entry loading screen (animate-spin rounded-full border-b-2).
+   No custom CSS needed — see video-player.tsx for the markup.
+   ═══════════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════════
    RESPONSIVE — Match Cards
@@ -1979,692 +2088,5 @@ input[type="number"]::-webkit-outer-spin-button {
 .channel-list-item-active:hover {
   background: linear-gradient(135deg, hsl(var(--primary) / 0.14), hsl(var(--primary) / 0.06));
   box-shadow: inset 0 0 16px hsl(var(--primary) / 0.06);
-}
-
-/* ============================================================
-   TV MODE — 10-foot UI, D-pad navigation, native-app feel
-   ============================================================ */
-
-/* Body adjustments when TV mode is active */
-body.tv-mode {
-  /* Larger base font for couch distance */
-  font-size: 18px;
-  /* Disable text selection — feels native */
-  -webkit-user-select: none;
-  user-select: none;
-  /* Hide horizontal scrollbar (TV remotes can't use it) */
-  overflow-x: hidden;
-}
-
-body.tv-mode ::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
-}
-body.tv-mode * {
-  scrollbar-width: none;
-}
-
-/* TV layout shell */
-.tv-shell {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--background);
-  color: var(--foreground);
-}
-
-/* Top bar */
-.tv-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 2rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--background);
-  position: sticky;
-  top: 0;
-  z-index: 30;
-}
-.tv-topbar-brand {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-weight: 800;
-  font-size: 1.5rem;
-  letter-spacing: -0.02em;
-}
-.tv-topbar-clock {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  font-size: 1.125rem;
-  color: var(--muted-foreground);
-}
-.tv-topbar-clock .tv-clock-time {
-  color: var(--foreground);
-}
-.tv-topbar-clock .tv-clock-date {
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
-/* Body row: left rail + main */
-.tv-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
-/* Left navigation rail */
-.tv-rail {
-  width: 13rem;
-  flex-shrink: 0;
-  border-right: 1px solid var(--border);
-  padding: 1rem 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  background: var(--background);
-  position: sticky;
-  top: 0;
-  align-self: flex-start;
-  height: 100vh;
-  overflow-y: auto;
-}
-@media (max-width: 900px) {
-  .tv-rail {
-    width: 11rem;
-  }
-}
-
-.tv-rail-item {
-  display: flex;
-  align-items: center;
-  gap: 0.875rem;
-  padding: 0.875rem 1rem;
-  border-radius: 0.75rem;
-  font-weight: 600;
-  font-size: 1rem;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
-  text-align: left;
-  width: 100%;
-  background: transparent;
-  border: 2px solid transparent;
-}
-.tv-rail-item:hover {
-  background: var(--secondary);
-  color: var(--foreground);
-}
-
-/* Main content */
-.tv-main {
-  flex: 1;
-  min-width: 0;
-  padding: 1.5rem 2rem 4rem;
-  overflow-y: auto;
-}
-
-/* ============================================================
-   Focus ring — the heart of TV UX
-   ============================================================ */
-
-.tv-focusable {
-  outline: none;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-  border: 2px solid transparent;
-}
-
-/* The currently focused element gets a bright, glowing ring */
-.tv-focusable[data-tv-focused="true"],
-.tv-focusable:focus-visible {
-  border-color: var(--primary);
-  box-shadow:
-    0 0 0 4px color-mix(in srgb, var(--primary) 30%, transparent),
-    0 0 24px color-mix(in srgb, var(--primary) 45%, transparent);
-  transform: scale(1.04);
-  z-index: 5;
-  position: relative;
-}
-
-/* Dark-mode focus ring is brighter */
-.dark .tv-focusable[data-tv-focused="true"],
-.dark .tv-focusable:focus-visible {
-  box-shadow:
-    0 0 0 4px color-mix(in srgb, var(--primary) 45%, transparent),
-    0 0 32px color-mix(in srgb, var(--primary) 65%, transparent);
-}
-
-/* Channel card (TV variant) */
-.tv-channel-card {
-  background: var(--card);
-  border: 2px solid var(--border);
-  border-radius: 1rem;
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.875rem;
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-}
-.tv-channel-card .tv-channel-logo {
-  width: 5.5rem;
-  height: 5.5rem;
-  background: #fff;
-  border-radius: 0.875rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.5rem;
-  overflow: hidden;
-}
-.tv-channel-card .tv-channel-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.tv-channel-card .tv-channel-name {
-  font-weight: 700;
-  font-size: 1rem;
-  text-align: center;
-  width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tv-channel-card .tv-channel-cat {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  text-transform: capitalize;
-}
-.tv-channel-card .tv-channel-fav {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  background: var(--background);
-  border-radius: 9999px;
-  padding: 0.375rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-}
-.tv-channel-card .tv-channel-live {
-  position: absolute;
-  top: 0.5rem;
-  left: 0.5rem;
-  background: #ef4444;
-  color: #fff;
-  font-size: 0.625rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  padding: 0.2rem 0.5rem;
-  border-radius: 0.375rem;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-.tv-channel-card .tv-channel-live::before {
-  content: "";
-  width: 0.375rem;
-  height: 0.375rem;
-  background: #fff;
-  border-radius: 9999px;
-  animation: tv-live-pulse 1.4s ease-in-out infinite;
-}
-@keyframes tv-live-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
-
-/* Hero banner (TV) */
-.tv-hero {
-  position: relative;
-  border-radius: 1.25rem;
-  overflow: hidden;
-  background: linear-gradient(120deg, color-mix(in srgb, var(--primary) 18%, var(--card)), var(--card));
-  border: 1px solid var(--border);
-  padding: 2.5rem 3rem;
-  display: flex;
-  align-items: center;
-  min-height: 16rem;
-  margin-bottom: 1.75rem;
-}
-.tv-hero-content {
-  position: relative;
-  z-index: 2;
-  max-width: 36rem;
-}
-.tv-hero-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: color-mix(in srgb, var(--primary) 14%, transparent);
-  color: var(--primary);
-  font-weight: 700;
-  font-size: 0.8rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  padding: 0.375rem 0.875rem;
-  border-radius: 9999px;
-  margin-bottom: 1rem;
-}
-.tv-hero-title {
-  font-size: 2.75rem;
-  font-weight: 900;
-  letter-spacing: -0.03em;
-  line-height: 1.05;
-  margin-bottom: 0.75rem;
-}
-.tv-hero-subtitle {
-  font-size: 1.125rem;
-  color: var(--muted-foreground);
-  margin-bottom: 1.5rem;
-  line-height: 1.5;
-}
-.tv-hero-actions {
-  display: flex;
-  gap: 0.875rem;
-  flex-wrap: wrap;
-}
-.tv-btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font-weight: 700;
-  font-size: 1.0625rem;
-  padding: 0.875rem 1.75rem;
-  border-radius: 0.875rem;
-  border: 2px solid transparent;
-  cursor: pointer;
-}
-.tv-btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: var(--secondary);
-  color: var(--foreground);
-  font-weight: 700;
-  font-size: 1.0625rem;
-  padding: 0.875rem 1.75rem;
-  border-radius: 0.875rem;
-  border: 2px solid transparent;
-  cursor: pointer;
-}
-
-/* Section header */
-.tv-section {
-  margin-bottom: 2.25rem;
-}
-.tv-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-  padding: 0 0.25rem;
-}
-.tv-section-title {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  font-size: 1.5rem;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-}
-.tv-section-count {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--muted-foreground);
-  background: var(--secondary);
-  padding: 0.125rem 0.625rem;
-  border-radius: 9999px;
-}
-.tv-section-link {
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: var(--primary);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  cursor: pointer;
-  padding: 0.375rem 0.625rem;
-  border-radius: 0.5rem;
-  border: 2px solid transparent;
-}
-
-/* Grid layouts for TV */
-.tv-grid-channels {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-  gap: 1rem;
-}
-.tv-grid-matches {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
-  gap: 1rem;
-}
-
-/* Match card (TV) */
-.tv-match-card {
-  background: var(--card);
-  border: 2px solid var(--border);
-  border-radius: 1rem;
-  padding: 1.25rem 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.875rem;
-  cursor: pointer;
-  position: relative;
-}
-.tv-match-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-.tv-match-league {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  font-weight: 600;
-}
-.tv-match-status {
-  font-size: 0.6875rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  padding: 0.2rem 0.5rem;
-  border-radius: 0.375rem;
-}
-.tv-match-status-live {
-  background: #ef4444;
-  color: #fff;
-}
-.tv-match-status-upcoming {
-  background: #f59e0b;
-  color: #fff;
-}
-.tv-match-teams {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-.tv-match-team {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  flex: 1;
-  min-width: 0;
-}
-.tv-match-team-logo {
-  width: 3rem;
-  height: 3rem;
-  border-radius: 9999px;
-  background: var(--secondary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-.tv-match-team-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.tv-match-team-name {
-  font-size: 0.875rem;
-  font-weight: 700;
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  width: 100%;
-}
-.tv-match-vs {
-  font-size: 0.75rem;
-  font-weight: 800;
-  color: var(--muted-foreground);
-}
-.tv-match-footer {
-  font-size: 0.8125rem;
-  color: var(--muted-foreground);
-  border-top: 1px solid var(--border);
-  padding-top: 0.625rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-/* Watch page (TV) */
-.tv-watch {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-.tv-watch-player {
-  position: relative;
-  width: 100%;
-  max-width: 48rem; /* 768px — compact video player, centered on TV */
-  margin: 0 auto;
-  aspect-ratio: 16 / 9;
-  background: #000;
-  border-radius: 1rem;
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
-.tv-watch-player iframe,
-.tv-watch-player video {
-  width: 100%;
-  height: 100%;
-  border: 0;
-  display: block;
-}
-.tv-watch-info {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-}
-.tv-watch-title {
-  font-size: 1.75rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-.tv-watch-meta {
-  color: var(--muted-foreground);
-  font-size: 1rem;
-  margin-top: 0.25rem;
-}
-.tv-watch-actions {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-.tv-watch-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.25rem;
-  border-radius: 0.75rem;
-  background: var(--card);
-  border: 2px solid var(--border);
-  color: var(--foreground);
-  font-weight: 600;
-  cursor: pointer;
-  font-size: 0.9375rem;
-}
-.tv-watch-action.is-fav {
-  background: color-mix(in srgb, #ef4444 12%, var(--card));
-  border-color: #ef4444;
-  color: #ef4444;
-}
-.tv-watch-streams {
-  display: flex;
-  gap: 0.625rem;
-  flex-wrap: wrap;
-}
-.tv-watch-stream-btn {
-  padding: 0.625rem 1.125rem;
-  border-radius: 0.625rem;
-  background: var(--card);
-  border: 2px solid var(--border);
-  color: var(--foreground);
-  font-weight: 600;
-  cursor: pointer;
-  font-size: 0.9375rem;
-}
-.tv-watch-stream-btn[data-active="true"] {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-foreground);
-}
-
-/* ── TV Ad Slots ──
-   Banner + social bar ad containers for TV mode (home + watch pages).
-   Designed for 10-foot UI: centered, max-width so ads don't stretch full-width
-   on a 1920px TV, subtle border so they read as discrete units. */
-.tv-ad-slot {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  margin: 0 auto 1.25rem;
-}
-.tv-ad-banner {
-  max-width: 56rem; /* 896px — standard 728×90 banner scaled up for TV */
-}
-.tv-ad-social {
-  max-width: 48rem; /* 768px — social bar (taller, narrower) */
-}
-.tv-ad-label {
-  font-size: 0.6875rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-  font-weight: 600;
-  opacity: 0.7;
-}
-.tv-ad-slot iframe {
-  width: 100% !important;
-  border: none;
-  display: block;
-}
-
-/* On-screen remote hint (appears briefly) */
-.tv-remote-hint {
-  position: fixed;
-  bottom: 1.5rem;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.85);
-  color: #fff;
-  padding: 0.875rem 1.5rem;
-  border-radius: 0.875rem;
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  z-index: 50;
-  pointer-events: none;
-  animation: tv-hint-fade 5s ease forwards;
-}
-.tv-remote-hint kbd {
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 0.375rem;
-  padding: 0.125rem 0.5rem;
-  font-family: inherit;
-  font-size: 0.8125rem;
-  font-weight: 700;
-}
-@keyframes tv-hint-fade {
-  0% { opacity: 0; transform: translateX(-50%) translateY(0.5rem); }
-  10%, 80% { opacity: 1; transform: translateX(-50%) translateY(0); }
-  100% { opacity: 0; transform: translateX(-50%) translateY(0.5rem); }
-}
-
-/* Empty state (TV) */
-.tv-empty {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 1rem;
-  padding: 3rem 2rem;
-  text-align: center;
-  color: var(--muted-foreground);
-}
-.tv-empty-title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--foreground);
-  margin-bottom: 0.375rem;
-}
-
-/* TV mode toggle card (on More page) */
-.tv-toggle-card {
-  position: relative;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 1rem 1.25rem;
-  border-radius: 1rem;
-  background: var(--card);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.2s ease;
-}
-.tv-toggle-card:hover {
-  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
-}
-.tv-toggle-icon {
-  width: 3rem;
-  height: 3rem;
-  border-radius: 1rem;
-  background: color-mix(in srgb, var(--primary) 12%, var(--secondary));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.tv-toggle-card[data-active="true"] .tv-toggle-icon {
-  background: var(--primary);
-  color: var(--primary-foreground);
-}
-
-/* TV loading skeleton */
-.tv-skeleton {
-  background: linear-gradient(90deg, var(--secondary) 0%, var(--card) 50%, var(--secondary) 100%);
-  background-size: 200% 100%;
-  animation: tv-skel 1.4s ease-in-out infinite;
-  border-radius: 0.5rem;
-}
-@keyframes tv-skel {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-/* Back button (TV) — always-visible escape hatch */
-.tv-back-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.625rem 1.125rem;
-  border-radius: 0.625rem;
-  background: var(--card);
-  border: 2px solid var(--border);
-  color: var(--foreground);
-  font-weight: 600;
-  cursor: pointer;
-  font-size: 0.9375rem;
 }
 

@@ -16,15 +16,16 @@ import { NextRequest, NextResponse } from 'next/server'
 export const maxDuration = 300 // 5 minute timeout for live streams
 
 // Upstream request timeout (ms)
-// For m3u8 manifests, use very short timeout so player can fallback to direct mode quickly
-const UPSTREAM_TIMEOUT_MANIFEST = 15000 // 15s for m3u8 manifests (generous for slow IPTV servers)
-const UPSTREAM_TIMEOUT_SEGMENT = 30000 // 30s for segments (slower is ok but not too long)
-const UPSTREAM_TIMEOUT_LIVE = 60000 // 60s for live .ts streams
+// Reduced for fast fallback: if upstream doesn't respond in 8s for manifest,
+// it's dead — let hls.js/mpegts.js fall back quickly instead of waiting 15s.
+const UPSTREAM_TIMEOUT_MANIFEST = 8000 // 8s for m3u8 manifests (was 15s)
+const UPSTREAM_TIMEOUT_SEGMENT = 15000 // 15s for segments (was 30s)
+const UPSTREAM_TIMEOUT_LIVE = 60000 // 60s for live .ts streams (unchanged)
 
-// Retry configuration
-const MAX_RETRIES_MANIFEST = 2 // 2 retries for manifests (IPTV servers can be flaky)
-const MAX_RETRIES_SEGMENT = 2 // 2 retries for segments
-const RETRY_DELAY_MS = 500
+// Retry configuration — reduced so failures surface faster
+const MAX_RETRIES_MANIFEST = 1 // 1 retry for manifests (was 2)
+const MAX_RETRIES_SEGMENT = 1 // 1 retry for segments (was 2)
+const RETRY_DELAY_MS = 300 // was 500
 
 // Detect if a .ts URL is a live stream (not a VOD segment)
 function isLiveTsUrl(pathname: string): boolean {
@@ -260,9 +261,45 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    // For .ts VOD segments and other binary data, buffer the response
+    // For .ts VOD segments — STREAM incrementally instead of buffering the whole
+    // segment in memory. This lets the browser start feeding bytes to the demuxer
+    // as soon as they arrive, reducing time-to-first-frame on slow connections.
+    // (Live .ts streams above already use this pattern; VOD segments now match.)
+    if (isTs && response.body) {
+      const { readable, writable } = new TransformStream()
+      const reader = response.body.getReader()
+      const writer = writable.getWriter()
+      ;(async () => {
+        try {
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            await writer.write(value)
+          }
+        } catch {
+          // Client disconnected or stream ended — normal
+        } finally {
+          try { await writer.close() } catch {}
+          try { reader.cancel() } catch {}
+        }
+      })()
+
+      const contentType = response.headers.get('content-type') || 'video/mp2t'
+      return new NextResponse(readable, {
+        status: 200,
+        headers: {
+          'Content-Type': contentType,
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, OPTIONS',
+          'Access-Control-Allow-Headers': '*',
+          'Cache-Control': 'public, max-age=3600',
+        },
+      })
+    }
+
+    // Other binary data (rare) — buffer
     const body = await response.arrayBuffer()
-    const contentType = response.headers.get('content-type') || (isTs ? 'video/mp2t' : 'application/octet-stream')
+    const contentType = response.headers.get('content-type') || 'application/octet-stream'
 
     return new NextResponse(body, {
       status: 200,
@@ -271,7 +308,7 @@ export async function GET(req: NextRequest) {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, OPTIONS',
         'Access-Control-Allow-Headers': '*',
-        'Cache-Control': isTs ? 'public, max-age=3600' : 'no-cache',
+        'Cache-Control': 'no-cache',
       },
     })
   } catch (error) {

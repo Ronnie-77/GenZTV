@@ -4,8 +4,8 @@
  * InstallAppDialog — device-aware PWA install instructions.
  *
  * Shown when the user clicks "Install App" but the browser does NOT support
- * the native `beforeinstallprompt` flow (iOS Safari, Desktop Firefox, most
- * Smart TVs). The instructions are tailored to the detected device family.
+ * the native `beforeinstallprompt` flow (iOS Safari, Desktop Firefox).
+ * The instructions are tailored to the detected device family.
  *
  * For browsers that DO support the native prompt (Android Chrome, Desktop
  * Chrome/Edge), this dialog is typically not shown — `usePwaInstall.install()`
@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Download, Smartphone, Monitor, Tv as TvIcon, Share, MoreVertical, Plus, Home } from 'lucide-react'
+import { Download, Smartphone, Monitor, Share, MoreVertical, Plus, Home } from 'lucide-react'
 import type { DeviceMode, PlatformHint } from '@/lib/use-pwa-install'
 
 interface InstallAppDialogProps {
@@ -85,18 +85,6 @@ function stepsFor(device: DeviceMode, platform: PlatformHint): { title: string; 
     }
   }
 
-  // TV — Tizen / WebOS / others
-  if (device === 'tv') {
-    return {
-      title: 'Install on your Smart TV',
-      steps: [
-        { icon: <TvIcon className="h-5 w-5" />, text: <>Press the <b>Home / Smart Hub</b> button on your TV remote.</> },
-        { icon: <Plus className="h-5 w-5" />, text: <>Navigate to the browser, then open the browser's <b>menu → “Add to Home”</b> (or “Add Bookmark”).</> },
-        { icon: <Home className="h-5 w-5" />, text: <>Launch <b>GenZ TV</b> from your TV's home/apps screen for a full-screen, remote-friendly experience.</> },
-      ],
-    }
-  }
-
   // Default — Desktop Chromium fallback (if the native prompt was dismissed)
   return {
     title: 'Install GenZ TV',
@@ -109,7 +97,6 @@ function stepsFor(device: DeviceMode, platform: PlatformHint): { title: string; 
 }
 
 function deviceIcon(device: DeviceMode, platform: PlatformHint) {
-  if (device === 'tv') return <TvIcon className="h-8 w-8" />
   if (platform === 'ios' || platform === 'android' || device === 'mobile') return <Smartphone className="h-8 w-8" />
   return <Monitor className="h-8 w-8" />
 }

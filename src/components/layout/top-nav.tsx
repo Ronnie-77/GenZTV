@@ -37,8 +37,10 @@ export function TopNav() {
           </button>
         </div>
 
-        {/* Center: Search box */}
-        <div className="flex-1 max-w-md mx-auto min-w-0">
+        {/* Center: Search box — desktop only. On mobile, search is accessed
+            via the search icon in the bottom navigation bar, which opens the
+            dedicated search page with its own search box. */}
+        <div className="hidden md:flex flex-1 max-w-md mx-auto min-w-0">
           <div className="relative w-full">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input

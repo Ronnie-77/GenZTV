@@ -291,6 +291,7 @@ export function WatchPage() {
                         key={ch.id}
                         onClick={() => {
                           useAppStore.getState().setCurrentChannelId(ch.id)
+                          useAppStore.getState().setCurrentMatchId(null)
                           useAppStore.getState().setCurrentPage('watch')
                         }}
                         className={`channel-list-item w-full flex items-center gap-3 px-4 py-3 text-left transition-all duration-200 hover:bg-muted/50 ${

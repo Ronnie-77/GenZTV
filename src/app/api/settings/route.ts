@@ -27,45 +27,58 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized — please log in again' }, { status: 401 })
     }
 
-    const body = await req.json()
+    let body: unknown
+    try {
+      body = await req.json()
+    } catch (parseErr) {
+      console.error('[Settings] JSON parse error:', parseErr)
+      return NextResponse.json({ error: 'Invalid JSON in request body' }, { status: 400 })
+    }
+    const b = body as Record<string, unknown>
 
     const settings = await db.appSetting.upsert({
       where: { id: 'app' },
       update: {
-        ...(body.appName !== undefined && { appName: body.appName }),
-        ...(body.logoUrl !== undefined && { logoUrl: body.logoUrl }),
-        ...(body.maintenanceMode !== undefined && { maintenanceMode: body.maintenanceMode }),
-        ...(body.featuredChannelId !== undefined && { featuredChannelId: body.featuredChannelId }),
-        ...(body.heroBannerText !== undefined && { heroBannerText: body.heroBannerText }),
-        ...(body.defaultQuality !== undefined && { defaultQuality: body.defaultQuality }),
-        ...(body.bannerAdScript !== undefined && { bannerAdScript: body.bannerAdScript }),
-        ...(body.socialBarAdScript !== undefined && { socialBarAdScript: body.socialBarAdScript }),
-        ...(body.customAdScripts !== undefined && { customAdScripts: typeof body.customAdScripts === 'string' ? body.customAdScripts : JSON.stringify(body.customAdScripts) }),
-        ...(body.adsEnabled !== undefined && { adsEnabled: body.adsEnabled }),
-        ...(body.homeAdsEnabled !== undefined && { homeAdsEnabled: body.homeAdsEnabled }),
-        ...(body.videoAdsEnabled !== undefined && { videoAdsEnabled: body.videoAdsEnabled }),
-        ...(body.apkUrl !== undefined && { apkUrl: body.apkUrl }),
+        ...(b.appName !== undefined && { appName: String(b.appName) }),
+        ...(b.logoUrl !== undefined && { logoUrl: String(b.logoUrl) }),
+        ...(b.maintenanceMode !== undefined && { maintenanceMode: Boolean(b.maintenanceMode) }),
+        ...(b.featuredChannelId !== undefined && { featuredChannelId: String(b.featuredChannelId) }),
+        ...(b.heroBannerText !== undefined && { heroBannerText: String(b.heroBannerText) }),
+        ...(b.defaultQuality !== undefined && { defaultQuality: String(b.defaultQuality) }),
+        ...(b.bannerAdScript !== undefined && { bannerAdScript: String(b.bannerAdScript) }),
+        ...(b.socialBarAdScript !== undefined && { socialBarAdScript: String(b.socialBarAdScript) }),
+        ...(b.customAdScripts !== undefined && { customAdScripts: typeof b.customAdScripts === 'string' ? b.customAdScripts : JSON.stringify(b.customAdScripts) }),
+        ...(b.adsEnabled !== undefined && { adsEnabled: Boolean(b.adsEnabled) }),
+        ...(b.homeAdsEnabled !== undefined && { homeAdsEnabled: Boolean(b.homeAdsEnabled) }),
+        ...(b.videoAdsEnabled !== undefined && { videoAdsEnabled: Boolean(b.videoAdsEnabled) }),
+        ...(b.apkUrl !== undefined && { apkUrl: String(b.apkUrl) }),
       },
       create: {
         id: 'app',
-        appName: body.appName || 'GenZ TV',
-        logoUrl: body.logoUrl || '',
-        maintenanceMode: body.maintenanceMode !== undefined ? body.maintenanceMode : false,
-        featuredChannelId: body.featuredChannelId || '',
-        heroBannerText: body.heroBannerText || '',
-        defaultQuality: body.defaultQuality || 'auto',
-        bannerAdScript: body.bannerAdScript || '',
-        socialBarAdScript: body.socialBarAdScript || '',
-        customAdScripts: typeof body.customAdScripts === 'string' ? body.customAdScripts : JSON.stringify(body.customAdScripts || []),
-        adsEnabled: body.adsEnabled !== undefined ? body.adsEnabled : true,
-        homeAdsEnabled: body.homeAdsEnabled !== undefined ? body.homeAdsEnabled : true,
-        videoAdsEnabled: body.videoAdsEnabled !== undefined ? body.videoAdsEnabled : true,
-        apkUrl: body.apkUrl || '',
+        appName: b.appName ? String(b.appName) : 'GenZ TV',
+        logoUrl: b.logoUrl ? String(b.logoUrl) : '',
+        maintenanceMode: b.maintenanceMode !== undefined ? Boolean(b.maintenanceMode) : false,
+        featuredChannelId: b.featuredChannelId ? String(b.featuredChannelId) : '',
+        heroBannerText: b.heroBannerText ? String(b.heroBannerText) : '',
+        defaultQuality: b.defaultQuality ? String(b.defaultQuality) : 'auto',
+        bannerAdScript: b.bannerAdScript ? String(b.bannerAdScript) : '',
+        socialBarAdScript: b.socialBarAdScript ? String(b.socialBarAdScript) : '',
+        customAdScripts: typeof b.customAdScripts === 'string' ? b.customAdScripts : JSON.stringify(b.customAdScripts || []),
+        adsEnabled: b.adsEnabled !== undefined ? Boolean(b.adsEnabled) : true,
+        homeAdsEnabled: b.homeAdsEnabled !== undefined ? Boolean(b.homeAdsEnabled) : true,
+        videoAdsEnabled: b.videoAdsEnabled !== undefined ? Boolean(b.videoAdsEnabled) : true,
+        apkUrl: b.apkUrl ? String(b.apkUrl) : '',
       },
     })
     return NextResponse.json(settings)
   } catch (error) {
     console.error('[Settings] Error updating settings:', error)
-    return NextResponse.json({ error: 'Failed to update settings' }, { status: 500 })
+    // Return a useful error message so the admin can see WHY the save failed
+    // (e.g. Prisma validation, unknown field, DB connection, etc.)
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return NextResponse.json(
+      { error: 'Failed to update settings', detail: message },
+      { status: 500 },
+    )
   }
 }

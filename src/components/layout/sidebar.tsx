@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { useMounted } from '@/hooks/use-mounted'
+import { NotificationBell } from '@/components/notifications/notification-manager'
 
 const navItems: { icon: React.ElementType; label: string; page: PageName; badge?: string }[] = [
   { icon: Home, label: 'Home', page: 'home' },
@@ -63,7 +64,7 @@ export function Sidebar() {
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed top-0 left-0 z-50 h-full w-64 bg-sidebar transition-transform duration-300 ease-out lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen lg:z-auto',
+          'fixed top-0 left-0 z-50 h-full w-64 bg-sidebar transition-transform duration-300 ease-out lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen lg:z-30',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
@@ -84,14 +85,21 @@ export function Sidebar() {
           </Button>
         </div>
 
-        {/* Desktop Header */}
-        <div className="hidden lg:flex items-center h-14 px-4">
-          <div className="flex items-center gap-2">
-            <Zap className="h-6 w-6 text-foreground" />
-            <span className="font-bold text-lg">
+        {/* Desktop Header — logo (left) + notification bell (right).
+            The TopNav (which holds the bell on mobile) is hidden on PC
+            (`lg:hidden` in app-shell), so the bell must also live here for
+            desktop users to see/access notifications. */}
+        <div className="hidden lg:flex items-center justify-between h-14 px-4 gap-2">
+          <button
+            onClick={() => handleNav('home')}
+            className="flex items-center gap-2 shrink-0 min-w-0"
+          >
+            <Zap className="h-6 w-6 text-foreground shrink-0" />
+            <span className="font-bold text-lg truncate">
               <span className="text-foreground">GenZ</span><span className="text-muted-foreground"> TV</span>
             </span>
-          </div>
+          </button>
+          <NotificationBell dropdownAlign="left" />
         </div>
 
         <ScrollArea className="h-[calc(100%-3.5rem)] lg:h-[calc(100vh-3.5rem)] px-3 py-4">

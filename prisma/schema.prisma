@@ -39,6 +39,9 @@ model Match {
   endTime     DateTime?
   status      String   @default("upcoming")
   isFeatured  Boolean  @default(false)
+  // Tracks when the "match is LIVE" push notification was sent. Null = not sent yet.
+  // Prevents duplicate notifications when multiple visitors trigger the status sync.
+  liveNotifiedAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   streams     MatchStream[]
@@ -92,12 +95,60 @@ model PushSubscription {
   createdAt   DateTime @default(now())
 }
 
+// Site-wide notices created by the admin.
+//   - "popup" type notices show as a modal popup on website entry (once per
+//     user until dismissed or until the notice's updatedAt changes).
+//   - "push" type notices fire a push notification to all subscribed users
+//     immediately when the admin publishes them (the row is kept for history
+//     but doesn't show as a popup).
+//   - "both" does both: fires push now + shows popup until dismissed.
+model Notice {
+  id          String   @id @default(cuid())
+  type        String   @default("popup")  // "popup" | "push" | "both"
+  title       String
+  body        String   @default("")       // main message text (supports newlines)
+  url         String   @default("")       // optional CTA link
+  imageUrl    String   @default("")       // optional banner image
+  isActive    Boolean  @default(true)     // admin can deactivate without deleting
+  // Set to true once the push notification has been fired for this notice.
+  // Prevents duplicate pushes if the admin re-saves an active "push"/"both"
+  // notice. (Popup display has its own client-side dismissal tracking.)
+  pushSent    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// In-app bell notifications created by the admin.
+// These differ from `Notice` (popup/push site-entry modals) — these are the
+// notifications that appear in the site's top-nav bell dropdown. Every visitor
+// sees the same list; "read" state is tracked client-side per browser via a
+// `lastReadAt` timestamp in localStorage (notifications with createdAt >
+// lastReadAt are "unread"). Optionally also fires a web push to subscribers.
+//   - type: "channel" (auto when a new channel is added) | "update" |
+//     "feature" | "notice" (manual short notice from admin).
+model AppNotification {
+  id          String   @id @default(cuid())
+  type        String   @default("notice")  // "channel" | "update" | "feature" | "notice"
+  title       String
+  body        String   @default("")
+  url         String   @default("")        // optional click-through link
+  imageUrl    String   @default("")        // optional icon/banner
+  isActive    Boolean  @default(true)      // admin can hide without deleting
+  // If true, also fire a web push to all subscribers when created.
+  sendPush    Boolean  @default(false)
+  // Set to true once the push has been fired (prevents duplicate pushes on re-save).
+  pushSent    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 // Analytics models
 model PageView {
   id          String   @id @default(cuid())
   sessionId   String   // Browser fingerprint / session ID
   page        String   // Which page was viewed (home, watch, live, etc.)
   channelId   String?  // If watching a specific channel
+  matchId     String?  // If watching a specific match (live sport event)
   referrer    String   @default("")  // Where the visitor came from
   userAgent   String   @default("")
   country     String   @default("")
@@ -123,14 +174,31 @@ model DailyStat {
 }
 
 model VisitorSession {
-  id          String   @id @default(cuid())
-  sessionId   String   @unique  // Browser fingerprint
-  firstSeen   DateTime @default(now())
-  lastSeen    DateTime @default(now())
-  pageCount   Int      @default(0)
-  country     String   @default("")
-  userAgent   String   @default("")
-  ip          String   @default("")
-  device      String   @default("")  // mobile / desktop / tv
-  browser     String   @default("")  // Chrome / Firefox / Safari / Edge / Opera / Samsung / Other
+  id               String   @id @default(cuid())
+  sessionId        String   @unique  // Browser fingerprint
+  firstSeen        DateTime @default(now())
+  lastSeen         DateTime @default(now())
+  pageCount        Int      @default(0)
+  country          String   @default("")
+  userAgent        String   @default("")
+  ip               String   @default("")
+  device           String   @default("")  // mobile / desktop / tv
+  browser          String   @default("")  // Chrome / Firefox / Safari / Edge / Opera / Samsung / Other
+  // Live-viewer tracking. Updated by /api/analytics/heartbeat every ~15s while
+  // a visitor is on the watch page. Cleared (set to null) when the visitor
+  // navigates away from watch. Admin's "live viewers" count queries these two
+  // fields against `lastSeen >= now - 60s`.
+  currentChannelId String?
+  currentMatchId   String?
+
+  // Indexes for the hot admin live-viewer queries (polled every 5s):
+  //   - lastSeen             → `count` / `groupBy` filtered by lastSeen >= now-60s
+  //   - currentChannelId     → `groupBy` by channel
+  //   - currentMatchId       → `groupBy` by match
+  // Without these the admin panel's 5-second polling would do full table scans
+  // as the VisitorSession table grows. (SQLite B-tree indexes keep these
+  // queries O(log n + k) instead of O(n).)
+  @@index([lastSeen])
+  @@index([currentChannelId])
+  @@index([currentMatchId])
 }

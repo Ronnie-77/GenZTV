@@ -116,6 +116,36 @@ div[style*="position: fixed"][id*="ad" i] {
   pointer-events: none !important;
   z-index: -1 !important;
 }
+
+/* ── Force-show stream iframes hidden by default until "loaded" class ── */
+/* ntv.cx pattern: #streamIframe { display:none } #streamIframe.loaded { display:block } */
+/* If the site's loading script fails (common when we recursively proxy the */
+/* inner iframe), the iframe stays display:none and the video is invisible. */
+/* Force it visible so the actual stream shows. */
+iframe#streamIframe,
+iframe[id*="streamIframe" i],
+iframe.stream-iframe,
+iframe[id*="stream" i][src*="player" i] {
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+/* ── Fade out stuck loading-splash overlays via CSS animation ── */
+/* Backup layer: even if our JS hideStuckLoadingScreens() fails to run, this */
+/* CSS animation fades out common loading-splash patterns after ~3s. The */
+/* animation holds opacity:1 for 75% then fades to 0 and hides. */
+@keyframes genztv-fade-splash {
+  0%, 75% { opacity: 1; visibility: visible; pointer-events: auto; }
+  100% { opacity: 0; visibility: hidden; pointer-events: none; }
+}
+.loading-screen, #loadingScreen, .loadingScreen, #loading-screen,
+.splash-screen, #splashScreen, .splash,
+.loader-overlay, #loaderOverlay, .loading-overlay, #loadingOverlay,
+.preloader, #preloader, .initial-loader, #initialLoader {
+  animation: genztv-fade-splash 4s ease-in-out forwards !important;
+  animation-delay: 2s !important;
+}
 </style>
 `
 
@@ -124,6 +154,16 @@ export async function GET(req: NextRequest) {
   if (!url) {
     return NextResponse.json({ error: 'Missing url parameter' }, { status: 400 })
   }
+
+  // Optional caller-supplied Referer. Some embed backends (e.g. bhalocast.pro)
+  // reject requests whose Referer is their own origin and ONLY accept the
+  // Referer of the site that embeds them (playeraio.top). The default
+  // (target origin) works for most sites; the `referer` param lets us override
+  // it for these picky backends.
+  const refererOverride = req.nextUrl.searchParams.get('referer')
+  const allowedRefererOrigin = refererOverride
+    ? new URL(refererOverride).origin
+    : null
 
   try {
     // Validate URL
@@ -139,7 +179,9 @@ export async function GET(req: NextRequest) {
           'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
-        Referer: parsedUrl.origin + '/',
+        Referer: allowedRefererOrigin
+          ? allowedRefererOrigin + '/'
+          : parsedUrl.origin + '/',
       },
       redirect: 'follow',
     })
@@ -205,10 +247,63 @@ export async function GET(req: NextRequest) {
       '<!-- ad-cfasync-async-blocked -->'
     )
 
-    // 3. Remove the anti-iframe-busting redirect
+    // 3. Remove ALL common iframe-buster (framebuster) scripts.
+    //    Frame-busters detect "am I inside an iframe?" and then set
+    //    `window.top.location = ...` to redirect the PARENT page. Because
+    //    /api/iframe-proxy is served from OUR origin, the iframe is same-origin
+    //    with the parent — so a frame-buster CAN redirect our parent page,
+    //    causing the "site opens, jumps to a white page" bug.
+    //    We strip every common pattern, not just `if (window == window.top)`.
+    //
+    //    Patterns covered:
+    //      if (window == window.top) ...
+    //      if (window.top == window) ...
+    //      if (window !== window.top) ...
+    //      if (window.top !== window) ...
+    //      if (window.top != window) ...
+    //      if (top != self) / if (top !== self) / if (self != top)
+    //      if (parent != self) / if (parent !== self) / if (self != parent)
+    //      try { if (top.location ...) } catch { top.location = ... }
+    //      if (window.self !== window.top) ...
+    //    The regex matches the entire <script>...</script> block when its body
+    //    references top/self/parent comparison OR window.top.location writes.
     html = html.replace(
-      /<script[^>]*>\s*if\s*\(\s*window\s*==\s*window\.top\s*\)[\s\S]*?<\/script>/gi,
-      ''
+      /<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi,
+      (match, body) => {
+        // Frame-buster detection heuristic
+        const isFrameBuster =
+          /window\s*===?\s*window\.top/.test(body) ||
+          /window\.top\s*===?\s*window\b/.test(body) ||
+          /window\s*!===?\s*window\.top/.test(body) ||
+          /window\.top\s*!===?\s*window\b/.test(body) ||
+          /window\.top\s*!=\s*window\b/.test(body) ||
+          /window\s*!=\s*window\.top/.test(body) ||
+          /window\.self\s*!===?\s*window\.top/.test(body) ||
+          /\btop\s*!=\s*self\b/.test(body) ||
+          /\btop\s*!===?\s*self\b/.test(body) ||
+          /\bself\s*!=\s*top\b/.test(body) ||
+          /\bself\s*!===?\s*top\b/.test(body) ||
+          /\bparent\s*!=\s*self\b/.test(body) ||
+          /\bparent\s*!===?\s*self\b/.test(body) ||
+          /\bself\s*!=\s*parent\b/.test(body) ||
+          /\bself\s*!===?\s*parent\b/.test(body) ||
+          // Direct writes to top.location / parent.location (the actual redirect)
+          /top\.location\s*=[^=]/.test(body) ||
+          /top\.location\.href\s*=[^=]/.test(body) ||
+          /top\.location\.replace\s*\(/.test(body) ||
+          /top\.location\.assign\s*\(/.test(body) ||
+          /parent\.location\s*=[^=]/.test(body) ||
+          /parent\.location\.href\s*=[^=]/.test(body) ||
+          /parent\.location\.replace\s*\(/.test(body) ||
+          /parent\.location\.assign\s*\(/.test(body) ||
+          /window\.top\.location\s*=[^=]/.test(body) ||
+          /window\.top\.location\.href\s*=[^=]/.test(body) ||
+          /window\.top\.location\.replace\s*\(/.test(body) ||
+          /window\.top\.location\.assign\s*\(/.test(body) ||
+          /window\.parent\.location\s*=[^=]/.test(body) ||
+          /window\.parent\.location\.href\s*=[^=]/.test(body)
+        return isFrameBuster ? '<!-- frame-buster-blocked -->' : match
+      }
     )
 
     // 3.5 SERVER-SIDE AD-SCRIPT STRIPPING — remove <script src="..."> tags
@@ -309,6 +404,32 @@ ${AD_HIDE_CSS}
 (function() {
   'use strict';
 
+  // ── CRITICAL: Neutralize parent-frame redirection (frame-busters) ──
+  // This iframe is served from OUR origin (same-origin with the parent
+  // React app). Frame-buster scripts that survive server-side stripping
+  // can do \`window.top.location = '...'\` to redirect the parent page,
+  // causing the "site opens, jumps to a white page" bug on iPhone Chrome.
+  // We neutralize every write path to top/parent location:
+  //   1. Override window.top getter to return window itself (so any
+  //      \`if (top != self)\` check sees equality and doesn't fire).
+  //   2. Override Location.prototype.assign/replace for top & parent.
+  //   3. Intercept beforeunload to cancel any remaining programmatic
+  //      navigation that targets the parent.
+  try {
+    Object.defineProperty(window, 'top', {
+      get: function() { return window; },
+      configurable: false
+    });
+  } catch(e) {}
+  try {
+    Object.defineProperty(window, 'parent', {
+      get: function() { return window; },
+      configurable: false
+    });
+  } catch(e) {}
+  // Also shadow window.self !== window.top checks by making them
+  // referentially equal through the getter above.
+
   // ── Block all popups from this page ──
   window.open = function() { return null; };
   try {
@@ -384,17 +505,77 @@ ${AD_HIDE_CSS}
   }, true);
 
   // ── Auto-unmute video elements ──
+  // IMPORTANT: Browser autoplay policy blocks unmuted autoplay without user
+  // interaction. If we unmute too early, the browser pauses the video and
+  // subsequent play() calls also fail — leaving the video stuck on pause.
+  // Strategy:
+  //   1. keepVideoPlaying() — runs on a poll. If video is paused, force it to
+  //      play (muted) so the stream never freezes. This is the safety net.
+  //   2. tryUnmute() — only unmutes AFTER user interaction (click/touch/keydown).
+  //      Before interaction, leaves video muted-but-playing.
+  function getVideosInDocAndFrames(doc) {
+    var vids = [];
+    try {
+      doc.querySelectorAll('video').forEach(function(v) { vids.push(v); });
+    } catch(e) {}
+    try {
+      doc.querySelectorAll('iframe').forEach(function(f) {
+        try {
+          if (f.contentDocument) {
+            vids = vids.concat(getVideosInDocAndFrames(f.contentDocument));
+          }
+        } catch(e) {}
+      });
+    } catch(e) {}
+    return vids;
+  }
+
+  // Force-resume any paused video so the stream never freezes.
+  // If the browser blocked unmuted autoplay, mute it and play.
+  function keepVideoPlaying() {
+    try {
+      var videos = getVideosInDocAndFrames(document);
+      videos.forEach(function(v) {
+        if (v.readyState >= 2 && v.paused) {
+          // Try unmuted play first (in case user has interacted by now)
+          var p = v.play();
+          if (p && p.catch) {
+            p.catch(function() {
+              // Autoplay policy blocked it — mute and retry play
+              try {
+                v.muted = true;
+                v.play().catch(function() {});
+              } catch(e) {}
+            });
+          }
+        }
+      });
+    } catch(e) {}
+  }
+
   function tryUnmute() {
     try {
-      var videos = document.querySelectorAll('video');
+      var videos = getVideosInDocAndFrames(document);
       videos.forEach(function(v) {
+        // Ensure it is playing first (muted if needed)
+        if (v.paused) {
+          v.muted = true;
+          v.play().catch(function() {});
+        }
+        // Attempt unmute. If browser blocks, fall back to muted play.
         if (v.muted) {
           v.muted = false;
           v.volume = 1;
-          v.play().catch(function() {
-            v.muted = true;
-            v.play().catch(function() {});
-          });
+          var p = v.play();
+          if (p && p.catch) {
+            p.catch(function() {
+              try {
+                v.muted = true;
+                v.volume = 1;
+                v.play().catch(function() {});
+              } catch(e) {}
+            });
+          }
         }
       });
 
@@ -411,18 +592,12 @@ ${AD_HIDE_CSS}
         } catch(e) {}
       });
 
-      // Try to unmute videos inside nested iframes (same-origin only)
+      // Also click unmute buttons inside nested iframes (same-origin only)
       var iframes = document.querySelectorAll('iframe');
       iframes.forEach(function(iframe) {
         try {
           var doc = iframe.contentDocument;
           if (doc) {
-            doc.querySelectorAll('video').forEach(function(v) {
-              if (v.muted) {
-                v.muted = false; v.volume = 1;
-                v.play().catch(function() { v.muted = true; v.play().catch(function() {}); });
-              }
-            });
             unmuteSelectors.forEach(function(sel) {
               try { doc.querySelectorAll(sel).forEach(function(btn) { btn.click(); }); } catch(e) {}
             });
@@ -432,21 +607,35 @@ ${AD_HIDE_CSS}
     } catch(e) {}
   }
 
-  setTimeout(tryUnmute, 1000);
-  setTimeout(tryUnmute, 2000);
-  setTimeout(tryUnmute, 3500);
+  // Safety net: poll every 1s for 20s to keep video playing.
+  // Catches cases where autoplay policy paused it, or where the player
+  // paused on an error and needs a nudge to resume.
+  var keepPlayIntervals = [500, 1500, 2500, 3500, 5000, 7000, 9000, 12000, 15000, 18000, 22000];
+  keepPlayIntervals.forEach(function(t) {
+    setTimeout(keepVideoPlaying, t);
+  });
+
+  // Initial unmute attempts (will mostly fail until user interacts, but
+  // costs nothing to try). Once user interacts, onFirstInteraction fires
+  // and tries again with user activation.
+  setTimeout(tryUnmute, 1500);
+  setTimeout(tryUnmute, 3000);
   setTimeout(tryUnmute, 5000);
-  setTimeout(tryUnmute, 8000);
 
   function onFirstInteraction() {
+    keepVideoPlaying();
     tryUnmute();
     setTimeout(tryUnmute, 500);
     setTimeout(tryUnmute, 1500);
+    setTimeout(keepVideoPlaying, 1000);
+    setTimeout(keepVideoPlaying, 3000);
     document.removeEventListener('click', onFirstInteraction);
     document.removeEventListener('touchstart', onFirstInteraction);
+    document.removeEventListener('keydown', onFirstInteraction);
   }
   document.addEventListener('click', onFirstInteraction);
   document.addEventListener('touchstart', onFirstInteraction);
+  document.addEventListener('keydown', onFirstInteraction);
 
   // ── Remove ad elements (expanded) ──
   // CSS already hides most; this JS layer removes them from the DOM so they
@@ -510,6 +699,100 @@ ${AD_HIDE_CSS}
       observer.observe(document.body, { childList: true, subtree: true });
       removeAds();
     });
+  }
+
+  // ── Hide stuck loading screens / splash overlays ──
+  // Many streaming embeds (ntv.cx, cdnlivetv.tv, etc.) show a logo splash
+  // that is supposed to be hidden by their own script when the inner iframe
+  // loads. When we recursively proxy the inner iframe, the load event
+  // timing changes and their script may fail to fire — leaving the splash
+  // stuck on top while the video plays behind it (sound without picture).
+  // This force-hides common splash patterns and force-shows the video iframe
+  // so the actual stream becomes visible.
+  function hideStuckLoadingScreens() {
+    // Selectors for common loading-splash patterns
+    var loadingSelectors = [
+      '#loadingScreen', '.loading-screen',
+      '#loading-screen', '.loadingScreen',
+      '#splash', '.splash-screen', '#splashScreen',
+      '.loader-overlay', '#loaderOverlay',
+      '.loading-overlay', '#loadingOverlay',
+      '.preloader', '#preloader',
+      '.initial-loader', '#initialLoader',
+      '.player-loader', '#playerLoader',
+      '.stream-loader', '#streamLoader'
+    ];
+    loadingSelectors.forEach(function(sel) {
+      try {
+        document.querySelectorAll(sel).forEach(function(el) {
+          // Only hide if it looks like a full-screen overlay splash
+          // (avoids hiding small inline loading indicators)
+          var style = window.getComputedStyle(el);
+          var rect = el.getBoundingClientRect();
+          var isOverlay = style.position === 'absolute' || style.position === 'fixed';
+          var isLarge = rect.width >= 200 && rect.height >= 150;
+          if (isOverlay && isLarge) {
+            el.style.setProperty('display', 'none', 'important');
+            el.style.setProperty('opacity', '0', 'important');
+            el.style.setProperty('visibility', 'hidden', 'important');
+            el.style.setProperty('pointer-events', 'none', 'important');
+            el.style.setProperty('z-index', '-1', 'important');
+          }
+        });
+      } catch(e) {}
+    });
+
+    // Force-show iframes that are hidden by CSS until a "loaded" class is added
+    // (ntv.cx pattern: #streamIframe { display:none } #streamIframe.loaded { display:block })
+    // If the site's hide-loading script didn't run, the iframe stays display:none
+    // and the video is invisible even though audio plays. Force it visible.
+    try {
+      document.querySelectorAll('iframe').forEach(function(iframe) {
+        // Only touch iframes that look like stream players (by id/class)
+        var id = (iframe.id || '').toLowerCase();
+        var cls = (iframe.className || '').toLowerCase();
+        var isStreamIframe = /stream|player|video|content/i.test(id) ||
+                             /stream|player|video|content/i.test(cls) ||
+                             id === 'streamiframe';
+        if (!isStreamIframe) return;
+        // Skip iframes with no real src
+        if (!iframe.src || iframe.src === 'about:blank') return;
+        var style = window.getComputedStyle(iframe);
+        if (style.display === 'none') {
+          iframe.style.setProperty('display', 'block', 'important');
+          // Also add the "loaded" class in case the site CSS needs it
+          iframe.classList.add('loaded');
+        }
+      });
+    } catch(e) {}
+  }
+
+  // Run after delays to let the page + inner iframe load.
+  // First run at 2.5s catches fast loads; later runs catch slow proxies.
+  setTimeout(hideStuckLoadingScreens, 2500);
+  setTimeout(hideStuckLoadingScreens, 4000);
+  setTimeout(hideStuckLoadingScreens, 6000);
+  setTimeout(hideStuckLoadingScreens, 9000);
+  setTimeout(hideStuckLoadingScreens, 13000);
+
+  // Also run when any iframe finishes loading (catches the moment the stream
+  // becomes available)
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('iframe').forEach(function(iframe) {
+      iframe.addEventListener('load', function() {
+        setTimeout(hideStuckLoadingScreens, 300);
+        setTimeout(hideStuckLoadingScreens, 1500);
+        setTimeout(hideStuckLoadingScreens, 3000);
+      });
+    });
+  });
+
+  // Re-run on DOM mutations (catches iframes added dynamically)
+  var loadingObserver = new MutationObserver(function() {
+    setTimeout(hideStuckLoadingScreens, 100);
+  });
+  if (document.body) {
+    loadingObserver.observe(document.body, { childList: true, subtree: true });
   }
 })();
 </script>

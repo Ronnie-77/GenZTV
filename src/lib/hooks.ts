@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { fetchChannels, fetchMatches, fetchCategories, type Channel, type Match, type Category } from '@/lib/api'
 
 // ============ useChannels ============
@@ -30,14 +30,23 @@ export function useChannels(params?: { category?: string; search?: string; featu
 }
 
 // ============ useMatches ============
-export function useMatches(params?: { sport?: string; status?: string; featured?: boolean }) {
+// Supports an optional `refetchInterval` (ms) for periodic background
+// refreshes. Background refreshes do NOT toggle `loading` (so there's no
+// spinner flash) — they silently update the matches data. This is used by
+// the home page to keep the live/upcoming sections fresh and to regularly
+// trigger the server-side match-status sync (which fires LIVE push
+// notifications at the actual start time).
+export function useMatches(params?: { sport?: string; status?: string; featured?: boolean; refetchInterval?: number }) {
   const [matches, setMatches] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const initialLoadRef = useRef(true)
 
   const load = useCallback(async () => {
     try {
-      setLoading(true)
+      // Only show the loading spinner on the very first load, not on
+      // background refetches (avoids UI flicker every refresh cycle).
+      if (initialLoadRef.current) setLoading(true)
       setError(null)
       const data = await fetchMatches(params)
       setMatches(data)
@@ -45,12 +54,23 @@ export function useMatches(params?: { sport?: string; status?: string; featured?
       setError(err instanceof Error ? err.message : 'Failed to fetch matches')
     } finally {
       setLoading(false)
+      initialLoadRef.current = false
     }
   }, [params?.sport, params?.status, params?.featured])
 
   useEffect(() => {
     load()
   }, [load])
+
+  // Periodic silent refetch — keeps the live/upcoming sections fresh and
+  // triggers the server-side status sync (which fires LIVE notifications).
+  useEffect(() => {
+    if (!params?.refetchInterval) return
+    const interval = setInterval(() => {
+      load()
+    }, params.refetchInterval)
+    return () => clearInterval(interval)
+  }, [params?.refetchInterval, load])
 
   return { matches, loading, error, refetch: load }
 }

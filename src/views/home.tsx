@@ -64,9 +64,13 @@ export function HomePage() {
     }).catch(() => {})
   }, [])
 
-  // Fetch real data from API
-  const { matches: liveMatches, loading: loadingLive } = useMatches({ status: 'live' })
-  const { matches: upcomingMatches, loading: loadingUpcoming } = useMatches({ status: 'upcoming' })
+  // Fetch real data from API.
+  // refetchInterval=60s silently refreshes the live + upcoming lists so that
+  // matches move to the Live section at their actual start time AND the
+  // server-side status sync runs regularly (which fires the LIVE push
+  // notification at the real start time, not early).
+  const { matches: liveMatches, loading: loadingLive } = useMatches({ status: 'live', refetchInterval: 60_000 })
+  const { matches: upcomingMatches, loading: loadingUpcoming } = useMatches({ status: 'upcoming', refetchInterval: 60_000 })
   const { channels } = useChannels({})
   const { channels: featuredChannels, loading: loadingFeatured } = useChannels({ featured: true })
 
@@ -256,7 +260,8 @@ export function HomePage() {
 
       {/* ── Content Sections ── */}
       <div className="space-y-8 px-4 md:px-6 lg:px-8 py-6">
-        {/* 🔴 Live Matches Section */}
+        {/* 🔴 Live Matches Section — hidden entirely when no live matches exist */}
+        {(loadingLive || allLiveMatches.length > 0) && (
         <section>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2.5">
@@ -292,14 +297,6 @@ export function HomePage() {
                 </div>
               ))}
             </div>
-          ) : allLiveMatches.length === 0 ? (
-            <div className="bg-card rounded-2xl border border-border p-8 text-center">
-              <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center mx-auto mb-3">
-                <Tv className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <p className="text-sm text-muted-foreground font-medium">No live matches right now</p>
-              <p className="text-xs text-muted-foreground mt-1">Check back later for live action!</p>
-            </div>
           ) : (
             <div className="matches-grid">
               {allLiveMatches.map((match) => (
@@ -308,8 +305,10 @@ export function HomePage() {
             </div>
           )}
         </section>
+        )}
 
-        {/* 🕐 Upcoming Matches Section */}
+        {/* 🕐 Upcoming Matches Section — hidden entirely when no upcoming matches exist */}
+        {(loadingUpcoming || stillUpcoming.length > 0) && (
         <section>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2.5">
@@ -345,14 +344,6 @@ export function HomePage() {
                 </div>
               ))}
             </div>
-          ) : stillUpcoming.length === 0 ? (
-            <div className="bg-card rounded-2xl border border-border p-8 text-center">
-              <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center mx-auto mb-3">
-                <Zap className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <p className="text-sm text-muted-foreground font-medium">No upcoming matches scheduled</p>
-              <p className="text-xs text-muted-foreground mt-1">Stay tuned for new fixtures!</p>
-            </div>
           ) : (
             <div className="matches-grid">
               {stillUpcoming.slice(0, 6).map((match) => (
@@ -361,6 +352,7 @@ export function HomePage() {
             </div>
           )}
         </section>
+        )}
 
         {/* 📱 Ad Banner — Below Upcoming Matches (Mobile) */}
         {homeAdsEnabled && homeUpcomingMobileAds.length > 0 && (

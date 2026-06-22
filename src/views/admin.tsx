@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { useAppStore } from '@/lib/store'
-import { Shield, Eye, EyeOff, LogOut, AlertCircle, Loader2, Tv, BarChart3, Radio, FolderOpen, Settings, Menu, X, Activity, Database, Home } from 'lucide-react'
+import { Shield, Eye, EyeOff, LogOut, AlertCircle, Loader2, Tv, BarChart3, Radio, FolderOpen, Settings, Menu, X, Activity, Database, Home, Bell, Send } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +37,8 @@ const AdminCategories = lazyWithRetry(() => import('@/views/admin/categories').t
 const AdminSettings = lazyWithRetry(() => import('@/views/admin/settings').then(m => ({ default: m.AdminSettings })))
 const AdminAnalytics = lazyWithRetry(() => import('@/views/admin/analytics').then(m => ({ default: m.AdminAnalytics })))
 const AdminData = lazyWithRetry(() => import('@/views/admin/data').then(m => ({ default: m.AdminData })))
+const AdminNotices = lazyWithRetry(() => import('@/views/admin/notices').then(m => ({ default: m.AdminNotices })))
+const AdminNotifications = lazyWithRetry(() => import('@/views/admin/notifications').then(m => ({ default: m.AdminNotifications })))
 
 // Bottom nav items (mobile) — icons only, no labels
 const bottomNavItems = [
@@ -54,6 +56,8 @@ const sidebarNavItems = [
   { id: 'channels' as const, label: 'Channels', icon: Tv },
   { id: 'matches' as const, label: 'Matches', icon: Radio },
   { id: 'categories' as const, label: 'Categories', icon: FolderOpen },
+  { id: 'notices' as const, label: 'Notices', icon: Bell },
+  { id: 'notifications' as const, label: 'Notifications', icon: Send },
   { id: 'settings' as const, label: 'Settings', icon: Settings },
   { id: 'data' as const, label: 'Data', icon: Database },
 ]
@@ -284,6 +288,10 @@ export function AdminPage() {
           return <AdminMatches />
         case 'categories':
           return <AdminCategories />
+        case 'notices':
+          return <AdminNotices />
+        case 'notifications':
+          return <AdminNotifications />
         case 'settings':
           return <AdminSettings />
         case 'data':

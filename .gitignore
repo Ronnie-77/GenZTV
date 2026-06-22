@@ -10,10 +10,6 @@ node_modules
 !.yarn/releases
 !.yarn/versions
 
-# bun lockfile - Railway must use npm with package-lock.json
-bun.lock
-bun.lockb
-
 # testing
 /coverage
 
@@ -57,9 +53,10 @@ server.log
 # Skills directory
 /skills/
 
-# Database files — never push to GitHub (contains sensitive data)
+# Database (SQLite local storage)
+db/
 *.db
 *.db-journal
-*.sqlite
-*.sqlite3
-db/
+
+# Uploaded files (user content / backups — not part of source)
+upload/

@@ -2,6 +2,12 @@
 
 import { useEffect, useRef, useCallback } from 'react'
 import Hls from 'hls.js'
+import {
+  checkHlsCodecCompatibility,
+  isHevcMseSupported,
+  isSafariBrowser,
+  isMobileDevice,
+} from '@/lib/codec-check'
 
 export interface QualityLevel {
   index: number
@@ -65,6 +71,17 @@ interface HlsPlayerProps {
   onSubtitleTracks?: (tracks: SubtitleTrack[]) => void
   onLoadModeChange?: (mode: LoadMode) => void
   onRequestMpegts?: () => void
+  /** Called when codec detection proves the browser can't decode this stream
+   *  (typically HEVC on mobile Chrome/Firefox). Parent should offer iframe
+   *  fallback or a clear error message. */
+  onCodecUnsupported?: (info: {
+    hasHevc: boolean
+    hasAv1: boolean
+    summary: string
+    isMobile: boolean
+    isSafari: boolean
+    hevcMseSupported: boolean
+  }) => void
 }
 
 function buildQualityLabel(height: number, bitrate: number): string {
@@ -124,6 +141,7 @@ export function HlsPlayer({
   onSubtitleTracks,
   onLoadModeChange,
   onRequestMpegts,
+  onCodecUnsupported,
 }: HlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
@@ -140,13 +158,13 @@ export function HlsPlayer({
   const cb = useRef({
     onReady, onError, onQualityLevels, onStatsUpdate,
     onAudioTracks, onSubtitleTracks, onLoadModeChange, onRequestMpegts,
-    proxyUrl,
+    onCodecUnsupported, proxyUrl,
   })
   useEffect(() => {
     cb.current = {
       onReady, onError, onQualityLevels, onStatsUpdate,
       onAudioTracks, onSubtitleTracks, onLoadModeChange, onRequestMpegts,
-      proxyUrl,
+      onCodecUnsupported, proxyUrl,
     }
   })
 
@@ -174,6 +192,15 @@ export function HlsPlayer({
       lowLatencyMode: true,
       backBufferLength: 30,
 
+      // ── iOS / Managed Media Source ──
+      // iPhone low-power mode disables standard MSE. Managed Media Source
+      // (MMS) is the iOS 17.1+ API that lets hls.js keep working under
+      // low-power. enableSoftKfKey lets hls.js generate keyframes if the
+      // source doesn't ship them — needed for some Toffee Live streams.
+      preferManagedMediaSource: true,
+      useMMS: true,
+      enableSoftKfKey: true,
+
       maxBufferLength: 60,
       maxMaxBufferLength: 120,
       maxBufferSize: 120 * 1000000,
@@ -189,20 +216,21 @@ export function HlsPlayer({
       liveDurationInfinity: true,
       progressive: true,
 
-      // KEY CHANGE: Direct mode — moderate timeouts (browser may reach server directly)
-      // Proxy mode — fail fast (4s timeout, 0 retries for manifest) so mpegts fallback is quick
-      // Fallback chain: direct → proxy → mpegts — total time ~25s worst case
-      fragLoadingMaxRetry: isDirect ? 2 : 1,
-      fragLoadingMaxRetryTimeout: isDirect ? 12000 : 6000,
-      fragLoadingTimeOut: isDirect ? 12000 : 6000,
+      // FAST-FAIL timeouts: most IPTV streams either work in <3s or never will.
+      // Old config (8s direct + retries) wasted 16-24s before mpegts.js fallback.
+      // New config: direct fails in 5s, proxy in 3s → mpegts.js in ~8s worst case.
+      // Fallback chain: direct → proxy → mpegts — total ~8s worst case (was ~25s)
+      fragLoadingMaxRetry: isDirect ? 1 : 1,
+      fragLoadingMaxRetryTimeout: isDirect ? 8000 : 5000,
+      fragLoadingTimeOut: isDirect ? 8000 : 5000,
 
-      manifestLoadingMaxRetry: isDirect ? 1 : 0,  // 0 retries for proxy = fail on first timeout
-      manifestLoadingMaxRetryTimeout: isDirect ? 6000 : 3000,
-      manifestLoadingTimeOut: isDirect ? 8000 : 4000,  // 8s for direct, 4s for proxy
+      manifestLoadingMaxRetry: 0,  // 0 retries for BOTH modes — fail on first timeout, fall to mpegts
+      manifestLoadingMaxRetryTimeout: isDirect ? 5000 : 3000,
+      manifestLoadingTimeOut: isDirect ? 5000 : 3000,  // 5s direct, 3s proxy
 
-      levelLoadingMaxRetry: isDirect ? 1 : 0,
-      levelLoadingMaxRetryTimeout: isDirect ? 6000 : 3000,
-      levelLoadingTimeOut: isDirect ? 8000 : 4000,
+      levelLoadingMaxRetry: 0,
+      levelLoadingMaxRetryTimeout: isDirect ? 5000 : 3000,
+      levelLoadingTimeOut: isDirect ? 5000 : 3000,
 
       startLevel: -1,
 
@@ -225,6 +253,51 @@ export function HlsPlayer({
     // ── Manifest Parsed ──
     hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
       console.log(`[hls-player] ✅ Manifest parsed (${loadModeRef.current}), ${data.levels.length} levels`)
+
+      // ── Codec compatibility check ──
+      // This is the critical fix for the mobile Chrome "stream format not
+      // supported" bug: Toffee Live ships HEVC, which desktop Chrome can
+      // hardware-decode but mobile Chrome cannot feed through MSE.
+      // Detect this BEFORE we attach the video element, so we can fall
+      // back to iframe / mpegts / a clear error message instead of
+      // surfacing a confusing mediaError 5 seconds later.
+      const codecInfo = checkHlsCodecCompatibility(
+        data.levels.map((l) => ({
+          videoCodec: l.videoCodec,
+          audioCodec: l.audioCodec,
+          width: l.width || undefined,
+          height: l.height || undefined,
+          bitrate: l.bitrate || undefined,
+        }))
+      )
+      console.log(`[hls-player] 🎞️ Codec check: ${codecInfo.summary}`)
+
+      if (!codecInfo.playable) {
+        // Browser cannot decode ANY level's codec via MSE.
+        // Notify parent BEFORE we try to play, so the parent can show
+        // an iframe fallback / clear error.
+        cb.current.onCodecUnsupported?.({
+          hasHevc: codecInfo.hasHevc,
+          hasAv1: codecInfo.hasAv1,
+          summary: codecInfo.summary,
+          isMobile: isMobileDevice(),
+          isSafari: isSafariBrowser(),
+          hevcMseSupported: isHevcMseSupported(),
+        })
+
+        // If the suggested fallback is mpegts, request it (mpegts.js has
+        // its own demuxer and may handle MPEG-TS HEVC on some platforms).
+        // If it's iframe, the parent will swap the player — we just stop.
+        if (codecInfo.fallback === 'mpegts' && !triedMpegtsRef.current) {
+          console.log('[hls-player] 🔄 Codec unsupported → requesting mpegts.js fallback')
+          switchToMpegts()
+          return
+        }
+        // Iframe fallback or no fallback — let parent decide. We do NOT
+        // call onReady here, so the player stays in "loading" state until
+        // the parent swaps the player.
+        return
+      }
 
       // Mark manifest as parsed and clear the direct-mode timeout
       manifestParsedRef.current = true
@@ -421,11 +494,12 @@ export function HlsPlayer({
       }
       hlsRef.current = hls
 
-      // 10-second timeout: if manifest not parsed within 10s, switch to proxy mode
+      // 5-second timeout: if manifest not parsed within 5s, switch to proxy mode
+      // (was 10s — too long, users saw 15s+ loading screens)
       directTimeoutRef.current = setTimeout(() => {
         if (manifestParsedRef.current) return // already parsed, no need to switch
         if (triedProxyRef.current) return // already tried proxy
-        console.log('[hls-player] ⏱️ Direct mode timed out (10s) → switching to proxy')
+        console.log('[hls-player] ⏱️ Direct mode timed out (5s) → switching to proxy')
         triedProxyRef.current = true
         loadModeRef.current = 'proxy'
         cb.current.onLoadModeChange?.('proxy')
@@ -444,7 +518,7 @@ export function HlsPlayer({
         } else {
           finalError('Direct connection timed out and no proxy fallback available')
         }
-      }, 10000)
+      }, 5000)
 
       // Stats timer
       statsTimerRef.current = setInterval(() => {

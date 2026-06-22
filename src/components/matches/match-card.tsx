@@ -1,10 +1,12 @@
-// v16 — Timezone-aware match times
+// v18 — Bell moved to header (no background, right of UPCOMING badge); subscribes to notifications
 'use client'
 
 import { useAppStore } from '@/lib/store'
 import { type Match } from '@/lib/api'
 import { useCountdown } from '@/lib/hooks'
-import { Clock } from 'lucide-react'
+import { useNotifications } from '@/lib/use-notifications'
+import { Clock, Play, Bell, RotateCcw } from 'lucide-react'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
 interface MatchCardProps {
@@ -67,7 +69,8 @@ function formatMatchTime(dateStr: string, timezone: string) {
 }
 
 export function MatchCard({ match, variant }: MatchCardProps) {
-  const { setCurrentPage, setCurrentChannelId, timezone } = useAppStore()
+  const { setCurrentPage, setCurrentChannelId, setCurrentMatchId, timezone } = useAppStore()
+  const { subscribe, isSubscribed, permission } = useNotifications()
 
   // Check if an upcoming match has started (auto-transition to live)
   // Check if a live match has ended (auto-transition to ended)
@@ -80,8 +83,39 @@ export function MatchCard({ match, variant }: MatchCardProps) {
   if ((status === 'live' || baseStatus === 'live') && match.endTime && hasEnded) status = 'ended'
 
   const handleWatch = () => {
+    // Set both: currentChannelId holds the match id (watch.tsx reads it),
+    // currentMatchId marks this as a match watch for analytics/live-viewer
+    // attribution.
     setCurrentChannelId(match.id)
+    setCurrentMatchId(match.id)
     setCurrentPage('watch')
+  }
+
+  // Bell click — subscribes the user to push notifications so they get
+  // alerted when this match goes live. Does NOT navigate to the watch page
+  // or start streaming. If already subscribed, just confirms. If
+  // notifications are unsupported/unavailable, informs the user.
+  const handleNotifyMe = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (permission === 'unsupported') {
+      toast.info('Notifications are not available on this device/browser.', {
+        description: 'Open the site directly in a supported browser to enable alerts.',
+      })
+      return
+    }
+    if (isSubscribed) {
+      toast.success("You're all set! 🔔", {
+        description: `We'll notify you when ${match.teamA} vs ${match.teamB} goes live.`,
+      })
+      return
+    }
+    const ok = await subscribe()
+    if (ok) {
+      toast.success('Notifications enabled! 🔔', {
+        description: `We'll notify you when ${match.teamA} vs ${match.teamB} goes live.`,
+      })
+    }
+    // If subscribe() failed it already showed its own error toast.
   }
 
   const sportIcon = match.sport === 'cricket' ? '🏏' : match.sport === 'football' ? '⚽' : '🏆'
@@ -104,21 +138,35 @@ export function MatchCard({ match, variant }: MatchCardProps) {
         <span className="match-card-circle-inner" />
       </div>
 
-      {/* Header: League + Status */}
+      {/* Header: League + Status (+ bell for upcoming, to subscribe to
+          push notifications when the match goes live) */}
       <div className="match-card-header">
         <span className="match-league">
           <span className="inline-block mr-1" style={{filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.2))'}}>{sportIcon}</span>{match.league || match.sport}
         </span>
-        <span
-          className={cn(
-            'match-status',
-            status === 'live' && 'live',
-            status === 'upcoming' && 'upcoming',
-            status === 'ended' && 'ended',
+        <div className="match-header-actions">
+          <span
+            className={cn(
+              'match-status',
+              status === 'live' && 'live',
+              status === 'upcoming' && 'upcoming',
+              status === 'ended' && 'ended',
+            )}
+          >
+            {status === 'live' ? 'LIVE' : status === 'upcoming' ? 'UPCOMING' : 'ENDED'}
+          </span>
+          {status === 'upcoming' && !hasStarted && (
+            <button
+              type="button"
+              className="match-bell-btn"
+              onClick={handleNotifyMe}
+              title="Get a push notification when this match goes live"
+              aria-label="Notify me when this match goes live"
+            >
+              <Bell className="h-3.5 w-3.5" />
+            </button>
           )}
-        >
-          {status === 'live' ? 'LIVE' : status === 'upcoming' ? 'UPCOMING' : 'ENDED'}
-        </span>
+        </div>
       </div>
 
       {/* Teams Section */}
@@ -200,7 +248,13 @@ export function MatchCard({ match, variant }: MatchCardProps) {
           <span className="text-[11px] text-muted-foreground">Match ended</span>
         )}
 
-        {status === 'live' && match.streams.length > 0 && (
+        {/* Action button so users know the card is clickable to start
+            streaming. Label/icon changes per status:
+              • live    → "Watch Now"   (Play icon, red bg) — instant stream
+              • upcoming → (no footer button — the bell icon in the header
+                             subscribes to push notifications; does NOT play)
+              • ended   → "Watch Replay" (RotateCcw icon, muted bg) — VOD/replay */}
+        {status === 'live' && (
           <button
             className="watch-now-btn"
             onClick={(e) => {
@@ -208,7 +262,31 @@ export function MatchCard({ match, variant }: MatchCardProps) {
               handleWatch()
             }}
           >
-            Watch Now
+            <Play className="h-3 w-3" fill="currentColor" /> Watch Now
+          </button>
+        )}
+
+        {status === 'upcoming' && hasStarted && !hasEnded && (
+          <button
+            className="watch-now-btn"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleWatch()
+            }}
+          >
+            <Play className="h-3 w-3" fill="currentColor" /> Watch Now
+          </button>
+        )}
+
+        {status === 'ended' && (
+          <button
+            className="watch-now-btn is-ended"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleWatch()
+            }}
+          >
+            <RotateCcw className="h-3 w-3" /> Watch Replay
           </button>
         )}
       </div>

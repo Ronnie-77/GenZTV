@@ -2,8 +2,9 @@
 
 const BASE = '/api'
 
-/** Wrapper for admin API calls — auto-handles 401 (session expired) by dispatching event */
-function adminFetch(url: string, options?: RequestInit): Promise<Response> {
+/** Wrapper for admin API calls — auto-handles 401 (session expired) by dispatching event.
+ *  Exported so admin sub-views (notices, etc.) can use the same auth-aware fetch. */
+export function adminFetch(url: string, options?: RequestInit): Promise<Response> {
   return fetch(url, {
     credentials: 'same-origin',
     ...options,
@@ -92,6 +93,21 @@ export interface AppSettings {
   homeAdsEnabled: boolean
   videoAdsEnabled: boolean
   apkUrl: string
+}
+
+// ============ Notices ============
+
+export interface Notice {
+  id: string
+  type: 'popup' | 'push' | 'both'
+  title: string
+  body: string
+  url: string
+  imageUrl: string
+  isActive: boolean
+  pushSent: boolean
+  createdAt: string
+  updatedAt: string
 }
 
 // ============ Channels ============
@@ -275,42 +291,7 @@ export async function importFileContent(content: string, fileType: string): Prom
   return res.json()
 }
 
-// ============ Seed ============
-
-export async function seedDatabase(): Promise<Record<string, unknown>> {
-  const res = await adminFetch(`${BASE}/seed`, { method: 'POST' })
-  if (!res.ok) throw new Error('Failed to seed database')
-  return res.json()
-}
-
 // ============ Push Notifications ============
-
-export async function getVapidPublicKey(): Promise<string> {
-  const res = await fetch(`${BASE}/push/vapid-key`)
-  if (!res.ok) throw new Error('Failed to get VAPID key')
-  const data = await res.json()
-  return data.publicKey
-}
-
-export async function subscribePush(subscription: PushSubscriptionJSON): Promise<{ success: boolean }> {
-  const res = await fetch(`${BASE}/push/subscribe`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(subscription),
-  })
-  if (!res.ok) throw new Error('Failed to subscribe')
-  return res.json()
-}
-
-export async function unsubscribePush(endpoint: string): Promise<{ success: boolean }> {
-  const res = await fetch(`${BASE}/push/unsubscribe`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ endpoint }),
-  })
-  if (!res.ok) throw new Error('Failed to unsubscribe')
-  return res.json()
-}
 
 export async function sendPushNotification(payload: {
   type?: 'new-match'
@@ -327,20 +308,6 @@ export async function sendPushNotification(payload: {
   })
   if (!res.ok) throw new Error('Failed to send notification')
   return res.json()
-}
-
-interface PushSubscriptionJSON {
-  endpoint: string
-  keys?: { p256dh?: string; auth?: string }
-}
-
-// ============ Push Subscription Count ============
-
-export async function getPushSubscriberCount(): Promise<number> {
-  const res = await fetch(`${BASE}/push/subscribers`)
-  if (!res.ok) throw new Error('Failed to get subscriber count')
-  const data = await res.json()
-  return data.count
 }
 
 // ============ Match Status Sync ============

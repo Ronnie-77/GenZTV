@@ -109,6 +109,8 @@ export function TsPlayer({
       // Their exact config: { type, url, isLive, enableWorker, enableStashBuffer: false, stashInitialSize: 128 }
       // We add generous buffer settings for smoothness (no lazyLoad, no latency
       // chasing, 30s maxBufferLength) to eliminate the 3–4s stutter.
+      // stashInitialSize bumped to 384 (was 128) for smoother initial playback —
+      // tiny initial stash caused first-segment micro-stutter on slow links.
       const player = mpegtsLib.createPlayer({
         type: streamType, // 'mpegts' for .ts streams, 'hls' for m3u8 streams
         url: src,
@@ -118,7 +120,7 @@ export function TsPlayer({
         enableWorker: true,
         // Match sports-fire: no stash buffer, tiny initial stash.
         enableStashBuffer: false,
-        stashInitialSize: 128,
+        stashInitialSize: 384,
       }, {
         // --- Live latency management ---
         // DISABLE aggressive latency chasing — was the #1 cause of the
@@ -144,7 +146,11 @@ export function TsPlayer({
         // Stash buffer (also set on mediaDataSource above; set here too for
         // older mpegts.js versions that read it from config)
         enableStashBuffer: false,
-        stashInitialSize: 128,
+        stashInitialSize: 384,
+
+        // Fix audio/video timestamp gaps (common with flaky IPTV upstreams
+        // that drop frames) — prevents gradual desync over long viewing.
+        fixAudioTimestampGap: true,
 
         // Deinterlace
         ...(deinterlace ? { deinterlace: true } : {}),

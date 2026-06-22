@@ -3,23 +3,23 @@
 /**
  * usePwaInstall — PWA install hook for GenZ TV.
  *
- * Captures the browser's `beforeinstallprompt` event (Chrome/Edge/Tizen/etc.)
+ * Captures the browser's `beforeinstallprompt` event (Chrome/Edge/etc.)
  * and exposes a single `install()` function that the UI calls when the user
  * clicks an "Install App" button.
  *
  * Behavior:
  *  - If the browser fired `beforeinstallprompt` (Android Chrome, Desktop
- *    Chrome/Edge, some TV browsers) → `install()` calls the native prompt.
+ *    Chrome/Edge) → `install()` calls the native prompt.
  *    Returns `'native'` so the caller knows the native dialog was shown.
- *  - If no prompt was captured (iOS Safari, Desktop Firefox, some TVs) →
+ *  - If no prompt was captured (iOS Safari, Desktop Firefox) →
  *    `install()` returns `'manual'` so the caller can show a device-specific
  *    instructions dialog instead.
  *  - If the app is already running standalone (installed) → `install()`
  *    returns `'installed'`.
  *
- * Also exposes the detected device family (`'mobile' | 'desktop' | 'tv'`) and
- * a finer platform hint (`'ios' | 'android' | 'desktop-chromium' | 'firefox' |
- * 'safari' | 'tv' | 'other'`) used by the instructions dialog.
+ * Also exposes the detected device family (`'mobile' | 'desktop'`) and a
+ * finer platform hint (`'ios' | 'android' | 'desktop-chromium' | 'firefox' |
+ * 'safari' | 'other'`) used by the instructions dialog.
  *
  * Client-only values (device / platform) are read via `useSyncExternalStore`
  * so they are `false`/default during SSR and the real value after hydration —
@@ -27,9 +27,10 @@
  */
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
-import { detectDeviceMode, type DeviceMode } from '@/lib/device-mode'
 
 export type InstallOutcome = 'native' | 'manual' | 'installed' | 'unavailable'
+
+export type DeviceMode = 'mobile' | 'desktop'
 
 export type PlatformHint =
   | 'ios'
@@ -37,7 +38,6 @@ export type PlatformHint =
   | 'desktop-chromium'
   | 'firefox'
   | 'safari'
-  | 'tv'
   | 'other'
 
 interface BeforeInstallPromptEvent extends Event {
@@ -48,7 +48,7 @@ interface BeforeInstallPromptEvent extends Event {
 function detectPlatform(): { device: DeviceMode; platform: PlatformHint } {
   if (typeof window === 'undefined') return { device: 'desktop', platform: 'other' }
   const ua = navigator.userAgent || ''
-  const device = detectDeviceMode()
+  const device: DeviceMode = window.innerWidth < 768 ? 'mobile' : 'desktop'
 
   // iOS Safari (iPhone / iPad) — no beforeinstallprompt support.
   // The iPad-on-iOS-13+ reports MacIntel platform; detect touch + Mac UA.
@@ -63,8 +63,7 @@ function detectPlatform(): { device: DeviceMode; platform: PlatformHint } {
     /safari/i.test(ua) && /macintosh|mac os x/i.test(ua) && !/chrome|chromium|edg/i.test(ua)
 
   let platform: PlatformHint = 'other'
-  if (device === 'tv') platform = 'tv'
-  else if (isIOS) platform = 'ios'
+  if (isIOS) platform = 'ios'
   else if (isAndroid) platform = 'android'
   else if (isFirefox) platform = 'firefox'
   else if (isDesktopChromium) platform = 'desktop-chromium'

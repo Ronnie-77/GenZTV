@@ -17,15 +17,22 @@ export function BottomNav() {
 
   const handleNavClick = (page: PageName) => {
     setCurrentPage(page)
-    // If clicking search, focus the search input after a small delay
+    // If clicking search, focus the search page's input after a small delay
+    // (the input only exists once the search view has rendered). On mobile
+    // the top nav no longer has a search bar — the dedicated search page IS
+    // the search entry point.
     if (page === 'search') {
       setTimeout(() => {
-        const searchInput = document.querySelector('header input[type="text"], header input:not([type])') as HTMLInputElement | null
+        const searchInput = document.getElementById(
+          'search-page-input'
+        ) as HTMLInputElement | null
         if (searchInput) {
           searchInput.focus()
-          searchInput.click()
+          // For mobile, also try to scroll the input into view in case the
+          // on-screen keyboard would cover it.
+          searchInput.scrollIntoView({ block: 'center', behavior: 'smooth' })
         }
-      }, 100)
+      }, 120)
     }
   }
 

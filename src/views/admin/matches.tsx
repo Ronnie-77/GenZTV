@@ -591,6 +591,11 @@ export function AdminMatches() {
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
+  // Live viewer counts per match. Refreshed every 5s by polling
+  // /api/admin/live-viewers. REAL counts only (no demo data) — a match
+  // shows 0 if no one is currently watching it.
+  const [matchViewers, setMatchViewers] = useState<Record<string, number>>({})
+
   // Ref for scrolling to form on edit
   const formRef = useRef<HTMLDivElement>(null)
 
@@ -608,13 +613,28 @@ export function AdminMatches() {
     return cats.includes(sportType) || cats.includes('sports')
   })
 
-  // Sort matches: live first, then upcoming, then ended (within each group, earliest startTime first)
+  // Sort matches: live first, then upcoming, then ended.
+  // Within "live" / "upcoming": earliest startTime first (soonest match at top).
+  // Within "ended": most recently ended first (use endTime DESC; fall back to
+  // startTime DESC when endTime is null, e.g. admin manually set status).
+  // Rationale: admins care about recently-ended matches first — to review,
+  // edit scores, or convert to VOD — so they should appear at the top of the
+  // Ended section, not at the bottom.
   const sortMatches = (data: Match[]): Match[] => {
     const statusPriority: Record<string, number> = { live: 0, upcoming: 1, ended: 2 }
     return [...data].sort((a, b) => {
       const aPriority = statusPriority[a.status] ?? 9
       const bPriority = statusPriority[b.status] ?? 9
       if (aPriority !== bPriority) return aPriority - bPriority
+
+      // Inside the ended group → most recently ended first
+      if (a.status === 'ended' && b.status === 'ended') {
+        const aEnd = a.endTime ? new Date(a.endTime).getTime() : new Date(a.startTime).getTime()
+        const bEnd = b.endTime ? new Date(b.endTime).getTime() : new Date(b.startTime).getTime()
+        return bEnd - aEnd // DESC
+      }
+
+      // Default for live/upcoming → earliest startTime first (ASC)
       return new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
     })
   }
@@ -650,6 +670,41 @@ export function AdminMatches() {
   useEffect(() => {
     loadChannels()
   }, [loadChannels])
+
+  // Poll /api/admin/live-viewers every 5s to keep the "Live" column as close
+  // to real-time as possible. Sends the current list of match ids so the
+  // server can return counts for exactly those matches (no demo data — a
+  // match with no viewers shows 0). The poll stops when the component
+  // unmounts (admin navigates away from the matches tab).
+  useEffect(() => {
+    if (matches.length === 0) return
+    const controller = new AbortController()
+
+    const fetchLiveViewers = async () => {
+      try {
+        const res = await fetch('/api/admin/live-viewers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ matchIds: matches.map((m) => m.id) }),
+          signal: controller.signal,
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (data && typeof data.matchViewers === 'object') {
+          setMatchViewers(data.matchViewers)
+        }
+      } catch {
+        // Silent — analytics must never break the admin panel.
+      }
+    }
+
+    fetchLiveViewers()
+    const timer = setInterval(fetchLiveViewers, 5_000)
+    return () => {
+      controller.abort()
+      clearInterval(timer)
+    }
+  }, [matches])
 
   // Auto-sync match statuses every 60 seconds
   const handleSyncStatuses = useCallback(async (silent = false) => {
@@ -1135,6 +1190,7 @@ export function AdminMatches() {
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sport</th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">League</th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Live</th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Start Time <span className="text-emerald-500">(BST)</span></th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Streams</th>
                   <th className="text-right p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Actions</th>
@@ -1164,7 +1220,7 @@ export function AdminMatches() {
                     <Fragment key={match.id}>
                       {showSectionHeader && sectionInfo[match.status] && (
                         <tr>
-                          <td colSpan={7} className="p-0">
+                          <td colSpan={8} className="p-0">
                             <div className={`flex items-center gap-2 px-3 py-2 border-t border-b ${sectionInfo[match.status].className} text-xs font-bold uppercase tracking-wider`}>
                               <span>{sectionInfo[match.status].icon}</span>
                               <span>{sectionInfo[match.status].label}</span>
@@ -1200,6 +1256,22 @@ export function AdminMatches() {
                       >
                         {match.status === 'live' ? '● Live' : match.status === 'upcoming' ? 'Upcoming' : 'Ended'}
                       </Badge>
+                    </td>
+                    <td className="p-3 text-sm">
+                      <div
+                        className={`flex items-center gap-1 text-xs ${
+                          (matchViewers[match.id] || 0) > 0
+                            ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                            : 'text-muted-foreground'
+                        }`}
+                        title="Real-time viewers watching this match right now"
+                      >
+                        <Users className="h-3 w-3" />
+                        {(matchViewers[match.id] || 0).toLocaleString()}
+                        {(matchViewers[match.id] || 0) > 0 && (
+                          <span className="ml-0.5 inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        )}
+                      </div>
                     </td>
                     <td className="p-3 text-xs text-muted-foreground">
                       {formatAdminTime(match.startTime)}

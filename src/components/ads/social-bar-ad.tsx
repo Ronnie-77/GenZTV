@@ -17,11 +17,8 @@ interface AdEntry {
  * SocialBarAd — universal social bar ad slot for mobile / PC.
  *
  * Renders the `social-bar` position ad scripts — the UNIVERSAL position that
- * works on ALL platforms (mobile, PC, AND TV). On mobile/PC this component is
- * placed directly on the Home & Watch pages. On TV, the TV views use their own
- * `TVAdSection` wrapper with priority logic (universal `social-bar` takes
- * precedence over the TV-specific `tv-home-social` / `tv-watch-social` so there
- * are never duplicate social bars).
+ * works on ALL platforms (mobile, PC). This component is placed directly on
+ * the Home & Watch pages.
  *
  * Falls back to the legacy `socialBarAdScript` single-field setting when no
  * custom `social-bar` scripts are configured (backward compatibility).

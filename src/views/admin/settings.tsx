@@ -14,7 +14,7 @@ interface AdScript {
   id: string
   name: string
   script: string
-  position: 'home-banner' | 'home-upcoming-mobile' | 'home-upcoming-pc' | 'native-banner' | 'video-above-mobile' | 'video-above-pc' | 'sidebar' | 'social-bar' | 'tv-home-banner' | 'tv-home-social' | 'tv-watch-banner' | 'tv-watch-social' | 'custom'
+  position: 'home-banner' | 'home-upcoming-mobile' | 'home-upcoming-pc' | 'native-banner' | 'video-above-mobile' | 'video-above-pc' | 'sidebar' | 'social-bar' | 'custom'
   enabled: boolean
 }
 
@@ -175,7 +175,7 @@ export function AdminSettings() {
       if (msg.includes('Unauthorized') || msg.includes('401')) {
         toast.error('Session Expired', { description: 'Please log in again and try' })
       } else {
-        toast.error('Error', { description: `Failed to save settings: ${msg}` })
+        toast.error('Failed to save settings', { description: msg })
       }
     } finally {
       setSaving(false)
@@ -649,10 +649,6 @@ export function AdminSettings() {
                     <option value="video-above-mobile">📱 Above Video (Mobile)</option>
                     <option value="video-above-pc">🖥️ Above Video (PC)</option>
                     <option value="social-bar">💬 Social Bar (All Devices — Home & Watch)</option>
-                    <option value="tv-home-banner">📺 TV Home Banner (Top)</option>
-                    <option value="tv-home-social">📺 TV Home Social Bar</option>
-                    <option value="tv-watch-banner">📺 TV Watch Banner (Above Video)</option>
-                    <option value="tv-watch-social">📺 TV Watch Social Bar (Above Video)</option>
                     <option value="sidebar">📌 Sidebar</option>
                     <option value="custom">⚙️ Custom</option>
                   </select>

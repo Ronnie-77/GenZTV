@@ -15,7 +15,10 @@ export async function GET(request: NextRequest) {
       const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10)
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000).toISOString().slice(0, 10)
       const fourteenDaysAgo = new Date(now.getTime() - 13 * 86400000).toISOString().slice(0, 10)
-      const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000)
+      // "Online now" window — MUST match /api/admin/live-viewers' active
+      // window (60s) so the dashboard and the admin live-viewer counts stay
+      // consistent with each other.
+      const activeSince = new Date(now.getTime() - 60 * 1000)
 
       // Fetch today's stat
       const todayStat = await db.dailyStat.findUnique({ where: { date: todayStr } })
@@ -59,9 +62,10 @@ export async function GET(request: NextRequest) {
             uniqueVisitors: last30DaysStats.reduce((sum, s) => sum + s.uniqueVisitors, 0),
           }
 
-      // Online now (real: sessions active in last 5 minutes)
+      // Online now (real: sessions active in last 60 seconds — matches
+      // /api/admin/live-viewers active window for consistency)
       const onlineNow = await db.visitorSession.count({
-        where: { lastSeen: { gte: fiveMinAgo } },
+        where: { lastSeen: { gte: activeSince } },
       })
 
       // Recent page views.

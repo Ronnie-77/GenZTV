@@ -7,16 +7,11 @@ import { TopNav } from './top-nav'
 import { Sidebar } from './sidebar'
 import { BottomNav } from './bottom-nav'
 import { NotificationPrompt } from '@/components/notifications/notification-manager'
+import { SiteNoticePopup } from '@/components/layout/site-notice-popup'
 import { X, Download, Smartphone, Wrench, Clock, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { fetchSettings } from '@/lib/api'
 import { ErrorBoundary } from '@/components/error-boundary'
-
-// TV shell is lazy-loaded so it (and all TV views) only compile when TV mode
-// is actually entered. This keeps the initial `/` compile small.
-const TVShell = lazy(() =>
-  import('@/components/tv/tv-shell').then((m) => ({ default: m.TVShell }))
-)
 
 // Lazy-load page components with retry logic for robust chunk loading
 function lazyWithRetry<T extends React.ComponentType<unknown>>(
@@ -251,7 +246,7 @@ function MaintenanceMode() {
 
 // ── Main App Shell ──
 export function AppShell() {
-  const { currentPage, deviceMode } = useAppStore()
+  const { currentPage } = useAppStore()
   const mainRef = useRef<HTMLDivElement>(null)
 
   // Track page views for analytics
@@ -308,9 +303,9 @@ export function AppShell() {
     window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
   }, [currentPage])
 
-  // Register service worker unconditionally (needed for PWA install on TV / mobile / desktop).
-  // The notifications hook also registers it, but only when its UI mounts —
-  // in TV mode that UI is absent, so we register here to be safe.
+  // Register service worker unconditionally (needed for PWA install on
+  // mobile / desktop). The notifications hook also registers it, but only
+  // when its UI mounts — so we register here to be safe.
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (!('serviceWorker' in navigator)) return
@@ -330,26 +325,6 @@ export function AppShell() {
   // Show maintenance mode overlay (but not for admin)
   if (maintenanceMode) {
     return <MaintenanceMode />
-  }
-
-  // TV mode renders its own dedicated 10-foot UI shell (after hooks run)
-  if (deviceMode === 'tv') {
-    return (
-      <ErrorBoundary>
-        <Suspense
-          fallback={
-            <div className="flex items-center justify-center min-h-screen bg-background">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
-                <p className="text-sm text-muted-foreground">Loading TV mode…</p>
-              </div>
-            </div>
-          }
-        >
-          <TVShell />
-        </Suspense>
-      </ErrorBoundary>
-    )
   }
 
   const renderPage = () => {
@@ -443,6 +418,7 @@ export function AppShell() {
       <BottomNav />
       <NotificationPrompt />
       <InstallPrompt />
+      <SiteNoticePopup />
     </div>
   )
 }

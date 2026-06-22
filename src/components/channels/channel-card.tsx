@@ -27,11 +27,14 @@ function parseCategories(categoryStr: string): string[] {
 }
 
 export function ChannelCard({ channel, compact, home }: ChannelCardProps) {
-  const { setCurrentPage, setCurrentChannelId, toggleFavorite, favorites } = useAppStore()
+  const { setCurrentPage, setCurrentChannelId, setCurrentMatchId, toggleFavorite, favorites } = useAppStore()
   const isFav = favorites.includes(channel.id)
 
   const handleClick = () => {
     setCurrentChannelId(channel.id)
+    // Clear any previous match-watch attribution so the analytics heartbeat
+    // attributes this viewer to the channel, not a stale match id.
+    setCurrentMatchId(null)
     setCurrentPage('watch')
   }
 

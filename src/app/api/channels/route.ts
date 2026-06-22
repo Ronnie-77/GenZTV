@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireAdminAuth } from '@/lib/auth'
+import { createChannelNotification } from '@/lib/notification-helpers'
 
 // GET /api/channels — list all channels (with optional filters)
 export async function GET(req: NextRequest) {
@@ -67,6 +68,16 @@ export async function POST(req: NextRequest) {
         isActive: body.isActive !== false,
       },
     })
+
+    // Fire-and-forget: create an in-app bell notification so visitors see the
+    // new channel appear in their notification bell. Failures are swallowed.
+    await createChannelNotification({
+      id: channel.id,
+      name: channel.name,
+      logo: channel.logo,
+      category: channel.category,
+    })
+
     return NextResponse.json(channel, { status: 201 })
   } catch (error) {
     console.error('Error creating channel:', error)

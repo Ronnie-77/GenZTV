@@ -48,10 +48,12 @@ export function SearchPage() {
         <h1 className="text-2xl font-bold">Search</h1>
       </div>
 
-      {/* Search input — hidden on mobile since top nav already has a search bar */}
-      <div className="relative max-w-lg hidden md:block">
+      {/* Search input — visible on all sizes. On mobile this is the primary
+          search entry point (the mobile top nav no longer has a search bar). */}
+      <div className="relative max-w-lg">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
+          id="search-page-input"
           placeholder="Search channels, categories..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}

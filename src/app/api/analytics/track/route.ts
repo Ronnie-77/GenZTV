@@ -33,10 +33,15 @@ function isSchemaMismatchError(err: unknown): boolean {
 // Fields introduced in Task-17. Stripped from the payload on the fallback path.
 const NEW_FIELDS = ['device', 'browser', 'country', 'peakVisitors', 'topDevices', 'topBrowsers']
 
+// Fields introduced for live-viewer tracking (PageView.matchId,
+// VisitorSession.currentChannelId / currentMatchId). Stripped from the
+// payload on the fallback path when the local DB hasn't been migrated yet.
+const LIVE_VIEWER_FIELDS = ['matchId', 'currentChannelId', 'currentMatchId']
+
 function stripNewFields<T extends Record<string, unknown>>(data: T): Partial<T> {
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(data)) {
-    if (!NEW_FIELDS.includes(k)) out[k] = v
+    if (!NEW_FIELDS.includes(k) && !LIVE_VIEWER_FIELDS.includes(k)) out[k] = v
   }
   return out as Partial<T>
 }
@@ -44,9 +49,10 @@ function stripNewFields<T extends Record<string, unknown>>(data: T): Partial<T> 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { page, channelId, referrer } = body as {
+    const { page, channelId, matchId, referrer } = body as {
       page: string
       channelId?: string
+      matchId?: string
       referrer?: string
     }
 
@@ -83,7 +89,10 @@ export async function POST(request: NextRequest) {
 
     const now = new Date()
     const todayStr = now.toISOString().slice(0, 10) // YYYY-MM-DD
-    const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000)
+    // "Online now" window — MUST match /api/admin/live-viewers' active
+    // window (60s) so peak-visitors tracking uses the same definition of
+    // "online" as the admin live-viewer counts.
+    const activeSince = new Date(now.getTime() - 60 * 1000)
 
     // Check if this session already viewed today (BEFORE creating the page view)
     const existingTodayView = await db.pageView.findFirst({
@@ -102,6 +111,7 @@ export async function POST(request: NextRequest) {
       sessionId,
       page,
       channelId: channelId || null,
+      matchId: matchId || null,
       referrer: referrer || '',
       userAgent: ua,
       country,
@@ -121,12 +131,18 @@ export async function POST(request: NextRequest) {
 
     // Upsert VisitorSession (sequential to avoid memory spikes).
     // Fallback: strip country/device/browser on schema mismatch.
+    // Also stores currentChannelId / currentMatchId for live-viewer tracking.
     const sessionUpdate = {
       lastSeen: now,
       pageCount: { increment: 1 },
       country: country || undefined,
       device: device || undefined,
       browser: browser || undefined,
+      // Live-viewer attribution: if this is a watch page view, record which
+      // channel/match the visitor is watching. Cleared (set to null) on
+      // non-watch page views so a stale attribution doesn't linger.
+      currentChannelId: page === 'watch' ? (channelId || null) : null,
+      currentMatchId: page === 'watch' ? (matchId || null) : null,
     }
     const sessionCreate = {
       sessionId,
@@ -138,6 +154,8 @@ export async function POST(request: NextRequest) {
       ip,
       device,
       browser,
+      currentChannelId: page === 'watch' ? (channelId || null) : null,
+      currentMatchId: page === 'watch' ? (matchId || null) : null,
     }
     try {
       await db.visitorSession.upsert({
@@ -268,15 +286,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Update peakVisitors = max concurrent online (5-min window) seen today.
+    // Update peakVisitors = max concurrent online (60-second window) seen today.
     // This is a REAL metric: the highest number of simultaneously-active
     // visitors recorded so far today. Computed AFTER this session is recorded
     // so the current visitor is included in the count.
+    // The 60-second window matches /api/admin/live-viewers for consistency.
     // Wrapped in try/catch: peakVisitors column may be absent on an old DB,
     // and this is non-critical (must not fail the track request).
     try {
       const onlineNow = await db.visitorSession.count({
-        where: { lastSeen: { gte: fiveMinAgo } },
+        where: { lastSeen: { gte: activeSince } },
       })
       const storedPeak = (pv.peakVisitors as number) || 0
       if (onlineNow > storedPeak) {
