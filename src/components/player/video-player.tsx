@@ -68,6 +68,34 @@ function isTsUrl(url: string): boolean {
   }
 }
 
+// Detect HLS manifest URLs (.m3u8 / .m3u)
+function isM3u8Url(url: string): boolean {
+  if (!url) return false
+  try {
+    const pathname = new URL(url).pathname
+    return /\.m3u8?(\?.*)?$/.test(pathname)
+  } catch {
+    return /\.m3u8?(\?|$)/.test(url)
+  }
+}
+
+// Auto-detect the stream type from the URL when no explicit streamType is given
+// (or the given one is unknown). This is the client-side mirror of the same
+// detection logic in /api/channels/import-file/route.ts — it guarantees that
+// channels already stored in the DB without a streamType still route correctly.
+function detectStreamTypeFromUrl(url: string): string | undefined {
+  if (!url) return undefined
+  if (isTsUrl(url)) return 'mpegts'
+  if (isM3u8Url(url)) return 'm3u8'
+  if (/(?:youtube\.com\/embed|youtu\.be|player\.twitch\.tv|player\.vimeo\.com|dailymotion\.com\/embed|facebook\.com\/plugins\/video|iframe\.|\/embed\/)/i.test(url)) {
+    return 'iframe'
+  }
+  if (/github\.com\/.*\.m3u/i.test(url) || /raw\.githubusercontent\.com\/.*\.m3u/i.test(url)) {
+    return 'github_m3u'
+  }
+  return undefined
+}
+
 interface VideoPlayerProps {
   streamUrl: string
   streamType: string // m3u, iframe, github_m3u, direct, redirect, m3u8_jw, m3u8_direct, m3u8_proxy, mpegts
@@ -93,11 +121,36 @@ function proxyStreamUrl(url: string): string {
   return `/api/stream-proxy?url=${encodeURIComponent(url)}`
 }
 
+// Known stream types. Anything outside this set is treated as "unknown" and
+// triggers URL-based auto-detection below.
+const KNOWN_STREAM_TYPES = new Set([
+  'm3u', 'm3u8', 'm3u8_direct', 'm3u8_proxy', 'm3u8_jw',
+  'iframe', 'iframe_direct', 'mpegts', 'github_m3u', 'direct', 'redirect',
+])
+
 // Compute the resolved URL + backend type synchronously to avoid a flash of wrong UI.
 function getInitialResolved(url: string, type: string): { resolvedUrl: string; resolvedType: string } {
   if (!url) return { resolvedUrl: url, resolvedType: type }
-  // Check for .ts URLs first — regardless of stored type
+  // Check for .ts URLs first — regardless of stored type.
+  // A .ts file is never an iframe or m3u8 — it's a raw transport stream.
   if (type === 'mpegts' || isTsUrl(url)) return { resolvedUrl: url, resolvedType: 'mpegts' }
+
+  // ── URL-based override for .m3u8 URLs ──
+  // If the URL is an HLS manifest (.m3u8), it should NEVER render as iframe.
+  // Some channels in the DB have streamType='iframe' or 'redirect' but the URL
+  // is actually .m3u8 — this happens when JSON imports had wrong metadata.
+  // The URL is the source of truth: override to 'm3u8' (plain HLS).
+  // Exception: if the user explicitly chose an HLS sub-type (m3u8_direct,
+  // m3u8_proxy, m3u8_jw), keep that — they chose proxy vs direct intentionally.
+  if (isM3u8Url(url)) {
+    if (type === 'm3u8_direct') return { resolvedUrl: url, resolvedType: 'm3u8_direct' }
+    if (type === 'm3u8_proxy') return { resolvedUrl: url, resolvedType: 'm3u8_proxy' }
+    if (type === 'm3u8_jw') return { resolvedUrl: url, resolvedType: 'm3u8_jw' }
+    // For any other type (iframe, redirect, iframe_direct, mpegts, unknown, etc.)
+    // with an .m3u8 URL, force plain HLS.
+    return { resolvedUrl: url, resolvedType: 'm3u8' }
+  }
+
   if (type === 'redirect') return { resolvedUrl: url, resolvedType: 'iframe' } // IframePlayer proxies it
   if (type === 'iframe') return { resolvedUrl: url, resolvedType: 'iframe' }
   // iframe_direct → raw iframe embed, no proxy/lock/controls
@@ -109,6 +162,15 @@ function getInitialResolved(url: string, type: string): { resolvedUrl: string; r
   if (type === 'm3u8_jw') return { resolvedUrl: url, resolvedType: 'm3u8_jw' }
   if (type === 'direct' || type === 'm3u' || type === 'm3u8') {
     return { resolvedUrl: url, resolvedType: type === 'direct' ? 'm3u' : type }
+  }
+  // ── Unknown / missing streamType → auto-detect from URL ──
+  // This is the fix for the misclassification bugs:
+  //   • .m3u8 URLs without a streamType were falling through to the default
+  //     case and rendering as iframe (because no HLS handler matched).
+  //   • .ts  URLs without a streamType were rendering as iframe too.
+  if (!KNOWN_STREAM_TYPES.has(type)) {
+    const detected = detectStreamTypeFromUrl(url)
+    if (detected) return { resolvedUrl: url, resolvedType: detected }
   }
   return { resolvedUrl: url, resolvedType: type }
 }
@@ -238,32 +300,25 @@ export function VideoPlayer({
           setLoading(false)
         }
       } else if (streamType === 'redirect' && streamUrl) {
-        setResolvedType('iframe')
-        setResolvedUrl(streamUrl)
-        setLoading(false)
-      } else {
-        if (streamType === 'mpegts' || isTsUrl(streamUrl)) {
+        // redirect → iframe proxy, UNLESS the URL is .m3u8 or .ts (URL wins)
+        if (isTsUrl(streamUrl)) {
           setResolvedUrl(streamUrl)
           setResolvedType('mpegts')
-        } else if (streamType === 'm3u8_direct') {
+        } else if (isM3u8Url(streamUrl)) {
           setResolvedUrl(streamUrl)
-          setResolvedType('m3u8_direct')
-        } else if (streamType === 'm3u8_proxy') {
-          setResolvedUrl(streamUrl)
-          setResolvedType('m3u8_proxy')
-        } else if (streamType === 'direct' || streamType === 'm3u' || streamType === 'm3u8' || streamType === 'm3u8_jw') {
-          setResolvedUrl(streamUrl)
-          setResolvedType(streamType === 'direct' ? 'm3u' : streamType)
-        } else if (streamType === 'iframe') {
-          setResolvedUrl(streamUrl)
-          setResolvedType('iframe')
-        } else if (streamType === 'iframe_direct') {
-          setResolvedUrl(streamUrl)
-          setResolvedType('iframe_direct')
+          setResolvedType('m3u8')
         } else {
+          setResolvedType('iframe')
           setResolvedUrl(streamUrl)
-          setResolvedType(streamType)
         }
+        setLoading(false)
+      } else {
+        // All other types: use the same URL-based override logic as
+        // getInitialResolved(). This guarantees .m3u8 URLs never render as
+        // iframe and .ts URLs always use the mpegts player.
+        const resolved = getInitialResolved(streamUrl, streamType)
+        setResolvedUrl(resolved.resolvedUrl)
+        setResolvedType(resolved.resolvedType)
         setLoading(false)
       }
     }
@@ -303,9 +358,12 @@ export function VideoPlayer({
   // For 'hls-proxy' we pass the proxyUrl so StreamPlayer rewrites every segment.
   // For 'mpegts' we also pass the proxyUrl so the .ts segment is fetched through
   // the proxy (raw .ts URLs are almost always CORS-blocked in the browser).
+  // Plain 'hls' (direct) streams do NOT get a proxyUrl — they connect directly.
   const spType = toStreamPlayerType(resolvedType)
   const spUrl = resolvedUrl
-  const spProxyUrl = (spType === 'hls-proxy' || spType === 'mpegts') ? '/api/stream-proxy?url=' : undefined
+  const spProxyUrl = (spType === 'hls-proxy' || spType === 'mpegts')
+    ? '/api/stream-proxy?url='
+    : undefined
 
   return (
     <div

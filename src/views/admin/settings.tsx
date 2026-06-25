@@ -44,6 +44,10 @@ export function AdminSettings() {
   const [videoAdsEnabled, setVideoAdsEnabled] = useState(true)
   const [redirectAdUrl, setRedirectAdUrl] = useState('')
   const [redirectAdEnabled, setRedirectAdEnabled] = useState(false)
+  // Keep the input value as a string so the user can clear it and re-type
+  // freely (e.g. type "120" — needs to clear "5" first). Numeric clamping
+  // happens on blur and at save time, not on every keystroke.
+  const [redirectAdInterval, setRedirectAdInterval] = useState('5')
 
   // Security master switch — instant-action toggle (separate from the main
   // settings save flow). When toggled, we PATCH /api/settings/security
@@ -108,6 +112,7 @@ export function AdminSettings() {
         setVideoAdsEnabled(s.videoAdsEnabled ?? true)
         setRedirectAdUrl(s.redirectAdUrl || '')
         setRedirectAdEnabled(s.redirectAdEnabled ?? false)
+        setRedirectAdInterval(String(s.redirectAdIntervalMinutes ?? 5))
         // Parse custom ad scripts
         try {
           const parsed = JSON.parse(s.customAdScripts || '[]')
@@ -200,6 +205,12 @@ export function AdminSettings() {
         videoAdsEnabled,
         redirectAdUrl,
         redirectAdEnabled,
+        redirectAdIntervalMinutes: (() => {
+          const parsed = parseInt(redirectAdInterval, 10)
+          if (isNaN(parsed) || parsed < 1) return 1
+          if (parsed > 1440) return 1440
+          return parsed
+        })(),
       }
 
       let updated: AppSettings | null = null
@@ -358,6 +369,7 @@ export function AdminSettings() {
                 setVideoAdsEnabled(s.videoAdsEnabled ?? true)
                 setRedirectAdUrl(s.redirectAdUrl || '')
                 setRedirectAdEnabled(s.redirectAdEnabled ?? false)
+                setRedirectAdInterval(String(s.redirectAdIntervalMinutes ?? 5))
                 try {
                   const parsed = JSON.parse(s.customAdScripts || '[]')
                   setAdScripts(Array.isArray(parsed) ? parsed : [])
@@ -867,7 +879,7 @@ export function AdminSettings() {
             <h3 className="text-sm font-semibold">Redirect Ad</h3>
             <p className="text-[11px] text-muted-foreground mt-0.5">
               Opens a direct-link ad in a new tab when the user clicks anywhere (except the video player).
-              Activates 2 minutes after entry, then every 1 hour.
+              Activates 2 minutes after entry, then re-arms on the interval set below.
             </p>
           </div>
           <Switch
@@ -884,7 +896,44 @@ export function AdminSettings() {
             className="text-xs"
           />
           <p className="text-[10px] text-muted-foreground">
-            Enter the direct-link ad URL. The user's first click after the 2-minute timer (and every 1 hour after) will open this URL in a new tab.
+            Enter the direct-link ad URL. The user's first click after the 2-minute timer will open this URL in a new tab.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Re-arm Interval (minutes)</label>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={1}
+              max={1440}
+              value={redirectAdInterval}
+              onChange={(e) => {
+                // Allow free typing — including empty string, leading zeros,
+                // or partial values like "12" while typing "120". Clamping
+                // happens on blur (below) and at save time.
+                setRedirectAdInterval(e.target.value)
+              }}
+              onBlur={() => {
+                // Validate when the user leaves the field. Empty or invalid
+                // → fall back to default 5. Out-of-range → clamp to 1–1440.
+                const parsed = parseInt(redirectAdInterval, 10)
+                if (isNaN(parsed) || parsed < 1) setRedirectAdInterval('5')
+                else if (parsed > 1440) setRedirectAdInterval('1440')
+                else setRedirectAdInterval(String(parsed))
+              }}
+              className="text-xs w-28"
+            />
+            <span className="text-xs text-muted-foreground">
+              {(() => {
+                const n = parseInt(redirectAdInterval, 10)
+                if (isNaN(n) || n < 1) return '—'
+                if (n < 60) return `${n} min${n === 1 ? '' : 's'}`
+                return `${Math.floor(n / 60)}h ${n % 60}m`
+              })()}
+            </span>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            After the ad fires, it waits this long before arming again. Range: 1–1440 minutes (24 hours). Default: 5 minutes.
           </p>
         </div>
       </div>

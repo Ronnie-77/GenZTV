@@ -23,6 +23,20 @@
 
 import Hls from 'hls.js';
 
+// ─── mpegts.js dynamic loader (avoids SSR issues) ───────────────────────────
+// mpegts.js uses `window` at import time, so we load it lazily on the client.
+// This is the SAME library the old TsPlayer used — it's purpose-built for live
+// .ts transport streams and handles infinite/live streams correctly (unlike
+// hls.js which expects finite VOD fragments).
+let _mpegtsLib = null;
+async function _loadMpegtsLib() {
+  if (!_mpegtsLib) {
+    const mod = await import('mpegts.js');
+    _mpegtsLib = mod.default || mod;
+  }
+  return _mpegtsLib;
+}
+
 // ─── Stream type constants ───────────────────────────────────────────────────
 const SP_TYPE = {
   HLS:       'hls',       // M3U/HLS  → hls.js or Safari native
@@ -34,58 +48,70 @@ const SP_TYPE = {
 const HLS_CONFIG = {
   base: {
     enableWorker:                true,
-    // Buffer
-    maxBufferLength:             30,
-    maxMaxBufferLength:          60,
-    maxBufferSize:               60 * 1000 * 1000, // 60 MB
+    // ── Fast-start buffer (smaller = quicker first frame) ──
+    maxBufferLength:             10,        // was 30 — start playback after ~10s buffered
+    maxMaxBufferLength:          30,        // was 60 — cap growth
+    maxBufferSize:               30 * 1000 * 1000,
     maxBufferHole:               0.5,
-    // Live sync
-    liveSyncDurationCount:       3,
-    liveMaxLatencyDurationCount: 10,
-    // ABR — conservative, stable under high concurrency
+    backBufferLength:            20,        // keep memory lean on live
+    // ── Live sync — closer to edge = less wait ──
+    liveSyncDurationCount:       2,         // was 3 — one segment closer to live
+    liveMaxLatencyDurationCount: 8,
+    // ── ABR — start low & ramp up (no bandwidth probe) ──
+    startLevel:                  0,         // start at lowest level for instant playback
+    testBandwidth:               false,     // skip ABR probing phase
     abrEwmaFastLive:             3.0,
     abrEwmaSlowLive:             9.0,
     abrBandWidthFactor:          0.95,
     abrBandWidthUpFactor:        0.65,
-    // Frag loading retries
-    fragLoadingTimeOut:          20000,
-    fragLoadingMaxRetry:         8,
-    fragLoadingRetryDelay:       1000,
-    fragLoadingMaxRetryTimeout:  64000,
-    // Manifest retries
-    manifestLoadingTimeOut:      15000,
-    manifestLoadingMaxRetry:     5,
-    manifestLoadingRetryDelay:   500,
-    // Level retries
-    levelLoadingTimeOut:         15000,
-    levelLoadingMaxRetry:        5,
-    // Stall nudge
+    // ── Progressive + prefetch = parse frag while downloading ──
+    startFragPrefetch:           true,
+    progressive:                 true,
+    // ── Frag loading — fail fast, retry fast ──
+    fragLoadingTimeOut:          10000,     // was 20000
+    fragLoadingMaxRetry:         3,         // was 8
+    fragLoadingRetryDelay:       500,       // was 1000
+    fragLoadingMaxRetryTimeout:  16000,     // was 64000
+    // ── Manifest — fail fast ──
+    manifestLoadingTimeOut:      8000,      // was 15000
+    manifestLoadingMaxRetry:     2,         // was 5
+    manifestLoadingRetryDelay:   400,
+    // ── Level — fail fast ──
+    levelLoadingTimeOut:         8000,      // was 15000
+    levelLoadingMaxRetry:        2,         // was 5
+    // ── Stall nudge ──
     nudgeMaxRetry:               8,
     nudgeOffset:                 0.2,
-    // Low latency off by default
+    // ── Low latency off by default (most streams are not LL-HLS) ──
     lowLatencyMode:              false,
-    // Start from live edge
+    // ── Start at live edge ──
     startPosition:               -1,
+    autoStartLoad:               true,
   },
 
-  // MPEG-TS: single segment, no ABR, large buffer
+  // MPEG-TS: single segment, no ABR, large buffer for stable ongoing playback
+  // but smaller initial buffer for fast first-frame.
   mpegts: {
     enableWorker:                true,
-    maxBufferLength:             60,
-    maxMaxBufferLength:          120,
-    maxBufferSize:               80 * 1000 * 1000,
+    maxBufferLength:             20,        // was 60 — faster initial playback
+    maxMaxBufferLength:          60,
+    maxBufferSize:               60 * 1000 * 1000,
     maxBufferHole:               1.0,
     liveSyncDurationCount:       1,
     liveMaxLatencyDurationCount: 5,
-    fragLoadingTimeOut:          30000,
-    fragLoadingMaxRetry:         10,
-    fragLoadingRetryDelay:       2000,
-    manifestLoadingTimeOut:      10000,
-    manifestLoadingMaxRetry:     3,
+    fragLoadingTimeOut:          15000,     // was 30000
+    fragLoadingMaxRetry:         4,         // was 10
+    fragLoadingRetryDelay:       1000,      // was 2000
+    manifestLoadingTimeOut:      8000,      // was 10000
+    manifestLoadingMaxRetry:     2,         // was 3
+    levelLoadingTimeOut:         8000,
+    levelLoadingMaxRetry:        2,
     nudgeMaxRetry:               10,
     nudgeOffset:                 0.5,
     lowLatencyMode:              false,
     startPosition:               -1,
+    startFragPrefetch:           true,
+    progressive:                 true,
     // Transmux TS → fMP4
     forceKeyFrameOnDiscontinuity: true,
   },
@@ -123,6 +149,7 @@ class StreamPlayer {
 
     // State
     this._hls             = null;
+    this._mpegtsPlayer    = null; // mpegts.js player instance (for .ts streams)
     this._levels          = [];
     this._currentQuality  = this._opts.defaultQuality;
     this._urlIndex        = 0;
@@ -140,13 +167,19 @@ class StreamPlayer {
     this._maxRetries      = 6;
     this._hideTimer       = null;
     this._qualityOpen     = false;
+    this._userHidden      = false; // true when user clicked to hide (desktop)
     this._listeners       = {};
     this._videoHandlers   = [];
     this._blobUrls        = []; // track for cleanup
     this._destroyed       = false;
+    this._mpegtsNoVideoTimer = null; // MPEG-2/unsupported codec detection
 
     this._build();
     this._bindKeys();
+
+    // Start the initial auto-hide timer so controls hide after 3s even if
+    // the user never interacts with the player (e.g. autoplay stream).
+    this._scheduleHide();
 
     if (this._opts.streamUrls.length) this.init(this._opts);
   }
@@ -202,8 +235,25 @@ class StreamPlayer {
   toggleFullscreen() {
     const video   = this._video;
     const wrapper = this._els.wrapper;
+    const isIPhone = /iPhone/i.test(navigator.userAgent) && !/iPad/i.test(navigator.userAgent);
 
-    // ── iOS Safari — only video element supports fullscreen ──
+    // ── iPhone: always use webkitEnterFullscreen on the video element ──
+    // iPhone's native video fullscreen player automatically supports landscape
+    // orientation (when the device is rotated). Element fullscreen (requestFullscreen)
+    // on iPhone does NOT rotate and does NOT lock orientation, so the video stays
+    // in portrait — which is the bug users reported.
+    // webkitEnterFullscreen uses iOS's native AVPlayer fullscreen which handles
+    // rotation properly.
+    if (isIPhone && typeof video.webkitEnterFullscreen === 'function') {
+      if (video.webkitDisplayingFullscreen) {
+        video.webkitExitFullscreen();
+      } else {
+        video.webkitEnterFullscreen();
+      }
+      return;
+    }
+
+    // ── Older iOS / Safari without fullscreenEnabled ──
     if (typeof video.webkitEnterFullscreen === 'function' &&
         !document.fullscreenEnabled && !document.webkitFullscreenEnabled) {
       if (video.webkitDisplayingFullscreen) {
@@ -214,19 +264,47 @@ class StreamPlayer {
       return;
     }
 
-    // ── Standard browsers ──
+    // ── Standard browsers (Android, desktop, iPad) ──
     const fsEl  = document.fullscreenElement || document.webkitFullscreenElement;
     const reqFs = wrapper.requestFullscreen || wrapper.webkitRequestFullscreen;
     const exFs  = document.exitFullscreen   || document.webkitExitFullscreen;
 
+    // Try to lock landscape orientation after entering fullscreen.
+    // This is the key fix for Android — screen.orientation.lock('landscape')
+    // forces the device into landscape mode while in fullscreen.
+    // Only works when the document is in fullscreen mode.
+    // Silently fails on desktop (where orientation lock isn't needed).
+    const tryLockLandscape = () => {
+      if (screen.orientation && typeof screen.orientation.lock === 'function') {
+        screen.orientation.lock('landscape').catch(() => {
+          // Orientation lock can fail if: not in fullscreen, not supported
+          // (desktop/iPhone), or user has rotation lock enabled. Ignore.
+        });
+      }
+    };
+    const tryUnlockOrientation = () => {
+      if (screen.orientation && typeof screen.orientation.unlock === 'function') {
+        try { screen.orientation.unlock(); } catch (e) {}
+      }
+    };
+
     if (fsEl) {
       exFs.call(document);
+      tryUnlockOrientation();
     } else if (reqFs) {
-      reqFs.call(wrapper).catch(() => {
-        // Fallback: try on video element directly (some Android browsers)
-        const vReq = video.requestFullscreen || video.webkitRequestFullscreen;
-        if (vReq) vReq.call(video).catch(() => {});
-      });
+      const result = reqFs.call(wrapper);
+      if (result && typeof result.then === 'function') {
+        result.then(tryLockLandscape).catch(() => {
+          // Fallback: try on video element directly (some Android browsers)
+          const vReq = video.requestFullscreen || video.webkitRequestFullscreen;
+          if (vReq) {
+            const vResult = vReq.call(video);
+            if (vResult && typeof vResult.then === 'function') {
+              vResult.then(tryLockLandscape).catch(() => {});
+            }
+          }
+        });
+      }
     }
   }
 
@@ -246,7 +324,10 @@ class StreamPlayer {
     this._stopWatchdog();
     clearTimeout(this._stallTimer);
     clearTimeout(this._hideTimer);
+    clearTimeout(this._userHiddenTimer);
+    clearTimeout(this._mpegtsNoVideoTimer);
     this._destroyHls();
+    this._destroyMpegts();
     this._revokeBlobs();
     this._videoHandlers.forEach(({ e, fn }) => this._video.removeEventListener(e, fn));
     this._videoHandlers = [];
@@ -258,6 +339,7 @@ class StreamPlayer {
 
   _startLoad() {
     this._destroyHls();
+    this._destroyMpegts();
     this._revokeBlobs();
 
     const type = this._opts.streamType;
@@ -277,7 +359,18 @@ class StreamPlayer {
         break;
 
       case SP_TYPE.MPEGTS:
-        this._loadMpegTs(url);
+        // Check if the URL is actually an m3u8 manifest (not a raw .ts file).
+        // Some "mpegts" channels store an m3u8 URL that points to .ts segments.
+        // In that case, treat it as a proxied HLS stream — the proxy will
+        // rewrite segment URLs inside the manifest.
+        if (/\.m3u8?(\?|$)/i.test(url)) {
+          this._log('MPEGTS type but URL is .m3u8 — loading as proxied HLS');
+          this._loadHlsProxy(url);
+        } else {
+          // _loadMpegTs is async (dynamically imports mpegts.js) — caller
+          // doesn't need to await; spinner stays visible until playback starts.
+          this._loadMpegTs(url);
+        }
         break;
 
       default:
@@ -331,26 +424,210 @@ class StreamPlayer {
   }
 
   // ── MPEG-TS (.ts) ─────────────────────────────────────────────────────────
-  // hls.js cannot load a bare .ts URL directly as a source.
-  // Wrap it in an in-memory M3U8 manifest (Blob URL) — hls.js will then
-  // transmux the TS segment via its built-in MP4 remuxer, making it
-  // fully compatible with MSE on all browsers including mobile.
+  // Live .ts transport streams are handled by mpegts.js (NOT hls.js).
+  //
+  // Why mpegts.js instead of hls.js Blob M3U8?
+  //   hls.js expects finite VOD fragments — it loads the entire segment before
+  //   demuxing. For a live .ts stream (infinite, chunked HTTP response), hls.js
+  //   never gets a "complete" fragment and the video never plays.
+  //
+  //   mpegts.js is purpose-built for live MPEG-TS: it reads chunks
+  //   incrementally via fetch ReadableStream and feeds them to the demuxer in
+  //   real-time. This is the SAME library + config the old TsPlayer used —
+  //   proven working on sports-fire and other IPTV deployments.
   //
   // IMPORTANT: raw .ts URLs are almost always CORS-blocked in the browser.
   // If a proxyUrl is configured, route the .ts segment through it so the
   // browser can fetch it without CORS errors.
 
-  _loadMpegTs(tsUrl) {
-    if (!this._hlsSupported()) return;
+  async _loadMpegTs(tsUrl) {
+    // Destroy any existing player instances first
+    this._destroyHls();
+    this._destroyMpegts();
+    this._revokeBlobs();
+
+    let mpegtsLib;
+    try {
+      mpegtsLib = await _loadMpegtsLib();
+    } catch (e) {
+      this._log('Failed to load mpegts.js, falling back to hls.js Blob M3U8:', e);
+      return this._loadMpegTsViaHls(tsUrl);
+    }
+
+    // Player may have been destroyed during the async import
+    if (this._destroyed) return;
+
+    if (!mpegtsLib.isSupported()) {
+      this._log('mpegts.js not supported, falling back to hls.js Blob M3U8');
+      return this._loadMpegTsViaHls(tsUrl);
+    }
 
     // Route the .ts URL through the proxy if one is configured.
-    // The proxy server streams the .ts bytes with permissive CORS headers,
-    // allowing hls.js to fetch them cross-origin.
-    //
-    // IMPORTANT: the segment URL is embedded in a Blob M3U8. Blob URLs
-    // resolve relative URLs against the blob: scheme, NOT the page origin.
-    // So we MUST convert a relative proxy prefix (e.g. "/api/stream-proxy?url=")
-    // to an absolute URL using window.location.origin before embedding it.
+    // The proxy streams the .ts bytes with permissive CORS headers.
+    const proxyPrefix = this._opts.proxyUrl;
+    let finalTsUrl = tsUrl;
+    if (proxyPrefix) {
+      const absoluteProxy = proxyPrefix.startsWith('http')
+        ? proxyPrefix
+        : window.location.origin + proxyPrefix;
+      finalTsUrl = absoluteProxy + encodeURIComponent(tsUrl);
+    }
+
+    this._log('Loading MPEG-TS via mpegts.js:', finalTsUrl);
+
+    // Config aligned with the old TsPlayer (proven working on IPTV streams).
+    const player = mpegtsLib.createPlayer({
+      type:              'mpegts',
+      url:               finalTsUrl,
+      isLive:            true,
+      cors:              true,
+      enableWorker:      true,
+      enableStashBuffer: false,
+      stashInitialSize:  384,
+    }, {
+      // Live latency — NO aggressive chasing (was #1 cause of micro-stutter)
+      liveBufferLatencyChasing:           false,
+      liveBufferLatencyChasingOnPaused:   false,
+      liveSyncDurationCount:              3,
+      liveMaxLatencyDurationCount:        10,
+
+      // Buffer management (generous for smoothness)
+      maxBufferLength:                    30,
+      maxMaxBufferLength:                 60,
+      bufferSize:                         60 * 1000 * 1000,
+
+      // Auto cleanup of old SourceBuffer segments
+      autoCleanupSourceBuffer:            true,
+      autoCleanupMaxBackwardDuration:     30,
+      autoCleanupMinBackwardDuration:      10,
+
+      // NO lazy loading — causes periodic re-buffer cycles
+      lazyLoad:                           false,
+
+      // Stash buffer (also set on mediaDataSource above for older versions)
+      enableStashBuffer:                  false,
+      stashInitialSize:                   384,
+
+      // Fix audio/video timestamp gaps (common with flaky IPTV upstreams)
+      fixAudioTimestampGap:               true,
+    });
+
+    player.attachMediaElement(this._video);
+    player.load();
+    this._mpegtsPlayer = player;
+
+    // Auto-play
+    if (this._opts.autoplay) {
+      this._video.play().catch(() => {
+        this._hideSpinner();
+        this._showBigPlay();
+      });
+    }
+
+    this._attachVideoEvents();
+
+    // Bridge mpegts.js events (arrow functions preserve `this` binding)
+    player.on(mpegtsLib.Events.ERROR, (_, data) => {
+      this._onMpegtsError(data, tsUrl);
+    });
+
+    player.on(mpegtsLib.Events.LOADING_COMPLETE, () => {
+      // The upstream .ts connection ended. This happens in two scenarios:
+      //
+      //   1. LIVE infinite .ts stream dropped (upstream closed after 60-90s):
+      //      currentTime > 0 → playback was happening → reconnect to resume.
+      //
+      //   2. FINITE .ts segment finished (single HLS segment like "435.ts"):
+      //      currentTime === 0 → playback never started OR already played out.
+      //      Reconnecting to the SAME URL just reloads the same finite segment
+      //      in a tight loop, preventing the video from ever playing. This was
+      //      the #1 cause of ".ts videos not playing" — the player kept
+      //      resetting (unload+load) before the first frame could decode.
+      //
+      // FIX: Only auto-reconnect if playback was actually happening (currentTime
+      //      > 0). For finite segments that never played or finished, leave the
+      //      player alone — the stall watchdog will handle recovery if needed.
+      const played = this._video && this._video.currentTime > 0;
+      this._log('mpegts.js LOADING_COMPLETE — played=' + played);
+
+      if (played) {
+        // Live stream dropped mid-playback → reconnect to resume
+        setTimeout(() => {
+          if (this._destroyed || !this._mpegtsPlayer) return;
+          try {
+            this._mpegtsPlayer.unload();
+            this._mpegtsPlayer.load();
+            this._mpegtsPlayer.play().catch(() => {});
+          } catch (e) {
+            this._log('mpegts.js reconnect failed:', e);
+          }
+        }, 1500);
+      } else {
+        // Finite segment that never played (likely a single HLS segment URL).
+        // Don't reconnect — let the segment decode. If the codec is
+        // unsupported (e.g. MPEG-2), the _mpegtsNoVideoTimer below will show
+        // a clear error instead of looping forever.
+        this._log('mpegts.js: finite segment ended without playback — not reconnecting');
+      }
+    });
+
+    // ── MPEG-2 / unsupported codec detection ──
+    // Some .ts streams use MPEG-2 video (stream type 0x02), which browsers
+    // cannot decode via MediaSource Extensions (MSE only supports H.264/HEVC).
+    // mpegts.js will demux the container and parse PAT/PMT, but no video
+    // frames ever decode (readyState stays 0). Detect this after 10s and
+    // show a clear error instead of silently failing.
+    clearTimeout(this._mpegtsNoVideoTimer);
+    this._mpegtsNoVideoTimer = setTimeout(() => {
+      if (this._destroyed || !this._mpegtsPlayer) return;
+      const v = this._video;
+      if (v && v.readyState < 1 && v.currentTime === 0) {
+        this._log('mpegts.js: no video decoded after 10s — likely MPEG-2/unsupported codec');
+        this._showError(
+          'This stream uses an unsupported video codec.',
+          'MPEG-2 .ts streams cannot be played in the browser. Try a different channel.'
+        );
+        this._emit('error', 'Unsupported video codec (MPEG-2).', 'Browser MSE cannot decode MPEG-2 video.');
+      }
+    }, 10000);
+  }
+
+  // Handle mpegts.js errors with auto-retry for network errors
+  _onMpegtsError(data, originalUrl) {
+    const errorType = data && data.type;
+    const errMsg    = (data && (data.info || data.reason)) || 'MPEG-TS playback error';
+    this._log('mpegts.js error:', JSON.stringify(data));
+
+    // Network errors — retry with backoff
+    if (errorType === 'NetworkError' || /network|timeout|Early-EOF/i.test(errMsg)) {
+      if (this._retryCount < this._maxRetries) {
+        this._retryCount++;
+        const delay = Math.min(1000 * this._retryCount, 8000);
+        this._log('mpegts.js network error, retry ' + this._retryCount + '/' + this._maxRetries + ' in ' + delay + 'ms');
+        setTimeout(() => {
+          if (this._destroyed || !this._mpegtsPlayer) return;
+          try {
+            this._mpegtsPlayer.unload();
+            this._mpegtsPlayer.load();
+            this._mpegtsPlayer.play().catch(() => {});
+          } catch (e) {
+            this._onMpegtsError({ type: 'NetworkError', info: 'retry failed' }, originalUrl);
+          }
+        }, delay);
+        return;
+      }
+    }
+
+    this._showError('Cannot reach the stream.', 'Check your connection and try again.');
+    this._emit('error', 'Cannot reach the stream.', errMsg);
+  }
+
+  // Fallback: hls.js Blob M3U8 approach (used if mpegts.js fails to load or is
+  // unsupported). This is the OLD approach — kept as a safety net. It works for
+  // finite .ts segments but NOT for live/infinite .ts streams.
+  _loadMpegTsViaHls(tsUrl) {
+    if (!this._hlsSupported()) return;
+
     const proxyPrefix = this._opts.proxyUrl;
     let finalTsUrl = tsUrl;
     if (proxyPrefix) {
@@ -376,11 +653,8 @@ class StreamPlayer {
     this._blobUrls.push(blobUrl);
 
     const config = Object.assign({}, HLS_CONFIG.mpegts, {
-      debug:            this._opts.debug,
-      // For a single .ts segment acting as a live-ish stream,
-      // disable the EXT-X-ENDLIST check so hls.js keeps retrying
-      // when the segment updates (some IPTV panels rotate the same URL)
-      allowedToStop:    false,
+      debug:         this._opts.debug,
+      allowedToStop: false,
     }, this._opts.hlsConfig);
 
     const hls = new Hls(config);
@@ -460,6 +734,12 @@ class StreamPlayer {
 
     switch (data.type) {
       case Hls.ErrorTypes.NETWORK_ERROR:
+        // Emit a 'networkError' event so the wrapper can trigger a reactive
+        // token refresh BEFORE exhausting all retries. This lets the player
+        // recover from an expired signed-URL token in ~1s instead of waiting
+        // for 6 retries (which can take 30+ seconds).
+        this._emit('networkError', data.details, data.response);
+
         if (this._retryCount < this._maxRetries) {
           this._retryCount++;
           const delay = Math.min(1000 * this._retryCount, 8000);
@@ -536,7 +816,7 @@ class StreamPlayer {
     on('durationchange', () => {
       if (!this._isLive && isFinite(this._video.duration)) {
         this._els.progressWrap.classList.remove('sp-live-mode');
-        this._els.livBtn.style.display = 'none';
+        if (this._els.livBtn) this._els.livBtn.style.display = 'none';
         this._els.timeDisplay.classList.remove('sp-hidden');
       }
     });
@@ -756,9 +1036,11 @@ class StreamPlayer {
     if (this._atLiveEdge === at) return;
     this._atLiveEdge = at;
     const btn = this._els.livBtn;
+    if (!btn) return;
     btn.classList.toggle('sp-at-live', at);
     btn.classList.toggle('sp-behind-live', !at);
-    this._els.livBtnText.textContent = at ? 'LIVE' : 'GO LIVE';
+    if (this._els.livBtnText)
+      this._els.livBtnText.textContent = at ? 'LIVE' : 'GO LIVE';
     btn.setAttribute('aria-label', at ? 'Live — at live edge' : 'Go to live edge');
   }
 
@@ -803,7 +1085,7 @@ class StreamPlayer {
     <div class="sp-poster${this._opts.poster ? '' : ' sp-hidden'}"
       ${this._opts.poster ? `style="background-image:url('${this._opts.poster}')"` : ''}></div>
 
-    <div class="sp-click-area" role="button" aria-label="Play or pause" tabindex="-1"></div>
+    <div class="sp-click-area" role="button" aria-label="Toggle controls" tabindex="-1"></div>
 
     <div class="sp-overlay">
       <button class="sp-big-play sp-hidden" aria-label="Play">
@@ -812,11 +1094,6 @@ class StreamPlayer {
       <svg class="sp-spinner sp-hidden" viewBox="0 0 48 48" aria-hidden="true">
         <circle cx="24" cy="24" r="20"/>
       </svg>
-    </div>
-
-    <div class="sp-live-badge" aria-hidden="true">
-      <span class="sp-live-dot"></span>
-      <span class="sp-live-text">Live</span>
     </div>
 
     <div class="sp-title-badge sp-hidden"></div>
@@ -832,6 +1109,13 @@ class StreamPlayer {
 
     <div class="sp-controls" role="group" aria-label="Player controls">
 
+      <div class="sp-controls-top">
+        <button class="sp-btn sp-live-btn sp-at-live" aria-label="Live — at live edge">
+          <span class="sp-live-btn-dot"></span>
+          <span class="sp-live-btn-text">LIVE</span>
+        </button>
+      </div>
+
       <div class="sp-progress-wrap sp-live-mode" role="slider"
         aria-label="Playback progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <div class="sp-progress-track">
@@ -845,21 +1129,16 @@ class StreamPlayer {
       <div class="sp-bar">
         <button class="sp-btn sp-play-btn" aria-label="Play">${this._icons.play}</button>
 
-        <button class="sp-live-btn sp-at-live" aria-label="Live">
-          <span class="sp-live-btn-dot"></span>
-          <span class="sp-live-btn-text">LIVE</span>
-        </button>
-
-        <span class="sp-time sp-hidden"></span>
-
-        <div class="sp-spacer"></div>
-
         <div class="sp-volume-wrap">
           <button class="sp-btn sp-mute-btn" aria-label="Mute">${this._icons.volumeHigh}</button>
           <div class="sp-volume-slider-wrap">
             <input type="range" class="sp-volume-slider" min="0" max="1" step="0.05" value="1" aria-label="Volume">
           </div>
         </div>
+
+        <span class="sp-time sp-hidden"></span>
+
+        <div class="sp-spacer"></div>
 
         <button class="sp-btn sp-btn-sm sp-cc-btn sp-hidden" aria-label="Subtitles" aria-pressed="false">CC</button>
 
@@ -890,7 +1169,6 @@ class StreamPlayer {
       clickArea:      q('.sp-click-area'),
       bigPlay:        q('.sp-big-play'),
       spinner:        q('.sp-spinner'),
-      liveBadge:      q('.sp-live-badge'),
       titleBadge:     q('.sp-title-badge'),
       errorOverlay:   q('.sp-error-overlay'),
       errorMessage:   q('.sp-error-message'),
@@ -932,9 +1210,14 @@ class StreamPlayer {
     const e = this._els;
 
     e.playBtn.addEventListener('click',   () => this.togglePlay());
-    e.clickArea.addEventListener('click', () => this.togglePlay());
+    // Single tap/click on the video area toggles CONTROLS visibility (does NOT
+    // pause the video). This matches the user's expected behavior:
+    //   - Tap once → show controls (if hidden) or hide them (if visible)
+    //   - Video keeps playing — only the play button pauses/plays
+    // The big-play button (shown when paused) still plays on click.
+    e.clickArea.addEventListener('click', () => this._toggleControls());
     e.bigPlay.addEventListener('click',   () => this.play());
-    e.livBtn.addEventListener('click',    () => this.goLive());
+    if (e.livBtn) e.livBtn.addEventListener('click',    () => this.goLive());
     e.muteBtn.addEventListener('click',   () => this.toggleMute());
     e.volumeSlider.addEventListener('input', ev => this.setVolume(parseFloat(ev.target.value)));
     e.qualityBtn.addEventListener('click', ev => { ev.stopPropagation(); this._toggleQuality(); });
@@ -944,19 +1227,44 @@ class StreamPlayer {
 
     document.addEventListener('click', () => this._closeQuality());
 
-    // Controls auto-hide
-    const show = () => this._showControls();
+    // ── Controls visibility behavior (per user spec) ──
+    //   • Mouse hover (desktop) → show controls + 3s auto-hide timer
+    //   • Tap/click on video area → toggle (show if hidden, hide if shown)
+    //   • No interaction for 3s → auto-hide
+    //
+    // IMPORTANT: We do NOT bind touchstart to show controls. On mobile,
+    // touchstart fires before click — if it showed controls, the subsequent
+    // click would immediately toggle (hide) them, so the user would see a
+    // brief flash and think "tap does nothing" or "tap pauses." Instead we
+    // rely on the click event alone for mobile, which toggles correctly.
+    //
+    // The `_userHidden` flag prevents mousemove from re-showing controls the
+    // user just hid via click. Without this, clicking to hide on desktop
+    // would be immediately undone by the next mousemove event. The flag
+    // auto-clears after 3s (matching the auto-hide timer) or when the mouse
+    // leaves and re-enters the player.
     const wrap = e.wrapper;
-    wrap.addEventListener('mousemove',  show);
-    wrap.addEventListener('mouseenter', show);
-    wrap.addEventListener('touchstart', show, { passive: true });
-    wrap.addEventListener('mouseleave', () => { if (this._playing) this._scheduleHide(); });
+    wrap.addEventListener('mousemove', () => {
+      // Don't re-show if the user just hid via click (desktop)
+      if (this._userHidden) return;
+      this._showControls();
+    });
+    wrap.addEventListener('mouseenter', () => {
+      // Mouse re-entered the player — clear the user-hidden flag so hover
+      // shows controls again.
+      this._userHidden = false;
+      this._showControls();
+    });
+    wrap.addEventListener('mouseleave', () => this._scheduleHide());
 
     // Fullscreen change
     const onFs = () => {
       const fs = !!(document.fullscreenElement || document.webkitFullscreenElement);
       e.fullscreenBtn.innerHTML = fs ? this._icons.exitFullscreen : this._icons.fullscreen;
       e.fullscreenBtn.setAttribute('aria-label', fs ? 'Exit fullscreen' : 'Enter fullscreen');
+      // When entering fullscreen, show controls briefly then auto-hide.
+      // When exiting, also show briefly then auto-hide.
+      this._showControls();
     };
     document.addEventListener('fullscreenchange',       onFs);
     document.addEventListener('webkitfullscreenchange', onFs);
@@ -1015,17 +1323,47 @@ class StreamPlayer {
   }
 
   // ─── CONTROLS VISIBILITY ──────────────────────────────────────────────────
+  // Controls auto-hide after 3s. Single tap/click toggles visibility.
+  // Controls ALWAYS auto-hide after 3s of inactivity — whether playing OR paused.
+  // The only exception is when the quality panel is open (user is selecting).
 
   _showControls() {
     this._els.controls.classList.remove('sp-hidden-controls');
     clearTimeout(this._hideTimer);
-    if (this._playing) this._scheduleHide();
+    this._scheduleHide();
+  }
+
+  _hideControls() {
+    clearTimeout(this._hideTimer);
+    this._els.controls.classList.add('sp-hidden-controls');
+  }
+
+  _toggleControls() {
+    if (this._els.controls.classList.contains('sp-hidden-controls')) {
+      // Controls are hidden → show them, clear the user-hidden flag
+      this._userHidden = false;
+      this._showControls();
+    } else {
+      // Controls are visible → hide them. Set the user-hidden flag so
+      // mousemove doesn't immediately re-show them. The flag auto-clears
+      // after 3s (matching the auto-hide timer) or when the mouse leaves
+      // and re-enters the player.
+      this._userHidden = true;
+      this._hideControls();
+      clearTimeout(this._userHiddenTimer);
+      this._userHiddenTimer = setTimeout(() => {
+        this._userHidden = false;
+      }, 3000);
+    }
   }
 
   _scheduleHide() {
     clearTimeout(this._hideTimer);
     this._hideTimer = setTimeout(() => {
-      if (this._playing && !this._qualityOpen)
+      // Hide controls after 3s — UNLESS the quality panel is open (user is
+      // actively selecting a quality level, don't hide the controls under
+      // their finger).
+      if (!this._qualityOpen)
         this._els.controls.classList.add('sp-hidden-controls');
     }, 3000);
   }
@@ -1063,9 +1401,12 @@ class StreamPlayer {
 
   _updateLiveBadge(live) {
     this._isLive = live;
-    this._els.liveBadge.style.display = live ? 'flex' : 'none';
+    // Live button visibility (interactive LIVE/GO LIVE pill above the
+    // pause button). The top-left corner passive indicator was removed.
+    if (this._els.livBtn) {
+      this._els.livBtn.style.display = live ? '' : 'none';
+    }
     if (!live) {
-      this._els.livBtn.style.display = 'none';
       this._els.progressWrap.classList.remove('sp-live-mode');
       this._els.timeDisplay.classList.remove('sp-hidden');
     }
@@ -1126,6 +1467,21 @@ class StreamPlayer {
       this._hls = null;
     }
     if (this._video) this._video.src = '';
+  }
+
+  _destroyMpegts() {
+    clearTimeout(this._mpegtsNoVideoTimer);
+    if (this._mpegtsPlayer) {
+      try {
+        this._mpegtsPlayer.pause();
+        this._mpegtsPlayer.unload();
+        this._mpegtsPlayer.detachMediaElement();
+        this._mpegtsPlayer.destroy();
+      } catch (e) {
+        // ignore — player may already be destroyed
+      }
+      this._mpegtsPlayer = null;
+    }
   }
 
   _revokeBlobs() {

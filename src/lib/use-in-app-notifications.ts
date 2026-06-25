@@ -438,22 +438,30 @@ function playNotificationSound(notifId: string): boolean {
 export function useInAppNotifications() {
   const [notifications, setNotifications] = useState<InAppNotification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
-  const [lastReadAt, setLastReadAtState] = useState<string | null>(null)
+  // Lazy initializer: read from localStorage on the client during the first
+  // render. This avoids a setState-in-effect (which React 19's lint rule
+  // flags as a cascading-render risk) and ensures the very first paint
+  // already has the correct lastReadAt value.
+  const [lastReadAt, setLastReadAtState] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    return readLastReadAt()
+  })
   const [isLoading, setIsLoading] = useState(true)
   // The most recent genuinely-new notification — drives the 3-second popup.
   const [latestNewNotification, setLatestNewNotification] =
     useState<InAppNotification | null>(null)
 
   // Refs (stable across renders, don't trigger re-renders):
-  const lastReadAtRef = useRef<string | null>(null)
+  // Initialize from localStorage lazily too, so ref + state stay in sync
+  // from the very first render (no mount effect needed).
+  const lastReadAtRef = useRef<string | null>(
+    typeof window !== 'undefined' ? readLastReadAt() : null
+  )
   const workerRef = useRef<Worker | null>(null)
 
-  // Initialize lastReadAt from localStorage on mount (client-only) and
-  // prepare the audio element.
+  // Prepare the audio element on mount. The lastReadAt state + ref are
+  // already initialized via lazy initializers above, so no setState here.
   useEffect(() => {
-    const stored = readLastReadAt()
-    lastReadAtRef.current = stored
-    setLastReadAtState(stored)
     ensureAudioElement()
   }, [])
 

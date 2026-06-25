@@ -10,12 +10,14 @@
 //   2. After 2 minutes, the ad "arms" — starts listening for clicks.
 //   3. When the user clicks ANYWHERE on the page (except the video player
 //      area), the redirect ad URL opens in a new tab.
-//   4. After firing, the ad re-arms after 1 hour. This repeats indefinitely.
+//   4. After firing, the ad re-arms after the admin-configured interval
+//      (redirectAdIntervalMinutes, default 5 minutes). This repeats indefinitely.
 //
 // The video player area is excluded so that users can interact with the
 // player (play/pause, fullscreen, quality, etc.) without triggering the ad.
 //
-// Admin configures this in Settings → Redirect Ad section.
+// Admin configures this in Settings → Redirect Ad section, including the
+// re-arm interval (1–1440 minutes).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useRef, useState } from 'react'
@@ -23,10 +25,16 @@ import { fetchSettings } from '@/lib/api'
 
 // Timing constants
 const INITIAL_DELAY = 2 * 60 * 1000   // 2 minutes after page load
-const REARM_INTERVAL = 60 * 60 * 1000 // 1 hour between firings
+// Default re-arm interval (used if the admin hasn't set one). The actual
+// interval is read from settings.redirectAdIntervalMinutes.
+const DEFAULT_REARM_INTERVAL = 5 * 60 * 1000  // 5 minutes
 
 export function RedirectAd() {
-  const [config, setConfig] = useState<{ url: string; enabled: boolean }>({ url: '', enabled: false })
+  const [config, setConfig] = useState<{
+    url: string
+    enabled: boolean
+    intervalMs: number
+  }>({ url: '', enabled: false, intervalMs: DEFAULT_REARM_INTERVAL })
   const armedRef = useRef(false)
   const configRef = useRef(config)
 
@@ -39,9 +47,13 @@ export function RedirectAd() {
   useEffect(() => {
     fetchSettings()
       .then((s) => {
+        const intervalMin = s.redirectAdIntervalMinutes && s.redirectAdIntervalMinutes > 0
+          ? s.redirectAdIntervalMinutes
+          : 5
         setConfig({
           url: s.redirectAdUrl || '',
           enabled: s.redirectAdEnabled && !!s.redirectAdUrl,
+          intervalMs: intervalMin * 60 * 1000,
         })
       })
       .catch(() => {
@@ -49,7 +61,7 @@ export function RedirectAd() {
       })
   }, [])
 
-  // Arm the ad after the initial delay, then re-arm every REARM_INTERVAL
+  // Arm the ad after the initial delay, then re-arm on the configured interval
   useEffect(() => {
     if (!config.enabled || !config.url) return
 
@@ -58,17 +70,17 @@ export function RedirectAd() {
       armedRef.current = true
     }, INITIAL_DELAY)
 
-    // Re-arm every 1 hour (the first re-arm is at 2min + 1h, then every 1h)
+    // Re-arm on the admin-configured interval
     const rearmTimer = setInterval(() => {
       armedRef.current = true
-    }, REARM_INTERVAL)
+    }, config.intervalMs)
 
     return () => {
       clearTimeout(armTimer)
       clearInterval(rearmTimer)
       armedRef.current = false
     }
-  }, [config.enabled, config.url])
+  }, [config.enabled, config.url, config.intervalMs])
 
   // Listen for clicks on the document. When armed and the click is NOT inside
   // the video player, open the redirect ad URL in a new tab and disarm.
@@ -80,9 +92,6 @@ export function RedirectAd() {
       if (!configRef.current.enabled || !configRef.current.url) return
 
       // Check if the click is inside the video player area.
-      // The video player container has the class "stream-player-host", or is
-      // an iframe/iframe-direct player. We also exclude any element inside
-      // a [data-player-area] attribute or the .sp-wrapper (StreamPlayer).
       const target = e.target as HTMLElement
       if (!target) return
 
@@ -105,9 +114,7 @@ export function RedirectAd() {
       try {
         window.open(adUrl, '_blank', 'noopener,noreferrer')
       } catch {
-        // Popup blocked — try location redirect as fallback (less ideal)
-        // Actually, don't redirect the current page — that would interrupt
-        // the user's viewing. Just skip if popup is blocked.
+        // Popup blocked — skip
       }
 
       // Disarm after firing — will re-arm on the next interval tick

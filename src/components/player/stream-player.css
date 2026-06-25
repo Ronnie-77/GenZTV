@@ -1,5 +1,5 @@
-/* StreamPlayer — Production Live Streaming Player */
-/* Version 1.0.0 */
+/* StreamPlayer — Premium Live Streaming Player */
+/* Version 2.0.0 — Aesthetic Premium Controller */
 
 /* Scope the reset to StreamPlayer elements only.
    A global `*` reset would override Tailwind's cascade-layer'd utilities
@@ -73,30 +73,39 @@
   pointer-events: none;
 }
 
-/* Big play button */
+/* Big play button — premium frosted glass */
 .sp-big-play {
-  width: 68px;
-  height: 68px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.65);
-  border: 2px solid rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   pointer-events: all;
-  transition: background 0.2s ease, transform 0.15s ease;
-  backdrop-filter: blur(4px);
+  transition: background 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.25s ease;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 .sp-big-play:hover {
-  background: rgba(230, 57, 70, 0.8);
+  background: rgba(230, 57, 70, 0.85);
   transform: scale(1.08);
+  box-shadow: 0 12px 40px rgba(230, 57, 70, 0.4);
+}
+
+.sp-big-play:active {
+  transform: scale(1.02);
 }
 
 .sp-big-play svg {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   fill: #fff;
   margin-left: 4px;
 }
@@ -105,10 +114,10 @@
   display: none;
 }
 
-/* Spinner */
+/* Spinner — premium */
 .sp-spinner {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   pointer-events: none;
 }
 
@@ -121,6 +130,7 @@
   stroke-dashoffset: 60;
   transform-origin: center;
   animation: sp-spin 0.9s linear infinite;
+  filter: drop-shadow(0 0 6px rgba(230, 57, 70, 0.5));
 }
 
 @keyframes sp-spin {
@@ -131,22 +141,21 @@
   display: none;
 }
 
-/* ─── LIVE badge (top-left) ─── */
-.sp-live-badge {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  z-index: 20;
+/* ─── Controls top row (Live button sits above pause button) ─── */
+.sp-controls-top {
   display: flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  padding: 4px 10px 4px 8px;
-  pointer-events: none;
-  transition: opacity 0.3s ease;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.sp-controls-top:empty {
+  display: none;
+}
+
+.sp-live-badge {
+  display: none !important;
 }
 
 .sp-live-dot {
@@ -156,6 +165,7 @@
   background: #e63946;
   animation: sp-pulse 2s ease-in-out infinite;
   flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(230, 57, 70, 0.8);
 }
 
 @keyframes sp-pulse {
@@ -166,7 +176,7 @@
 .sp-live-text {
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   color: #fff;
   text-transform: uppercase;
 }
@@ -195,6 +205,8 @@
   inset: 0;
   z-index: 30;
   background: rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -233,21 +245,25 @@
 
 .sp-retry-btn {
   margin-top: 4px;
-  padding: 9px 22px;
+  padding: 10px 24px;
   background: #e63946;
   color: #fff;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
   letter-spacing: 0.02em;
-  transition: background 0.2s ease, transform 0.1s ease;
+  transition: background 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.1s ease,
+              box-shadow 0.2s ease;
+  box-shadow: 0 4px 16px rgba(230, 57, 70, 0.35);
 }
 
 .sp-retry-btn:hover {
   background: #c1121f;
+  box-shadow: 0 6px 20px rgba(230, 57, 70, 0.5);
 }
 
 .sp-retry-btn:active {
@@ -262,16 +278,24 @@
   cursor: pointer;
 }
 
-/* ─── Controls ─── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   PREMIUM CONTROLS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .sp-controls {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
   z-index: 25;
-  padding: 40px 12px 10px;
-  background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 60%, transparent 100%);
-  transition: opacity 0.35s ease, visibility 0.35s ease;
+  padding: 36px 16px 12px;
+  background: linear-gradient(to top,
+    rgba(0, 0, 0, 0.92) 0%,
+    rgba(0, 0, 0, 0.7) 35%,
+    rgba(0, 0, 0, 0.2) 75%,
+    transparent 100%);
+  transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              visibility 0.35s ease;
 }
 
 .sp-controls.sp-hidden-controls {
@@ -286,7 +310,7 @@
   display: flex;
   align-items: center;
   cursor: pointer;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .sp-progress-wrap.sp-live-mode {
@@ -297,10 +321,10 @@
   position: relative;
   width: 100%;
   height: 4px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
   overflow: visible;
-  transition: height 0.15s ease;
+  transition: height 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sp-progress-wrap:hover .sp-progress-track {
@@ -313,7 +337,7 @@
   top: 0;
   height: 100%;
   background: rgba(255, 255, 255, 0.3);
-  border-radius: 2px;
+  border-radius: 4px;
   width: 0%;
   pointer-events: none;
 }
@@ -323,79 +347,93 @@
   left: 0;
   top: 0;
   height: 100%;
-  background: #e63946;
-  border-radius: 2px;
+  background: linear-gradient(90deg, #e63946 0%, #f47983 100%);
+  border-radius: 4px;
   width: 0%;
   pointer-events: none;
+  box-shadow: 0 0 8px rgba(230, 57, 70, 0.5);
 }
 
 .sp-progress-thumb {
   position: absolute;
   top: 50%;
-  width: 12px;
-  height: 12px;
-  background: #e63946;
+  width: 14px;
+  height: 14px;
+  background: #fff;
   border-radius: 50%;
   transform: translate(-50%, -50%);
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.15s ease;
-  box-shadow: 0 0 0 3px rgba(230, 57, 70, 0.3);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  box-shadow: 0 0 0 4px rgba(230, 57, 70, 0.35),
+              0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
 .sp-progress-wrap:hover .sp-progress-thumb {
   opacity: 1;
+  transform: translate(-50%, -50%) scale(1.1);
 }
 
 .sp-progress-tooltip {
   position: absolute;
-  bottom: 22px;
+  bottom: 24px;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   color: #fff;
   font-size: 11px;
-  font-weight: 500;
-  padding: 3px 8px;
-  border-radius: 4px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 5px;
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.15s ease;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .sp-progress-wrap:hover .sp-progress-tooltip {
   opacity: 1;
 }
 
-/* Control bar row */
+/* ─── Main control bar ─── */
 .sp-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .sp-spacer {
   flex: 1;
 }
 
-/* Buttons */
+/* ─── Buttons — premium frosted style ─── */
 .sp-btn {
-  background: none;
+  background: transparent;
   border: none;
   cursor: pointer;
-  padding: 6px;
-  border-radius: 5px;
+  padding: 8px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(255, 255, 255, 0.85);
-  transition: color 0.15s ease, background 0.15s ease;
+  color: rgba(255, 255, 255, 0.9);
+  transition: color 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+              background 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.12s ease;
   flex-shrink: 0;
 }
 
 .sp-btn:hover {
   color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.sp-btn:active {
+  transform: scale(0.92);
 }
 
 .sp-btn:focus-visible {
@@ -404,152 +442,210 @@
 }
 
 .sp-btn svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   display: block;
   fill: currentColor;
+  transition: transform 0.15s ease;
 }
 
 .sp-btn.sp-btn-sm svg {
-  width: 17px;
-  height: 17px;
+  width: 18px;
+  height: 18px;
 }
 
-/* Live edge button */
+/* Play/Pause button — slightly larger, the anchor of the bar */
+.sp-play-btn {
+  padding: 8px;
+}
+
+.sp-play-btn:hover {
+  background: rgba(230, 57, 70, 0.18);
+}
+
+.sp-play-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* ─── Live button — premium pill with glow (sits above pause button) ─── */
 .sp-live-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 5px;
-  background: none;
-  border: 1px solid rgba(255,255,255,0.2);
+  gap: 7px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   cursor: pointer;
-  padding: 3px 9px 3px 7px;
-  border-radius: 4px;
+  padding: 5px 12px 5px 10px;
+  border-radius: 999px;
   color: #fff;
   font-family: inherit;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  transition: all 0.2s ease;
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   flex-shrink: 0;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
 }
 
 .sp-live-btn .sp-live-btn-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: #e63946;
   flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(230, 57, 70, 0.9);
+  animation: sp-live-pulse 2s ease-in-out infinite;
+}
+
+@keyframes sp-live-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(230, 57, 70, 0.9); }
+  50% { opacity: 0.7; box-shadow: 0 0 4px rgba(230, 57, 70, 0.5); }
 }
 
 .sp-live-btn.sp-at-live {
-  border-color: #e63946;
-  color: #e63946;
+  border-color: rgba(230, 57, 70, 0.55);
+  color: #fff;
+  background: linear-gradient(135deg, rgba(230, 57, 70, 0.25) 0%, rgba(230, 57, 70, 0.12) 100%);
+  box-shadow: 0 2px 16px rgba(230, 57, 70, 0.35),
+              inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .sp-live-btn.sp-at-live:hover {
-  background: rgba(230, 57, 70, 0.12);
+  background: linear-gradient(135deg, rgba(230, 57, 70, 0.4) 0%, rgba(230, 57, 70, 0.2) 100%);
+  box-shadow: 0 4px 20px rgba(230, 57, 70, 0.5),
+              inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
 }
 
 .sp-live-btn.sp-behind-live {
-  border-color: rgba(255,255,255,0.2);
-  color: rgba(255,255,255,0.6);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.65);
+  background: rgba(0, 0, 0, 0.5);
 }
 
 .sp-live-btn.sp-behind-live .sp-live-btn-dot {
-  background: rgba(255,255,255,0.4);
+  background: rgba(255, 255, 255, 0.45);
+  box-shadow: none;
+  animation: none;
 }
 
 .sp-live-btn.sp-behind-live:hover {
-  border-color: rgba(255,255,255,0.5);
+  border-color: rgba(255, 255, 255, 0.55);
   color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px);
 }
 
 /* Time display */
 .sp-time {
   font-size: 12px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.75);
+  color: rgba(255, 255, 255, 0.8);
   white-space: nowrap;
-  padding: 0 4px;
-  letter-spacing: 0.02em;
+  padding: 0 6px;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Volume */
+/* ─── Volume — premium expand-on-hover ─── */
 .sp-volume-wrap {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  transition: background 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sp-volume-wrap:hover {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .sp-volume-slider-wrap {
   width: 0;
   overflow: hidden;
-  transition: width 0.2s ease;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sp-volume-wrap:hover .sp-volume-slider-wrap,
 .sp-volume-wrap:focus-within .sp-volume-slider-wrap {
-  width: 72px;
+  width: 80px;
 }
 
 .sp-volume-slider {
   -webkit-appearance: none;
   appearance: none;
-  width: 72px;
-  height: 3px;
-  border-radius: 2px;
+  width: 80px;
+  height: 4px;
+  border-radius: 4px;
   background: rgba(255, 255, 255, 0.25);
   outline: none;
   cursor: pointer;
   display: block;
   accent-color: #e63946;
+  background-image: linear-gradient(90deg, #e63946 0%, #e63946 var(--sp-vol, 100%), rgba(255, 255, 255, 0.25) var(--sp-vol, 100%), rgba(255, 255, 255, 0.25) 100%);
 }
 
 .sp-volume-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
   background: #fff;
   cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  box-shadow: 0 0 0 3px rgba(230, 57, 70, 0.35),
+              0 2px 6px rgba(0, 0, 0, 0.5);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sp-volume-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 0 4px rgba(230, 57, 70, 0.45),
+              0 2px 8px rgba(0, 0, 0, 0.6);
 }
 
 .sp-volume-slider::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
   background: #fff;
   cursor: pointer;
   border: none;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  box-shadow: 0 0 0 3px rgba(230, 57, 70, 0.35),
+              0 2px 6px rgba(0, 0, 0, 0.5);
 }
 
-/* Quality button */
+/* ─── Quality button — premium pill ─── */
 .sp-quality-btn {
-  background: none;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   cursor: pointer;
-  padding: 3px 9px;
-  border-radius: 4px;
-  color: rgba(255, 255, 255, 0.85);
+  padding: 5px 11px;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.9);
   font-family: inherit;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   white-space: nowrap;
   display: flex;
   align-items: center;
-  gap: 4px;
-  transition: all 0.2s ease;
+  gap: 5px;
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   flex-shrink: 0;
 }
 
 .sp-quality-btn:hover {
-  border-color: rgba(255,255,255,0.5);
+  border-color: rgba(255, 255, 255, 0.4);
   color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
 }
 
 .sp-quality-btn:focus-visible {
@@ -560,27 +656,34 @@
 .sp-quality-caret {
   font-size: 9px;
   opacity: 0.7;
+  transition: transform 0.2s ease;
 }
 
-/* Quality Panel */
+.sp-quality-btn[aria-expanded="true"] .sp-quality-caret {
+  transform: rotate(180deg);
+}
+
+/* ─── Quality Panel — premium frosted menu ─── */
 .sp-quality-panel {
   position: absolute;
-  bottom: 52px;
-  right: 12px;
-  width: 148px;
-  background: rgba(15, 15, 15, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  bottom: 56px;
+  right: 16px;
+  width: 156px;
+  background: rgba(15, 15, 15, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
   overflow: hidden;
   z-index: 50;
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   transform-origin: bottom right;
-  transform: scaleY(0.8) scaleX(0.95);
+  transform: scaleY(0.85) scaleX(0.92);
   opacity: 0;
   pointer-events: none;
-  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
               opacity 0.18s ease;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6),
+              inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .sp-quality-panel.sp-open {
@@ -590,77 +693,125 @@
 }
 
 .sp-quality-panel-header {
-  padding: 9px 12px 7px;
+  padding: 10px 14px 8px;
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.4);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.45);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .sp-quality-option {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 14px;
+  padding: 10px 14px;
   font-size: 13px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.75);
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
-  border-left: 2px solid transparent;
+  transition: background 0.14s ease, color 0.14s ease;
+  border-left: 3px solid transparent;
 }
 
 .sp-quality-option:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
 }
 
 .sp-quality-option.sp-active {
   color: #e63946;
   border-left-color: #e63946;
-  background: rgba(230, 57, 70, 0.08);
+  background: rgba(230, 57, 70, 0.1);
 }
 
 .sp-quality-option-badge {
   margin-left: auto;
   font-size: 10px;
   font-weight: 600;
-  color: rgba(255,255,255,0.3);
+  color: rgba(255, 255, 255, 0.3);
   letter-spacing: 0.03em;
 }
 
 .sp-quality-option.sp-active .sp-quality-option-badge {
-  color: rgba(230, 57, 70, 0.6);
+  color: rgba(230, 57, 70, 0.7);
 }
 
-/* ─── CC Button ─── */
+/* ─── CC Button — premium pill ─── */
 .sp-cc-btn {
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 3px;
-  padding: 2px 5px;
+  letter-spacing: 0.05em;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 3px 6px;
   line-height: 1.4;
+  background: transparent;
+}
+
+.sp-cc-btn:hover {
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 .sp-cc-btn.sp-cc-active {
-  background: rgba(255,255,255,0.9);
+  background: rgba(255, 255, 255, 0.95);
   color: #000;
-  border-color: rgba(255,255,255,0.9);
+  border-color: rgba(255, 255, 255, 0.95);
 }
 
 /* ─── Fullscreen ─── */
+:fullscreen .sp-wrapper,
+:fullscreen .sp-ratio {
+  width: 100vw;
+  height: 100vh;
+}
+
 :fullscreen .sp-ratio {
   padding-top: 0;
+}
+
+:-webkit-full-screen .sp-wrapper,
+:-webkit-full-screen .sp-ratio {
+  width: 100vw;
   height: 100vh;
 }
 
 :-webkit-full-screen .sp-ratio {
   padding-top: 0;
+}
+
+:-moz-full-screen .sp-wrapper,
+:-moz-full-screen .sp-ratio {
+  width: 100vw;
   height: 100vh;
+}
+
+:-moz-full-screen .sp-ratio {
+  padding-top: 0;
+}
+
+:-ms-fullscreen .sp-wrapper,
+:-ms-fullscreen .sp-ratio {
+  width: 100vw;
+  height: 100vh;
+}
+
+:-ms-fullscreen .sp-ratio {
+  padding-top: 0;
+}
+
+.sp-wrapper:fullscreen,
+.sp-wrapper:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+}
+
+:fullscreen .sp-video,
+:-webkit-full-screen .sp-video,
+:-moz-full-screen .sp-video {
+  object-fit: contain;
 }
 
 /* ─── Accessibility: screen reader only ─── */
@@ -679,10 +830,12 @@
 /* ─── Reduced motion ─── */
 @media (prefers-reduced-motion: reduce) {
   .sp-live-dot,
+  .sp-live-btn-dot,
   .sp-spinner circle {
     animation: none;
   }
-  .sp-live-dot {
+  .sp-live-dot,
+  .sp-live-btn-dot {
     opacity: 1;
   }
   *,
@@ -694,16 +847,34 @@
 
 /* ─── Mobile adaptations ─── */
 @media (max-width: 600px) {
-  .sp-volume-slider-wrap {
-    width: 50px !important;
+  .sp-controls {
+    padding: 32px 10px 8px;
   }
-  .sp-volume-wrap:hover .sp-volume-slider-wrap {
-    width: 50px;
+  .sp-volume-slider-wrap,
+  .sp-volume-wrap:hover .sp-volume-slider-wrap,
+  .sp-volume-wrap:focus-within .sp-volume-slider-wrap {
+    width: 56px !important;
+  }
+  .sp-volume-slider {
+    width: 56px;
   }
   .sp-time {
     display: none;
   }
   .sp-quality-panel {
-    right: 8px;
+    right: 10px;
+    bottom: 52px;
+    width: 140px;
+  }
+  .sp-btn {
+    padding: 7px;
+  }
+  .sp-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+  .sp-play-btn svg {
+    width: 22px;
+    height: 22px;
   }
 }

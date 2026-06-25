@@ -114,9 +114,13 @@ model AppSetting {
   securityEnabled  Boolean @default(true)
   // Redirect ad: a direct-link ad URL that opens in a new tab when the user
   // clicks anywhere on the page (except the video player). Activates 2 minutes
-  // after the user enters the site, then re-activates every 1 hour.
+  // after the user enters the site, then re-activates on a configurable interval
+  // (default 5 minutes, adjustable by admin).
   redirectAdUrl    String  @default("")
   redirectAdEnabled Boolean @default(false)
+  // Redirect ad re-arm interval in minutes. After the ad fires, it waits this
+  // many minutes before arming again. Default 5 minutes. Admin can set 1-1440.
+  redirectAdIntervalMinutes Int @default(5)
 }
 
 // User feedback submissions. Users can submit feedback (bug report, feature

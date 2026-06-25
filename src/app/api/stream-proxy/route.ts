@@ -82,10 +82,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid URL protocol' }, { status: 400 })
     }
 
-    // Determine content type based on URL path
+    // Determine content type based on URL path + query string.
+    // Some .ts URLs are behind proxy scripts (e.g. /api/ts.php?u=...stream.ts)
+    // so we check both the pathname AND the full URL for .ts extension.
     const isM3u8 = url.includes('.m3u8') || url.includes('.m3u') || parsedUrl.pathname.endsWith('.m3u8') || parsedUrl.pathname.endsWith('.m3u')
-    const isTs = /\.ts(\?.*)?$/.test(parsedUrl.pathname) && !parsedUrl.pathname.includes('.m3u8') && !parsedUrl.pathname.includes('.m3u')
-    const isLiveTs = isTs && isLiveTsUrl(parsedUrl.pathname)
+    const isTs = (/\.ts(\?.*)?$/.test(parsedUrl.pathname) || /\.ts(\?|$)/.test(url)) && !parsedUrl.pathname.includes('.m3u8') && !parsedUrl.pathname.includes('.m3u')
+    const isLiveTs = isTs && isLiveTsUrl(parsedUrl.pathname + parsedUrl.search)
 
     // Build upstream request headers — use VLC User-Agent for better IPTV server compatibility
     // Many IPTV/streaming servers block browser User-Agents but allow VLC

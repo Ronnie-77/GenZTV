@@ -11,6 +11,45 @@ interface ParsedChannel {
   streamType?: string  // 🎯🛡️ allow JSON to specify 'm3u8_direct' / 'm3u8_proxy' / etc.
 }
 
+// ── URL-based stream type auto-detection ────────────────────────────────────
+// Used when the JSON doesn't explicitly declare a `streamType` (or declares an
+// unknown one). This prevents the misclassification bugs where:
+//   • .m3u8 URLs were falling into the iframe bucket (because no type matched)
+//   • .ts  URLs were falling into the m3u8 bucket (same reason)
+//
+// Detection order matters:
+//   1. .ts  extension           → 'mpegts'
+//   2. .m3u8 / .m3u extension   → 'm3u8' (default HLS; StreamPlayer treats it as direct)
+//   3. iframe/embed patterns    → 'iframe'
+//   4. everything else          → undefined (let the frontend decide / show error)
+function detectStreamTypeFromUrl(url: string): string | undefined {
+  if (!url) return undefined
+  let pathname = url
+  try {
+    pathname = new URL(url).pathname
+  } catch {
+    // not an absolute URL — use as-is
+  }
+  // Raw MPEG-TS segment (.ts). Must come BEFORE the .m3u8 check because some
+  // weird URLs could theoretically contain both, and a .ts file is never an m3u8.
+  if (/\.ts(\?.*)?$/i.test(pathname)) {
+    return 'mpegts'
+  }
+  // HLS manifest
+  if (/\.m3u8?(\?.*)?$/i.test(pathname)) {
+    return 'm3u8'
+  }
+  // Common iframe/embed hosts — treat as iframe embeds
+  if (/(?:youtube\.com\/embed|youtu\.be|player\.twitch\.tv|player\.vimeo\.com|dailymotion\.com\/embed|facebook\.com\/plugins\/video|iframe\.|\/embed\/)/i.test(url)) {
+    return 'iframe'
+  }
+  // GitHub-hosted .m3u (raw or blob URL)
+  if (/github\.com\/.*\.m3u/i.test(url) || /raw\.githubusercontent\.com\/.*\.m3u/i.test(url)) {
+    return 'github_m3u'
+  }
+  return undefined
+}
+
 // POST /api/channels/import-file — parse uploaded .m3u or .json file content
 export async function POST(req: NextRequest) {
   return requireAdminAuth(req, async () => {
@@ -69,6 +108,7 @@ function parseM3UContent(content: string): ParsedChannel[] {
             logo: currentLogo,
             group: currentGroup,
             url: nextLine,
+            streamType: detectStreamTypeFromUrl(nextLine),
           })
           break
         }
@@ -115,10 +155,38 @@ function parseJSONContent(content: string): ParsedChannel[] {
       const url = String(obj.url || obj.stream_url || obj.streamUrl || obj.stream || obj.link || '')
       const language = String(obj.language || obj.lang || '')
       const country = String(obj.country || obj.region || '')
-      // 🎯🛡️ streamType — let JSON specify which dedicated player to use
-      const streamTypeRaw = String(obj.streamType || obj.stream_type || obj.type || '').toLowerCase()
+      // 🎯🛡️ streamType — let JSON specify which dedicated player to use.
+      // NOTE: we deliberately do NOT read `obj.type` here — too many JSON
+      // exports use `type` for unrelated metadata ("movie", "live", "tv",
+      // "channel", etc.) which caused m3u8 URLs to be misclassified as iframe.
+      const streamTypeRaw = String(obj.streamType || obj.stream_type || '').toLowerCase()
       const validStreamTypes = ['m3u', 'm3u8', 'm3u8_direct', 'm3u8_proxy', 'm3u8_jw', 'iframe', 'iframe_direct', 'mpegts', 'github_m3u', 'direct', 'redirect']
-      const streamType = validStreamTypes.includes(streamTypeRaw) ? streamTypeRaw : undefined
+      let streamType = validStreamTypes.includes(streamTypeRaw) ? streamTypeRaw : undefined
+
+      // ── URL-based override (fixes remaining misclassification bugs) ──
+      // Even when the JSON declares an explicit streamType, the URL is the
+      // source of truth for .ts and .m3u8 files:
+      //   • .ts URL  → ALWAYS 'mpegts' (regardless of declared type).
+      //     A .ts file is never an iframe or m3u8 — it's a raw transport stream.
+      //   • .m3u8 URL → if the declared type is 'iframe'/'redirect' (clearly
+      //     wrong for an HLS manifest), override to 'm3u8'. But if the declared
+      //     type is an HLS variant (m3u8_direct, m3u8_proxy, m3u8_jw), keep it —
+      //     the user explicitly chose proxy vs direct.
+      const urlDetected = detectStreamTypeFromUrl(url)
+      if (urlDetected === 'mpegts') {
+        // .ts URL always wins — force mpegts player
+        streamType = 'mpegts'
+      } else if (urlDetected === 'm3u8' || urlDetected === 'm3u') {
+        // .m3u8 URL — override clearly-wrong types (iframe/redirect/mpegts),
+        // but preserve explicit HLS sub-types (m3u8_direct/m3u8_proxy/m3u8_jw)
+        if (!streamType || streamType === 'iframe' || streamType === 'redirect' || streamType === 'mpegts' || streamType === 'iframe_direct') {
+          streamType = 'm3u8'
+        }
+      } else if (!streamType) {
+        // No explicit type and URL detection didn't match .ts/.m3u8 — use
+        // whatever URL detection returned (iframe, github_m3u, or undefined)
+        streamType = urlDetected
+      }
 
       // Handle category as array or string
       let normalizedGroup = group

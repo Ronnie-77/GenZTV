@@ -262,7 +262,9 @@ interface StreamForm {
   name: string
   channel: string
   channelId: string
-  type: 'iframe' | 'direct' | 'redirect' | 'mpegts' | 'm3u8_jw'
+  // Mirrors the channel streamType options so matches can use the same
+  // embed strategies as channels (iframe, iframe_direct, redirect, etc.)
+  type: 'iframe' | 'iframe_direct' | 'direct' | 'redirect' | 'mpegts' | 'm3u8_jw'
   url: string
 }
 
@@ -291,6 +293,7 @@ function StreamInput({ stream, onUpdate, onRemove, onMoveUp, onMoveDown, channel
     let streamType: StreamForm['type'] = 'iframe'
     if (ch.streamType === 'm3u') streamType = 'direct'
     else if (ch.streamType === 'iframe') streamType = 'iframe'
+    else if (ch.streamType === 'iframe_direct') streamType = 'iframe_direct'
     else if (ch.streamType === 'redirect') streamType = 'redirect'
     else if (ch.streamType === 'mpegts') streamType = 'mpegts'
     else if (ch.streamType === 'm3u8_jw') streamType = 'm3u8_jw'
@@ -456,6 +459,7 @@ function StreamInput({ stream, onUpdate, onRemove, onMoveUp, onMoveDown, channel
           className="h-8 rounded-md border border-input bg-background px-2 text-xs sm:min-w-[100px]"
         >
           <option value="iframe">iFrame</option>
+          <option value="iframe_direct">iFrame Direct</option>
           <option value="direct">Direct (M3U8)</option>
           <option value="m3u8_jw">M3U8 JW Player</option>
           <option value="mpegts">MPEG-TS (.ts)</option>
@@ -779,7 +783,7 @@ export function AdminMatches() {
       name: s.name,
       channel: s.channel,
       channelId: '',
-      type: s.type as 'iframe' | 'direct' | 'redirect' | 'mpegts',
+      type: s.type as 'iframe' | 'iframe_direct' | 'direct' | 'redirect' | 'mpegts',
       url: s.url,
     })))
     setShowForm(true)

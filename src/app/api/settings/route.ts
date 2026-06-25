@@ -55,6 +55,7 @@ export async function PUT(req: NextRequest) {
         ...(b.apkUrl !== undefined && { apkUrl: String(b.apkUrl) }),
         ...(b.redirectAdUrl !== undefined && { redirectAdUrl: String(b.redirectAdUrl) }),
         ...(b.redirectAdEnabled !== undefined && { redirectAdEnabled: Boolean(b.redirectAdEnabled) }),
+        ...(b.redirectAdIntervalMinutes !== undefined && { redirectAdIntervalMinutes: Math.max(1, Math.min(1440, parseInt(b.redirectAdIntervalMinutes as string) || 5)) }),
       },
       create: {
         id: 'app',
@@ -74,6 +75,7 @@ export async function PUT(req: NextRequest) {
         apkUrl: b.apkUrl ? String(b.apkUrl) : '',
         redirectAdUrl: b.redirectAdUrl ? String(b.redirectAdUrl) : '',
         redirectAdEnabled: b.redirectAdEnabled !== undefined ? Boolean(b.redirectAdEnabled) : false,
+        redirectAdIntervalMinutes: b.redirectAdIntervalMinutes !== undefined ? Math.max(1, Math.min(1440, parseInt(b.redirectAdIntervalMinutes as string) || 5)) : 5,
       },
     })
     return NextResponse.json(settings)

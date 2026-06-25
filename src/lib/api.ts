@@ -102,6 +102,7 @@ export interface AppSettings {
   apkUrl: string
   redirectAdUrl: string
   redirectAdEnabled: boolean
+  redirectAdIntervalMinutes: number
 }
 
 // ============ Notices ============

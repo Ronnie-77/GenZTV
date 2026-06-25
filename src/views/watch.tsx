@@ -1,15 +1,16 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
 import { fetchChannel, fetchMatch, fetchChannels, type Channel, type Match } from '@/lib/api'
 import { VideoPlayer } from '@/components/player/video-player'
 import { DynamicAdSlot } from '@/components/ads/dynamic-ad-slot'
 import { SocialBarAd } from '@/components/ads/social-bar-ad'
-import { ArrowLeft, Heart, Share2, Tv, ExternalLink, Radio, List } from 'lucide-react'
+import { ArrowLeft, Heart, Share2, Tv, ExternalLink, Radio, List, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Input } from '@/components/ui/input'
 import { fetchSettings } from '@/lib/api'
 import { addWatchHistory } from '@/lib/use-watch-history'
 
@@ -37,6 +38,19 @@ export function WatchPage() {
   const [socialBarAds, setSocialBarAds] = useState<{id: string; name: string; script: string; position: string; enabled: boolean}[]>([])
   const [legacySocialBarScript, setLegacySocialBarScript] = useState('')
   const [allChannels, setAllChannels] = useState<Channel[]>([])
+  const [channelSearch, setChannelSearch] = useState('')
+
+  // Filter channels by search query (name, category, country, language)
+  const filteredChannels = useMemo(() => {
+    const q = channelSearch.trim().toLowerCase()
+    if (!q) return allChannels
+    return allChannels.filter(ch =>
+      ch.name.toLowerCase().includes(q) ||
+      (ch.category || '').toLowerCase().includes(q) ||
+      (ch.country || '').toLowerCase().includes(q) ||
+      (ch.language || '').toLowerCase().includes(q)
+    )
+  }, [allChannels, channelSearch])
 
   // Fetch ad settings
   useEffect(() => {
@@ -304,14 +318,39 @@ export function WatchPage() {
               <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/30">
                 <List className="h-4 w-4 text-primary" />
                 <span className="text-sm font-semibold">Channels</span>
-                <span className="ml-auto text-xs text-muted-foreground">{allChannels.length}</span>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {channelSearch ? `${filteredChannels.length}/${allChannels.length}` : allChannels.length}
+                </span>
+              </div>
+              {/* Search bar */}
+              <div className="relative px-3 py-2 border-b bg-background/50">
+                <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <Input
+                  value={channelSearch}
+                  onChange={(e) => setChannelSearch(e.target.value)}
+                  placeholder="Search channels…"
+                  className="h-8 pl-7 pr-7 text-xs rounded-lg bg-muted/40 border-transparent focus-visible:bg-background"
+                />
+                {channelSearch && (
+                  <button
+                    onClick={() => setChannelSearch('')}
+                    className="absolute right-5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
               {/* Channel list */}
               <div className="overflow-y-auto max-h-[calc(340px+6rem)] channel-list-scroll" style={{ scrollbarGutter: 'stable' }}>
                 {allChannels.length === 0 ? (
                   <div className="p-6 text-center text-xs text-muted-foreground">No channels</div>
+                ) : filteredChannels.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-muted-foreground">
+                    No channels match “{channelSearch}”
+                  </div>
                 ) : (
-                  allChannels.map((ch) => {
+                  filteredChannels.map((ch) => {
                     const isActive = currentChannelId === ch.id
                     return (
                       <button
