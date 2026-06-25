@@ -8,6 +8,7 @@ interface ParsedChannel {
   url: string
   language?: string
   country?: string
+  streamType?: string  // 🎯🛡️ allow JSON to specify 'm3u8_direct' / 'm3u8_proxy' / etc.
 }
 
 // POST /api/channels/import-file — parse uploaded .m3u or .json file content
@@ -114,6 +115,10 @@ function parseJSONContent(content: string): ParsedChannel[] {
       const url = String(obj.url || obj.stream_url || obj.streamUrl || obj.stream || obj.link || '')
       const language = String(obj.language || obj.lang || '')
       const country = String(obj.country || obj.region || '')
+      // 🎯🛡️ streamType — let JSON specify which dedicated player to use
+      const streamTypeRaw = String(obj.streamType || obj.stream_type || obj.type || '').toLowerCase()
+      const validStreamTypes = ['m3u', 'm3u8', 'm3u8_direct', 'm3u8_proxy', 'm3u8_jw', 'iframe', 'iframe_direct', 'mpegts', 'github_m3u', 'direct', 'redirect']
+      const streamType = validStreamTypes.includes(streamTypeRaw) ? streamTypeRaw : undefined
 
       // Handle category as array or string
       let normalizedGroup = group
@@ -131,6 +136,7 @@ function parseJSONContent(content: string): ParsedChannel[] {
           url,
           language: language && language !== 'undefined' ? language : undefined,
           country: country && country !== 'undefined' ? country : undefined,
+          streamType,
         })
       } else if (name && name !== 'Unknown Channel') {
         // Channel without URL — still include for user to see
@@ -141,6 +147,7 @@ function parseJSONContent(content: string): ParsedChannel[] {
           url,
           language: language && language !== 'undefined' ? language : undefined,
           country: country && country !== 'undefined' ? country : undefined,
+          streamType,
         })
       }
     }

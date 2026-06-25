@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useAppStore } from '@/lib/store'
 import {
   Shield,
@@ -9,13 +10,17 @@ import {
   Bell,
   BellOff,
   Sparkles,
+  History,
+  MessageCircle,
 } from 'lucide-react'
 import { useNotifications } from '@/lib/use-notifications'
+import { FeedbackDialog } from '@/components/feedback/feedback-dialog'
 import { toast } from 'sonner'
 
 export function MorePage() {
   const { setCurrentPage } = useAppStore()
   const { permission, isSubscribed, toggleSubscription, subscribe, isLoading } = useNotifications()
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
 
   const handleNotificationToggle = async () => {
     if (permission === 'granted') {
@@ -144,6 +149,32 @@ export function MorePage() {
           Quick Access
         </h2>
         <button
+          onClick={() => setCurrentPage('history')}
+          className="w-full flex items-center gap-4 p-4 rounded-2xl bg-card border border-border hover:border-foreground/15 transition-all duration-200 group text-left active:scale-[0.98]"
+        >
+          <div className="w-12 h-12 rounded-2xl bg-secondary flex items-center justify-center shrink-0">
+            <History className="h-5 w-5 text-foreground" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">Watch History</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Recently watched channels & matches</p>
+          </div>
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 group-hover:text-foreground group-hover:translate-x-0.5 transition-all duration-200" />
+        </button>
+        <button
+          onClick={() => setFeedbackOpen(true)}
+          className="w-full flex items-center gap-4 p-4 rounded-2xl bg-card border border-border hover:border-foreground/15 transition-all duration-200 group text-left active:scale-[0.98]"
+        >
+          <div className="w-12 h-12 rounded-2xl bg-secondary flex items-center justify-center shrink-0">
+            <MessageCircle className="h-5 w-5 text-foreground" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">Send Feedback</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Report a bug or suggest a feature</p>
+          </div>
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 group-hover:text-foreground group-hover:translate-x-0.5 transition-all duration-200" />
+        </button>
+        <button
           onClick={() => setCurrentPage('admin')}
           className="hidden md:flex w-full items-center gap-4 p-4 rounded-2xl bg-card border border-border hover:border-foreground/15 transition-all duration-200 group text-left active:scale-[0.98]"
         >
@@ -202,6 +233,8 @@ export function MorePage() {
           &copy; {new Date().getFullYear()} GenZ TV. All rights reserved.
         </p>
       </section>
+
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     </div>
   )
 }

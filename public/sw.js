@@ -10,8 +10,23 @@
 // / VideoPlayer bundles forever — and an old sandbox policy (e.g.
 // `allow-same-origin` on ad iframes) would keep hijacking iPhone Chrome even
 // after a fix ships.
+//
+// DEV MODE: When running on localhost / 127.0.0.1 (development), the SW does
+// NOT intercept or cache ANY fetch requests — it only handles push
+// notifications. This prevents the #1 dev headache: a stale cached JS bundle
+// (e.g. an old SecurityProvider without the runtime `securityEnabled` guard)
+// surviving code edits and making the admin's security toggle appear
+// non-functional on localhost:3000 even though the server serves fresh code.
+// In dev, every request goes straight to the network = always fresh code.
+// The activate handler also wipes ALL caches on localhost so any previously
+// cached stale bundle is purged the moment this SW takes over.
 
-const CACHE_NAME = 'genztv-v4'
+const CACHE_NAME = 'genztv-v5'
+const IS_DEV =
+  self.location.hostname === 'localhost' ||
+  self.location.hostname === '127.0.0.1' ||
+  self.location.hostname === '0.0.0.0'
+
 const APP_SHELL = [
   '/',
   '/manifest.json',
@@ -20,27 +35,46 @@ const APP_SHELL = [
   '/favicon-dark.svg',
 ]
 
-// Install event — pre-cache the app shell
+// Install event — pre-cache the app shell (production only; in dev we skip
+// precaching entirely since we don't cache anything).
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL).catch(() => {}))
-  )
+  if (!IS_DEV) {
+    event.waitUntil(
+      caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL).catch(() => {}))
+    )
+  }
+  // skipWaiting so the new SW activates immediately (replacing any stale one),
+  // which is critical for picking up code fixes without waiting for all tabs
+  // to close.
   self.skipWaiting()
 })
 
-// Activate event — clean up old caches
+// Activate event — clean up old caches.
+// In dev: delete ALL caches (including the current one) so no stale bundle
+// can survive. In prod: delete only caches that don't match CACHE_NAME.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
+    caches.keys().then((keys) => {
+      const toDelete = IS_DEV ? keys : keys.filter((k) => k !== CACHE_NAME)
+      return Promise.all(toDelete.map((k) => caches.delete(k)))
+    })
   )
+  // claim all clients immediately so the new SW controls the current page
+  // right away (otherwise the old SW stays in control until next navigation).
   event.waitUntil(clients.claim())
 })
 
 // Fetch event — network-first for navigations AND for JS/CSS chunks (so code
 // changes are picked up immediately), cache-first for other static assets.
+//
+// DEV MODE: In dev we do NOT intercept fetches at all. Returning without
+// calling event.respondWith() lets the browser handle the request normally
+// (straight to network), which guarantees the freshest code on every reload.
+// This is what makes the admin's security toggle reliable on localhost:3000.
 self.addEventListener('fetch', (event) => {
+  // Dev mode: bypass entirely — no caching, no interception.
+  if (IS_DEV) return
+
   const req = event.request
 
   // Only handle GET

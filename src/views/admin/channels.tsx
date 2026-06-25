@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Tv, Edit, Trash2, Search, X, Check, RefreshCw, Eye, Star, ToggleLeft, ToggleRight, Upload, Github, FileUp, FileText, FileJson, CheckSquare, Square, Users } from 'lucide-react'
+import { Plus, Tv, Edit, Trash2, Search, X, Check, RefreshCw, Eye, Star, ToggleLeft, ToggleRight, Upload, Github, FileUp, FileText, FileJson, CheckSquare, Square, Users, KeyRound, Clock, AlertCircle, Zap, Link2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
-import { fetchChannels, createChannel, updateChannel, deleteChannel, parseM3U, importFileContent, type Channel } from '@/lib/api'
+import { fetchChannels, createChannel, updateChannel, deleteChannel, parseM3U, importFileContent, refreshChannel, refreshExpiredChannels, type Channel } from '@/lib/api'
 import { toast } from 'sonner'
 
 const categoryOptions = [
@@ -19,9 +19,12 @@ const categoryOptions = [
 ]
 
 const streamTypeOptions = [
-  { value: 'm3u', label: 'M3U/HLS' },
+  { value: 'm3u', label: 'M3U/HLS (auto fallback)' },
+  { value: 'm3u8_direct', label: '🎯 Direct HLS (optimized, CORS-open)' },
+  { value: 'm3u8_proxy', label: '🛡️ Proxy HLS (CORS/Referer bypass)' },
   { value: 'm3u8_jw', label: 'M3U8 JW Player' },
-  { value: 'iframe', label: 'iFrame' },
+  { value: 'iframe', label: 'iFrame (proxied + lock)' },
+  { value: 'iframe_direct', label: '⬛ iFrame Direct (raw embed, no controls/proxy)' },
   { value: 'mpegts', label: 'MPEG-TS (.ts)' },
   { value: 'github_m3u', label: 'GitHub M3U' },
 ]
@@ -38,6 +41,10 @@ interface ChannelFormData {
   tags: string
   isFeatured: boolean
   isActive: boolean
+  // Token refresh automation
+  sourcePageUrl: string
+  refreshPattern: string
+  autoRefresh: boolean
 }
 
 const emptyForm: ChannelFormData = {
@@ -52,12 +59,63 @@ const emptyForm: ChannelFormData = {
   tags: '',
   isFeatured: false,
   isActive: true,
+  sourcePageUrl: '',
+  refreshPattern: '',
+  autoRefresh: false,
 }
 
 /** Parse comma-separated category string into array */
 function parseCategories(categoryStr: string): string[] {
   if (!categoryStr) return []
   return categoryStr.split(',').map(c => c.trim()).filter(Boolean)
+}
+
+/** Format a token expiry Date (ISO string) as a human-readable relative time. */
+function formatExpiry(expiresAt: string | null): { label: string; tone: 'ok' | 'soon' | 'expired' | 'unknown' } {
+  if (!expiresAt) return { label: 'no token', tone: 'unknown' }
+  const ms = new Date(expiresAt).getTime()
+  if (Number.isNaN(ms)) return { label: 'no token', tone: 'unknown' }
+  const diff = ms - Date.now()
+  if (diff <= 0) return { label: 'expired', tone: 'expired' }
+  const mins = Math.floor(diff / 60000)
+  if (mins < 60) return { label: `${mins}m left`, tone: mins < 15 ? 'expired' : 'soon' }
+  const hrs = Math.floor(mins / 60)
+  const remMin = mins % 60
+  if (hrs < 24) return { label: `${hrs}h ${remMin}m left`, tone: 'ok' }
+  const days = Math.floor(hrs / 24)
+  return { label: `${days}d ${hrs % 24}h left`, tone: 'ok' }
+}
+
+/** Inline cell showing token expiry status + last refresh error if any. */
+function TokenCell({ channel }: { channel: Channel }) {
+  const expiry = formatExpiry(channel.tokenExpiresAt)
+  const toneClasses = {
+    ok: 'text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+    soon: 'text-amber-600 dark:text-amber-400 border-amber-500/30',
+    expired: 'text-red-600 dark:text-red-400 border-red-500/40',
+    unknown: 'text-muted-foreground border-border',
+  }[expiry.tone]
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border w-fit ${toneClasses}`}>
+        <Clock className="h-2.5 w-2.5" />
+        {expiry.label}
+      </span>
+      {channel.refreshError && (
+        <span
+          className="inline-flex items-center gap-1 text-[9px] text-red-600 dark:text-red-400 truncate max-w-[140px]"
+          title={channel.refreshError}
+        >
+          <AlertCircle className="h-2.5 w-2.5 shrink-0" />
+          <span className="truncate">{channel.refreshError}</span>
+        </span>
+      )}
+      {!channel.sourcePageUrl && (
+        <span className="text-[9px] text-muted-foreground/60">no source page</span>
+      )}
+    </div>
+  )
 }
 
 export function AdminChannels() {
@@ -93,6 +151,10 @@ export function AdminChannels() {
 
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+
+  // Token refresh state
+  const [refreshingId, setRefreshingId] = useState<string | null>(null)
+  const [batchRefreshing, setBatchRefreshing] = useState(false)
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -181,6 +243,9 @@ export function AdminChannels() {
         tags: form.tags,
         isFeatured: form.isFeatured,
         isActive: form.isActive,
+        sourcePageUrl: form.sourcePageUrl,
+        refreshPattern: form.refreshPattern,
+        autoRefresh: form.autoRefresh,
       }
 
       if (editingId) {
@@ -217,6 +282,9 @@ export function AdminChannels() {
       tags: channel.tags,
       isFeatured: channel.isFeatured,
       isActive: channel.isActive,
+      sourcePageUrl: channel.sourcePageUrl || '',
+      refreshPattern: channel.refreshPattern || '',
+      autoRefresh: channel.autoRefresh || false,
     })
     setShowForm(true)
     // Scroll to form after a short delay to allow state to render
@@ -301,6 +369,65 @@ export function AdminChannels() {
       loadChannels()
     } catch {
       toast.error('Error', { description: 'Failed to update channel' })
+    }
+  }
+
+  // ===== Token Refresh Handlers =====
+
+  const handleRefreshChannel = async (channel: Channel, force: boolean = false) => {
+    if (!channel.sourcePageUrl) {
+      toast.error('No Source Page', {
+        description: 'Edit the channel and set a Source Page URL to enable refresh.',
+      })
+      return
+    }
+    setRefreshingId(channel.id)
+    try {
+      const result = await refreshChannel(channel.id, force)
+      toast.success('Stream Refreshed', {
+        description: `${channel.name}: ${result.message || 'new m3u8 extracted successfully'}`,
+      })
+      loadChannels()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Refresh failed'
+      toast.error('Refresh Failed', { description: msg })
+    } finally {
+      setRefreshingId(null)
+    }
+  }
+
+  const handleToggleAutoRefresh = async (channel: Channel) => {
+    try {
+      const newAuto = !channel.autoRefresh
+      await updateChannel(channel.id, { autoRefresh: newAuto })
+      toast.success('Auto-Refresh Updated', {
+        description: `${channel.name}: auto-refresh ${newAuto ? 'enabled' : 'disabled'}`,
+      })
+      loadChannels()
+    } catch {
+      toast.error('Error', { description: 'Failed to toggle auto-refresh' })
+    }
+  }
+
+  const handleRefreshAllExpired = async () => {
+    setBatchRefreshing(true)
+    try {
+      const result = await refreshExpiredChannels(false)
+      if (result.total === 0) {
+        toast.info('Nothing to Refresh', {
+          description: 'No channels are currently expiring or expired.',
+        })
+      } else {
+        toast.success('Batch Refresh Complete', {
+          description: `${result.refreshed} refreshed, ${result.failed} failed (of ${result.total} checked)`,
+        })
+      }
+      loadChannels()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Batch refresh failed'
+      toast.error('Batch Refresh Failed', { description: msg })
+    } finally {
+      setBatchRefreshing(false)
     }
   }
 
@@ -431,12 +558,18 @@ export function AdminChannels() {
       for (const idx of selectedFileChannels) {
         const ch = fileImportResults[idx]
         if (ch) {
+          // 🎯🛡️ Respect streamType from JSON if present (m3u8_direct / m3u8_proxy),
+          // otherwise fall back to URL-extension heuristic.
+          const inferredType = ch.url.includes('.m3u8') ? 'm3u'
+            : ch.url.includes('.ts') ? 'mpegts'
+            : ch.url ? 'iframe'
+            : 'm3u'
           try {
             await createChannel({
               name: ch.name,
               logo: ch.logo,
               category: ch.group || 'entertainment',
-              streamType: ch.url.includes('.m3u8') ? 'm3u' : ch.url.includes('.ts') ? 'mpegts' : ch.url ? 'iframe' : 'm3u',
+              streamType: ch.streamType || inferredType,
               streamUrl: ch.url,
               language: ch.language || '',
               country: ch.country || '',
@@ -504,6 +637,18 @@ export function AdminChannels() {
             <FileUp className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">File Import</span>
             <span className="sm:hidden">File</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefreshAllExpired}
+            disabled={batchRefreshing}
+            className="gap-1.5 btn-press text-xs h-9"
+            title="Re-extract m3u8 for all channels whose tokens are expiring or expired"
+          >
+            {batchRefreshing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{batchRefreshing ? 'Refreshing...' : 'Refresh Expired'}</span>
+            <span className="sm:hidden">{batchRefreshing ? '...' : 'Refresh'}</span>
           </Button>
           <Button
             variant="outline"
@@ -844,10 +989,40 @@ export function AdminChannels() {
             <div className={form.streamType === 'github_m3u' ? 'md:col-span-1' : 'md:col-span-2'}>
               <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Stream URL</label>
               <Input
-                placeholder={form.streamType === 'iframe' ? 'iFrame HTML or URL' : form.streamType === 'm3u' ? 'M3U8/HLS stream URL' : form.streamType === 'mpegts' ? 'MPEG-TS stream URL (.ts)' : 'Stream URL'}
+                placeholder={form.streamType === 'iframe' ? 'iFrame HTML or URL' : form.streamType === 'iframe_direct' ? 'Direct embed URL (raw iframe src)' : form.streamType === 'm3u' ? 'M3U8/HLS stream URL' : form.streamType === 'mpegts' ? 'MPEG-TS stream URL (.ts)' : 'Stream URL'}
                 value={form.streamUrl}
-                onChange={(e) => setForm({ ...form, streamUrl: e.target.value })}
+                onChange={(e) => {
+                  const newUrl = e.target.value
+                  // Auto-detect token in URL — if present + sourcePageUrl given, auto-enable refresh
+                  const hasToken = /[?&](hdntl|exp|expires|Expires|token|sig|auth)=/i.test(newUrl)
+                  setForm((prev) => ({
+                    ...prev,
+                    streamUrl: newUrl,
+                    // Auto-enable autoRefresh if token detected AND sourcePageUrl is set
+                    ...(hasToken && prev.sourcePageUrl && !prev.autoRefresh ? { autoRefresh: true } : {}),
+                  }))
+                }}
               />
+              {/* Token detection indicator */}
+              {form.streamUrl && /[?&](hdntl|exp|expires|Expires|token|sig|auth)=/i.test(form.streamUrl) && (
+                <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    Token detected
+                  </span>
+                  {!form.sourcePageUrl && (
+                    <span className="text-muted-foreground">
+                      ⚠️ Set a Source Page URL below to enable auto-refresh
+                    </span>
+                  )}
+                  {form.sourcePageUrl && form.autoRefresh && (
+                    <span className="text-emerald-500 flex items-center gap-1">
+                      <Zap className="h-3 w-3" />
+                      Auto-refresh enabled
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             {form.streamType === 'github_m3u' && (
               <div>
@@ -882,6 +1057,71 @@ export function AdminChannels() {
                 value={form.tags}
                 onChange={(e) => setForm({ ...form, tags: e.target.value })}
               />
+            </div>
+            <div className="md:col-span-2 border border-border rounded-lg p-4 bg-secondary/20 space-y-3">
+              <div className="flex items-center gap-2">
+                <KeyRound className="h-4 w-4 text-primary" />
+                <h4 className="text-sm font-semibold">Token Refresh Automation</h4>
+                <span className="text-[10px] text-muted-foreground ml-auto">
+                  For signed-URL streams (Akamai hdntl, strmd.st secure paths)
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground -mt-1">
+                When the stream URL's token expires, the system can re-extract a fresh m3u8 from the source page automatically.
+                Enter the public web page where the embed player lives (e.g. <code className="text-[10px] bg-secondary px-1 rounded">https://fifalive.click/</code>).
+              </p>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <label className="text-xs font-medium mb-1.5 block text-muted-foreground flex items-center gap-1.5">
+                    <Link2 className="h-3 w-3" />
+                    Source Page URL
+                  </label>
+                  <Input
+                    placeholder="https://fifalive.click/  (the page where the player is embedded)"
+                    value={form.sourcePageUrl}
+                    onChange={(e) => {
+                      const newSource = e.target.value
+                      // Auto-enable autoRefresh if source page is set AND stream URL has a token
+                      const hasToken = /[?&](hdntl|exp|expires|Expires|token|sig|auth)=/i.test(form.streamUrl)
+                      setForm((prev) => ({
+                        ...prev,
+                        sourcePageUrl: newSource,
+                        ...(hasToken && newSource && !prev.autoRefresh ? { autoRefresh: true } : {}),
+                      }))
+                    }}
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    💡 When you enter a Source Page URL for a token-protected stream, auto-refresh turns on automatically.
+                  </p>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-xs font-medium mb-1.5 block text-muted-foreground">
+                    Refresh Pattern (optional regex)
+                  </label>
+                  <Input
+                    placeholder={'e.g. https://prod-cdn01-live\\.toffeelive\\.com/[^\\\'"]+\\.m3u8[^\\\'"]*'}
+                    value={form.refreshPattern}
+                    onChange={(e) => setForm({ ...form, refreshPattern: e.target.value })}
+                    className="font-mono text-xs"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Custom regex to locate the m3u8 in the source page HTML. Leave empty to use a generic m3u8 regex.
+                  </p>
+                </div>
+                <div className="md:col-span-2 flex items-center gap-2 pt-1">
+                  <Switch
+                    checked={form.autoRefresh}
+                    onCheckedChange={(checked) => setForm({ ...form, autoRefresh: checked })}
+                  />
+                  <label className="text-xs font-medium flex items-center gap-1.5">
+                    <Zap className="h-3 w-3 text-amber-500" />
+                    Enable Auto-Refresh
+                  </label>
+                  <span className="text-[10px] text-muted-foreground">
+                    (proactive cron + reactive player fallback will refresh this channel)
+                  </span>
+                </div>
+              </div>
             </div>
             <div className="flex items-center gap-6 md:col-span-2">
               <div className="flex items-center gap-2">
@@ -968,6 +1208,7 @@ export function AdminChannels() {
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Channel</th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Category</th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Type</th>
+                  <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Token</th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Live</th>
                   <th className="text-left p-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Views</th>
@@ -1010,7 +1251,20 @@ export function AdminChannels() {
                         ))}
                       </div>
                     </td>
-                    <td className="p-3 text-xs uppercase text-muted-foreground">{ch.streamType}</td>
+                    <td className="p-3 text-xs uppercase text-muted-foreground">
+                      <div className="flex flex-col gap-1">
+                        <span>{ch.streamType}</span>
+                        {ch.autoRefresh && (
+                          <Badge variant="outline" className="text-[9px] h-4 px-1.5 gap-0.5 border-amber-500/40 text-amber-600 dark:text-amber-400 w-fit">
+                            <Zap className="h-2.5 w-2.5" />
+                            Auto
+                          </Badge>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-3 text-xs">
+                      <TokenCell channel={ch} />
+                    </td>
                     <td className="p-3 text-sm">
                       <div className="flex items-center gap-2">
                         <button onClick={() => handleToggleActive(ch)} className="btn-press">
@@ -1055,6 +1309,25 @@ export function AdminChannels() {
                           title={ch.isFeatured ? 'Remove from featured' : 'Add to featured'}
                         >
                           <Star className={`h-3.5 w-3.5 ${ch.isFeatured ? 'text-amber-500 fill-amber-500' : 'text-muted-foreground'}`} />
+                        </button>
+                        <button
+                          onClick={() => handleToggleAutoRefresh(ch)}
+                          className="p-1.5 rounded-md hover:bg-secondary transition-colors btn-press"
+                          title={ch.autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh (requires Source Page URL)'}
+                        >
+                          <Zap className={`h-3.5 w-3.5 ${ch.autoRefresh ? 'text-amber-500 fill-amber-500' : 'text-muted-foreground'}`} />
+                        </button>
+                        <button
+                          onClick={() => handleRefreshChannel(ch, true)}
+                          disabled={refreshingId === ch.id || !ch.sourcePageUrl}
+                          className="p-1.5 rounded-md hover:bg-secondary transition-colors btn-press disabled:opacity-30 disabled:cursor-not-allowed"
+                          title={ch.sourcePageUrl ? 'Re-extract m3u8 from source page now' : 'Set a Source Page URL first to enable refresh'}
+                        >
+                          {refreshingId === ch.id ? (
+                            <RefreshCw className="h-3.5 w-3.5 animate-spin text-primary" />
+                          ) : (
+                            <KeyRound className="h-3.5 w-3.5 text-primary" />
+                          )}
                         </button>
                         <button
                           onClick={() => handleEdit(ch)}

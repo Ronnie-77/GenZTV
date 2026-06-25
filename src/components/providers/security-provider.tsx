@@ -25,6 +25,14 @@ import { ShieldCheck, ShieldOff, RefreshCw, EyeOff } from 'lucide-react'
  * ADMIN BYPASS: Logged-in admins (isAdminAuth === true) are exempt from the
  * inspect-blank and ad-blocker protections so they can develop / manage the
  * site. Right-click + keyboard shortcuts are still disabled for everyone.
+ *
+ * MASTER SWITCH (securityEnabled): The admin can toggle the ENTIRE security
+ * stack off from the admin panel (AppSetting.securityEnabled). When OFF, none
+ * of the protections are installed — letting the admin freely use browser
+ * dev tools, right-click, view-source, etc. The setting is fetched from
+ * /api/settings/security on mount and mirrored into the global store so the
+ * admin UI toggle can update it instantly. Visitors always have security ON
+ * (the toggle is admin-only and persisted server-side).
  */
 
 // Threshold for detecting DevTools via window size difference
@@ -36,6 +44,8 @@ const DEVTOOLS_CONFIRM_THRESHOLD = 2
 
 export function SecurityProvider({ children }: { children: React.ReactNode }) {
   const isAdminAuth = useAppStore((s) => s.isAdminAuth)
+  const securityEnabled = useAppStore((s) => s.securityEnabled)
+  const setSecurityEnabled = useAppStore((s) => s.setSecurityEnabled)
   const [adBlockerDetected, setAdBlockerDetected] = useState(false)
   // DevTools-blank is handled via direct navigation (no React state needed),
   // but we keep a ref counter for sustained detection.
@@ -43,8 +53,35 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
   const blankedRef = useRef(false)
   const cleanupFns = useRef<Array<() => void>>([])
 
+  // --- 0. Hydrate securityEnabled from the server on mount ---
+  // The admin can toggle this from the admin panel. We fetch the persisted
+  // value once on mount so a page refresh respects the last choice. Updates
+  // made via the admin UI patch the server AND the store directly, so they
+  // take effect immediately without a refetch.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/settings/security', { cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : { securityEnabled: true })
+      .then((data) => {
+        if (cancelled) return
+        if (typeof data?.securityEnabled === 'boolean') {
+          setSecurityEnabled(data.securityEnabled)
+        }
+      })
+      .catch(() => {
+        // Network error — default to secure (true), already the store default.
+      })
+    return () => { cancelled = true }
+  }, [setSecurityEnabled])
+
   // --- 1. Disable right-click context menu ---
+  // NOTE: We check securityEnabled at RUNTIME (not just via effect cleanup)
+  // so that even if a stale listener survives (dev-server recompilation,
+  // React StrictMode double-invoke, chunk reloads, etc.), right-click still
+  // works the moment the admin toggles security OFF. The effect cleanup is
+  // the primary mechanism; this is a defensive belt-and-suspenders guard.
   const handleContextMenu = useCallback((e: MouseEvent) => {
+    if (!useAppStore.getState().securityEnabled) return
     e.preventDefault()
     e.stopPropagation()
     return false
@@ -52,6 +89,8 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
 
   // --- 2. Block keyboard shortcuts ---
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Runtime master-switch guard (see handleContextMenu comment).
+    if (!useAppStore.getState().securityEnabled) return
     // F12 — DevTools
     if (e.key === 'F12') {
       e.preventDefault()
@@ -166,6 +205,8 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
   const registerDevToolsHit = useCallback(() => {
     // Admin bypass — admins can use DevTools freely.
     if (useAppStore.getState().isAdminAuth) return
+    // Master switch bypass — when security is OFF, never blank.
+    if (!useAppStore.getState().securityEnabled) return
     devToolsHitsRef.current += 1
     if (devToolsHitsRef.current >= DEVTOOLS_CONFIRM_THRESHOLD) {
       triggerBlank()
@@ -180,6 +221,8 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === 'undefined') return
     // Admin bypass
     if (useAppStore.getState().isAdminAuth) return
+    // Master switch bypass
+    if (!useAppStore.getState().securityEnabled) return
 
     // ── Mobile / touch device bypass ──
     // Mobile browsers (iPhone Chrome, iPhone Safari, Android Chrome) have a
@@ -214,6 +257,8 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
   const setupConsoleProtection = useCallback(() => {
     if (typeof window === 'undefined') return
     if (process.env.NODE_ENV === 'development') return // Skip in dev mode
+    // Master switch bypass — don't touch the console when security is OFF.
+    if (!useAppStore.getState().securityEnabled) return
 
     // Override console methods — keep error for debugging but suppress others
     const noop = () => {}
@@ -279,6 +324,7 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
 
   // --- 5. Disable drag ---
   const handleDragStart = useCallback((e: DragEvent) => {
+    if (!useAppStore.getState().securityEnabled) return
     const target = e.target as HTMLElement
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
     e.preventDefault()
@@ -298,6 +344,7 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
 
   // --- 7. Disable copy on non-input ---
   const handleCopy = useCallback((e: ClipboardEvent) => {
+    if (!useAppStore.getState().securityEnabled) return
     const target = e.target as HTMLElement
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
     e.preventDefault()
@@ -307,6 +354,8 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
   const setupMutationObserver = useCallback(() => {
     if (typeof document === 'undefined') return
     if (process.env.NODE_ENV === 'development') return
+    // Master switch bypass
+    if (!useAppStore.getState().securityEnabled) return
 
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
@@ -365,6 +414,8 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     if (typeof document === 'undefined') return false
     // Admin bypass
     if (useAppStore.getState().isAdminAuth) return false
+    // Master switch bypass — when security is OFF, never show the overlay.
+    if (!useAppStore.getState().securityEnabled) return false
 
     return new Promise<boolean>((resolve) => {
       // Create a bait element with class names that ad-blockers target via
@@ -450,6 +501,22 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window === 'undefined') return
 
+    // ── MASTER SWITCH ──
+    // When the admin has toggled security OFF, we install NONE of the
+    // protections. This lets the admin use browser dev tools, right-click,
+    // view-source, etc. freely. The setting is fetched on mount (above) and
+    // mirrored in the store; when it flips, this effect re-runs and either
+    // installs or tears down all listeners.
+    if (!securityEnabled) {
+      // Reset transient refs so a later re-enable starts clean.
+      // (No setState here — the ad-blocker overlay check already guards on
+      // securityEnabled, so a stale adBlockerDetected value is harmless and
+      // will be cleared on the next periodic check once security is back on.)
+      devToolsHitsRef.current = 0
+      blankedRef.current = false
+      return
+    }
+
     // Right-click
     document.addEventListener('contextmenu', handleContextMenu, true)
 
@@ -475,14 +542,17 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     // MutationObserver for extension-injected elements
     const observerCleanup = setupMutationObserver() || (() => {})
 
-    // Disable source view via beforeunload (clear page before leaving)
+    // Disable source view via beforeunload (clear page before leaving).
+    // Runtime guard ensures this never fires when security is OFF (defensive).
     const handleBeforeUnload = () => {
+      if (!useAppStore.getState().securityEnabled) return
       document.body.innerHTML = ''
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
 
     // Prevent print screen (PrtScn key)
     const handleKeyUp = (e: KeyboardEvent) => {
+      if (!useAppStore.getState().securityEnabled) return
       if (e.key === 'PrintScreen') {
         navigator.clipboard?.writeText('').catch(() => {})
       }
@@ -512,7 +582,7 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
       consoleCleanup()
       observerCleanup()
     }
-  }, [handleContextMenu, handleKeyDown, handleDragStart, handleCopy, detectDevTools, setupConsoleProtection, setupFramebusting, setupMutationObserver, runAdBlockerCheck])
+  }, [securityEnabled, handleContextMenu, handleKeyDown, handleDragStart, handleCopy, detectDevTools, setupConsoleProtection, setupFramebusting, setupMutationObserver, runAdBlockerCheck])
 
   // Admin bypass for the ad-blocker overlay is handled purely at render time
   // (see the `!isAdminAuth && adBlockerDetected` check below) — no effect
@@ -522,8 +592,9 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
 
   // --- Ad-blocker block overlay (non-admin visitors only) ---
   // Show the overlay when an ad-blocker is detected AND the user is not an
-  // admin. Admins are never blocked.
-  if (!isAdminAuth && adBlockerDetected) {
+  // admin AND the master security switch is ON. When the admin has disabled
+  // security (to use dev tools), the overlay is suppressed too.
+  if (securityEnabled && !isAdminAuth && adBlockerDetected) {
     return <AdBlockerBlockOverlay onRetry={runAdBlockerCheck} />
   }
 

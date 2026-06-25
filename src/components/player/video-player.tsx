@@ -1,13 +1,30 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { HlsPlayer } from './hls-player'
-import type { QualityLevel, HlsStats, LiveStatus, AudioTrack, SubtitleTrack } from './hls-player'
 import { IframePlayer } from './iframe-player'
-import { TsPlayer } from './ts-player'
-import { JwHlsPlayer } from './jw-hls-player'
+import { IframeDirectPlayer } from './iframe-direct-player'
+import { StreamPlayerWrapper } from './stream-player-wrapper'
 import { PlayerControls } from './player-controls'
-import { RotateCw, Lock, Unlock, Maximize, Minimize } from 'lucide-react'
+import { RotateCw } from 'lucide-react'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VideoPlayer — routes a stream to the right player backend.
+//
+// As of the v2 player migration, the HLS / HLS-Proxy / MPEG-TS backends are
+// ALL served by the new production StreamPlayer (see stream-player-wrapper.tsx
+// → public/stream-player.js). That player ships its own UI (controls, quality
+// panel, live badge, spinner, error overlay, stall watchdog, CDN failover).
+//
+// Iframe streams still use the existing IframePlayer + PlayerControls combo,
+// unchanged.
+//
+// Stream type → backend map:
+//   m3u / m3u8 / m3u8_direct / m3u8_proxy → StreamPlayer (type: 'hls' / 'hls-proxy')
+//   mpegts / *.ts                         → StreamPlayer (type: 'mpegts')
+//   iframe / redirect                     → IframePlayer (unchanged)
+//   github_m3u                            → resolved to a real URL, then StreamPlayer 'hls'
+//   m3u8_jw                               → treated as 'hls' via StreamPlayer
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Iframe reload hint — small floating button to reload iframe if video doesn't play
 function IframeReloadHint() {
@@ -45,44 +62,23 @@ function isTsUrl(url: string): boolean {
   if (!url) return false
   try {
     const pathname = new URL(url).pathname
-    // Match .ts extension but NOT .m3u8 or playlist files
     return /\.ts(\?.*)?$/.test(pathname) && !pathname.includes('.m3u8')
   } catch {
-    // If URL parsing fails, do a simple check
     return /\.ts(\?|$)/.test(url) && !url.includes('.m3u8')
   }
 }
 
 interface VideoPlayerProps {
   streamUrl: string
-  streamType: string // m3u, iframe, github_m3u, direct, redirect, m3u8_jw
+  streamType: string // m3u, iframe, github_m3u, direct, redirect, m3u8_jw, m3u8_direct, m3u8_proxy, mpegts
+  /** Channel ID — kept for API compatibility, unused by the new player. */
+  channelId?: string
+  /** Kept for API compatibility. The new StreamPlayer handles its own refresh internally. */
+  onStreamUrlRefreshed?: (newUrl: string) => void
   title?: string
   isLive?: boolean
   poster?: string
   onStreamResolved?: (url: string) => void
-}
-
-// Extended screen orientation API type
-type OrientationLockType = 'landscape' | 'portrait' | 'any' | 'natural' | 'landscape-primary' | 'landscape-secondary' | 'portrait-primary' | 'portrait-secondary'
-
-interface ExtendedScreenOrientation extends ScreenOrientation {
-  lock?(orientation: OrientationLockType): Promise<void>
-  unlock(): void
-}
-
-interface ExtendedScreen extends Screen {
-  orientation: ExtendedScreenOrientation
-}
-
-// Touch gesture state
-interface TouchGesture {
-  startX: number
-  startY: number
-  startTime: number
-  isSwiping: boolean
-  side: 'left' | 'right' | null
-  currentBrightness: number
-  startVolume: number
 }
 
 // Route redirect URLs through our iframe proxy (used for 'redirect' type which always proxies)
@@ -91,79 +87,91 @@ function proxyIframeUrl(url: string): string {
   return `/api/iframe-proxy?url=${encodeURIComponent(url)}`
 }
 
-// Note: iframe streams are routed through /api/iframe-proxy by the IframePlayer
-// component itself (it injects an ad-blocker and strips X-Frame-Options).
-// video-player passes the RAW iframe URL; IframePlayer does the proxying.
-
 // Route all streams through Next.js stream-proxy.
-// Previously, live .ts streams used a dedicated mini-service on port 3031,
-// but that caused dependency issues when the service wasn't running.
-// The Next.js stream-proxy handles all stream types reliably.
-function proxyStreamUrl(url: string, type: string): string {
+function proxyStreamUrl(url: string): string {
   if (!url) return url
-  // All streams (mpegts, m3u8, direct) → Next.js stream-proxy
   return `/api/stream-proxy?url=${encodeURIComponent(url)}`
 }
 
-// Compute initial resolved URL & type synchronously to avoid flash of wrong URL
-// IMPORTANT: .ts URL detection must come BEFORE type-based routing, because
-// the stream type in the database might be incorrectly set (e.g. 'iframe' for a .ts URL)
+// Compute the resolved URL + backend type synchronously to avoid a flash of wrong UI.
 function getInitialResolved(url: string, type: string): { resolvedUrl: string; resolvedType: string } {
   if (!url) return { resolvedUrl: url, resolvedType: type }
-  // Check for .ts URLs first — regardless of what type is stored
-  if (type === 'mpegts' || isTsUrl(url)) return { resolvedUrl: proxyStreamUrl(url, 'mpegts'), resolvedType: 'mpegts' }
+  // Check for .ts URLs first — regardless of stored type
+  if (type === 'mpegts' || isTsUrl(url)) return { resolvedUrl: url, resolvedType: 'mpegts' }
   if (type === 'redirect') return { resolvedUrl: url, resolvedType: 'iframe' } // IframePlayer proxies it
   if (type === 'iframe') return { resolvedUrl: url, resolvedType: 'iframe' }
-  if (type === 'github_m3u') return { resolvedUrl: url, resolvedType: type } // resolved async
-  if (type === 'm3u8_jw') return { resolvedUrl: url, resolvedType: 'm3u8_jw' } // JW Player handles its own proxy
+  // iframe_direct → raw iframe embed, no proxy/lock/controls
+  if (type === 'iframe_direct') return { resolvedUrl: url, resolvedType: 'iframe_direct' }
+  if (type === 'github_m3u') return { resolvedUrl: url, resolvedType: 'github_m3u' } // resolved async
+  // HLS variants → all go to the new StreamPlayer
+  if (type === 'm3u8_direct') return { resolvedUrl: url, resolvedType: 'm3u8_direct' }
+  if (type === 'm3u8_proxy') return { resolvedUrl: url, resolvedType: 'm3u8_proxy' }
+  if (type === 'm3u8_jw') return { resolvedUrl: url, resolvedType: 'm3u8_jw' }
   if (type === 'direct' || type === 'm3u' || type === 'm3u8') {
-    // Return the ORIGINAL URL directly — the HlsPlayer will try direct first,
-    // then fall back to proxy (via the proxyUrl prop) if direct fails or times out
     return { resolvedUrl: url, resolvedType: type === 'direct' ? 'm3u' : type }
   }
   return { resolvedUrl: url, resolvedType: type }
 }
 
+// Map the internal resolvedType to the StreamPlayer stream type.
+//   'hls'        — plain HLS (direct from CDN)
+//   'hls-proxy'  — HLS fetched through /api/stream-proxy (CORS/Referer bypass)
+//   'mpegts'     — raw .ts transport stream (transmuxed via hls.js Blob M3U8)
+function toStreamPlayerType(resolvedType: string): 'hls' | 'hls-proxy' | 'mpegts' {
+  if (resolvedType === 'mpegts') return 'mpegts'
+  // m3u8_proxy always routes through the Next.js stream-proxy.
+  if (resolvedType === 'm3u8_proxy') return 'hls-proxy'
+  // m3u8_direct, m3u, m3u8, m3u8_jw, github_m3u (after resolve) → plain HLS.
+  // The StreamPlayer's own stall watchdog + CDN failover handles recovery.
+  return 'hls'
+}
+
 export function VideoPlayer({
   streamUrl,
   streamType,
+  channelId,
+  onStreamUrlRefreshed,
   title,
   isLive = true,
   poster,
   onStreamResolved,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const videoRef = useRef<HTMLVideoElement | null>(null)
 
-  // Compute initial state synchronously — prevents TsPlayer from briefly receiving the raw URL
+  // Compute initial state synchronously
   const initial = getInitialResolved(streamUrl, streamType)
   const [resolvedUrl, setResolvedUrl] = useState(initial.resolvedUrl)
   const [resolvedType, setResolvedType] = useState(initial.resolvedType)
-  const [playing, setPlaying] = useState(false)
-  const [volume, setVolume] = useState(1)
-  const [muted, setMuted] = useState(false)
-  const [fullscreen, setFullscreen] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [buffering, setBuffering] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [controlsVisible, setControlsVisible] = useState(streamType === 'iframe' || streamType === 'mpegts' ? false : true)
-  const [controlsBusy, setControlsBusy] = useState(false)
-  const hideTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [fullscreen, setFullscreen] = useState(false)
 
-  // Iframe touch overlay state — on mobile, a transparent overlay blocks ad clicks
-  const [iframeTouchLocked, setIframeTouchLocked] = useState(true)
-  const iframeUnlockTimerRef = useRef<NodeJS.Timeout | null>(null)
+  // Track fullscreen state changes (from double-click, keyboard, or browser)
+  useEffect(() => {
+    const handleFsChange = () => {
+      setFullscreen(!!document.fullscreenElement)
+    }
+    document.addEventListener('fullscreenchange', handleFsChange)
+    return () => document.removeEventListener('fullscreenchange', handleFsChange)
+  }, [])
 
-  // Determine player type early (derived from state, needed by hooks below)
+  // Iframe controls visibility (iframe-only — StreamPlayer & iframe_direct have their own controls)
+  const [controlsVisible, setControlsVisible] = useState(streamType === 'iframe' || streamType === 'redirect' || streamType === 'iframe_direct' ? false : true)
+  // On PC (desktop), iframe starts UNLOCKED so users can interact with the
+  // embedded player directly (tap play, unmute, etc.). On mobile it starts
+  // LOCKED to block ad clicks — the user taps "Unlock" to interact.
+  const [iframeTouchLocked, setIframeTouchLocked] = useState(() => {
+    if (typeof window === 'undefined') return true // SSR default
+    const isMobile = 'ontouchstart' in window
+    return isMobile // mobile = locked, desktop = unlocked
+  })
+  const iframeUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isMobileDevice = typeof window !== 'undefined' && 'ontouchstart' in window
+
   const isIframe = resolvedType === 'iframe'
-  const isMpegTs = resolvedType === 'mpegts'
-  const isHls = resolvedType === 'm3u' || resolvedType === 'm3u8'
-  const isJw = resolvedType === 'm3u8_jw'
-
-  // HLS load mode tracking (direct → proxy → mpegts fallback chain)
-  const [hlsLoadMode, setHlsLoadMode] = useState<'direct' | 'proxy' | 'mpegts'>('direct')
-  // When HLS falls back to mpegts mode, switch the player type
-  const [hlsFallbackMpegts, setHlsFallbackMpegts] = useState(false)
+  // iframe_direct = raw iframe embed, no controls/lock/proxy
+  const isIframeDirect = resolvedType === 'iframe_direct'
 
   // Auto-relock iframe after 10 seconds of being unlocked (prevents ongoing ad issues)
   useEffect(() => {
@@ -178,9 +186,9 @@ export function VideoPlayer({
     }
   }, [isIframe, iframeTouchLocked])
 
-  // Auto-hide controls for iframe & mpegts after timeout
+  // Auto-hide controls for iframe after timeout
   useEffect(() => {
-    if ((isIframe || isMpegTs) && controlsVisible && !controlsBusy) {
+    if (isIframe && controlsVisible) {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
       const isMobile = typeof window !== 'undefined' && 'ontouchstart' in window
       hideTimerRef.current = setTimeout(() => {
@@ -190,89 +198,14 @@ export function VideoPlayer({
     return () => {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
     }
-  }, [isIframe, isMpegTs, controlsVisible, controlsBusy])
+  }, [isIframe, controlsVisible])
 
-  // HLS quality & stats state
-  const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([])
-  const [currentQuality, setCurrentQuality] = useState(-1) // -1 = auto
-  const [hlsStats, setHlsStats] = useState<HlsStats | null>(null)
-
-  // VLC-like controls
-  const [playbackRate, setPlaybackRate] = useState(1) // 1 = normal speed
-  const [aspectMode, setAspectMode] = useState<'fit' | 'stretch' | 'crop' | '16:9' | '4:3'>('fit')
-
-  // Live status & Back to Live
-  const [isBehindLive, setIsBehindLive] = useState(false)
-  const [seekToLive, setSeekToLive] = useState(false)
-
-  // Audio tracks
-  const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
-  const [currentAudioTrack, setCurrentAudioTrack] = useState(-1)
-
-  // Subtitle tracks
-  const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([])
-  const [currentSubtitleTrack, setCurrentSubtitleTrack] = useState(-1)
-
-  // Zoom
-  const [zoomLevel, setZoomLevel] = useState(1) // 1 = 100%, 0 = Fit
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 })
-  const isPanningRef = useRef(false)
-  const panStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 })
-
-  // Deinterlace
-  const [deinterlace, setDeinterlace] = useState(false)
-
-  // Screenshot toast
-  const [screenshotFlash, setScreenshotFlash] = useState(false)
-
-  // Cursor visibility in fullscreen — show on mouse move, hide after inactivity
-  const [cursorVisible, setCursorVisible] = useState(true)
-  const cursorHideTimerRef = useRef<NodeJS.Timeout | null>(null)
-
-  // Swipe gesture state
-  const [gestureIndicator, setGestureIndicator] = useState<{
-    type: 'volume' | 'brightness'
-    value: number
-    visible: boolean
-  } | null>(null)
-  const gestureRef = useRef<TouchGesture | null>(null)
-  const gestureIndicatorTimer = useRef<NodeJS.Timeout | null>(null)
-  const brightnessRef = useRef(1) // Track brightness in ref to avoid re-renders
-
-  // ── Refs for gesture handlers (to avoid stale closures in native event listeners) ──
-  const volumeRef = useRef(volume)
-  volumeRef.current = volume
-  const mutedRef = useRef(muted)
-  mutedRef.current = muted
-  const isIframeRef = useRef(isIframe)
-  isIframeRef.current = isIframe
-
-  // Resolve stream URLs — detect .ts files and apply CORS proxy
-  //
-  // IMPORTANT: this effect re-runs whenever the user switches to a different
-  // stream channel (the `streamUrl` / `streamType` props change). When that
-  // happens we MUST clear the previous stream's transient player state —
-  // most importantly the `error` message — so that a stale error from the
-  // previous stream doesn't keep covering the new stream's playback area.
-  // (User complaint: switching streams after an error kept the old error
-  // message on screen.)
+  // Resolve stream URLs — handle github_m3u async resolution + .ts detection.
+  // Re-runs whenever the user switches stream (streamUrl/streamType change).
   useEffect(() => {
     async function resolve() {
-      // Reset all transient state so the new stream starts fresh.
       setError(null)
       setLoading(true)
-      setBuffering(false)
-      setQualityLevels([])
-      setHlsStats(null)
-      setCurrentQuality(-1)
-      setHlsLoadMode('direct')
-      setHlsFallbackMpegts(false)
-      setPlaying(false)
-      setIsBehindLive(false)
-      setAudioTracks([])
-      setCurrentAudioTrack(-1)
-      setSubtitleTracks([])
-      setCurrentSubtitleTrack(-1)
 
       if (streamType === 'github_m3u' && streamUrl) {
         try {
@@ -288,9 +221,8 @@ export function VideoPlayer({
           const data = await res.json()
           if (data.channels && data.channels.length > 0) {
             const channelUrl = data.channels[0].url
-            // Detect if resolved URL is a .ts stream
             if (isTsUrl(channelUrl)) {
-              setResolvedUrl(`/api/stream-proxy?url=${encodeURIComponent(channelUrl)}`)
+              setResolvedUrl(channelUrl)
               setResolvedType('mpegts')
             } else {
               setResolvedUrl(channelUrl)
@@ -306,662 +238,100 @@ export function VideoPlayer({
           setLoading(false)
         }
       } else if (streamType === 'redirect' && streamUrl) {
-        // Treat redirect as iframe — IframePlayer will proxy the URL
         setResolvedType('iframe')
         setResolvedUrl(streamUrl)
+        setLoading(false)
       } else {
-        // Detect .ts URLs for MPEG-TS player (or explicit mpegts type)
         if (streamType === 'mpegts' || isTsUrl(streamUrl)) {
-          setResolvedUrl(proxyStreamUrl(streamUrl, 'mpegts'))
+          setResolvedUrl(streamUrl)
           setResolvedType('mpegts')
-        } else if (streamType === 'direct' || streamType === 'm3u' || streamType === 'm3u8') {
-          // Use the ORIGINAL URL directly — HlsPlayer tries direct first,
-          // then falls back to proxy via the proxyUrl prop
+        } else if (streamType === 'm3u8_direct') {
+          setResolvedUrl(streamUrl)
+          setResolvedType('m3u8_direct')
+        } else if (streamType === 'm3u8_proxy') {
+          setResolvedUrl(streamUrl)
+          setResolvedType('m3u8_proxy')
+        } else if (streamType === 'direct' || streamType === 'm3u' || streamType === 'm3u8' || streamType === 'm3u8_jw') {
           setResolvedUrl(streamUrl)
           setResolvedType(streamType === 'direct' ? 'm3u' : streamType)
-        } else if (streamType === 'iframe' && streamUrl) {
-          // Pass the RAW URL — IframePlayer routes it through the proxy itself
-          // (the proxy injects an ad-blocker and strips X-Frame-Options).
+        } else if (streamType === 'iframe') {
           setResolvedUrl(streamUrl)
           setResolvedType('iframe')
+        } else if (streamType === 'iframe_direct') {
+          setResolvedUrl(streamUrl)
+          setResolvedType('iframe_direct')
         } else {
           setResolvedUrl(streamUrl)
           setResolvedType(streamType)
         }
+        setLoading(false)
       }
     }
     resolve()
-  }, [streamUrl, streamType, onStreamResolved])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamUrl, streamType])
 
-  // Show controls with auto-hide timer
+  // ── Iframe controls helpers (only used for iframe mode) ──
   const showControls = useCallback(() => {
     setControlsVisible(true)
-    // Also show cursor in fullscreen when controls appear
-    if (fullscreen) {
-      setCursorVisible(true)
-      if (cursorHideTimerRef.current) clearTimeout(cursorHideTimerRef.current)
-      cursorHideTimerRef.current = setTimeout(() => {
-        setCursorVisible(false)
-      }, 3000)
-    }
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-    const isMobile = typeof window !== 'undefined' && 'ontouchstart' in window
-    const hideDelay = isIframe ? (isMobile ? 2500 : 3000) : 3000
-    hideTimerRef.current = setTimeout(() => {
-      if ((isIframe || playing) && !controlsBusy) setControlsVisible(false)
-    }, hideDelay)
-  }, [playing, controlsBusy, isIframe, fullscreen])
+  }, [])
 
   const toggleControlsVisibility = useCallback(() => {
-    if (controlsVisible) {
-      setControlsVisible(false)
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-    } else {
-      showControls()
-    }
-  }, [controlsVisible, showControls])
-
-  const handleMouseMove = useCallback(() => {
-    showControls()
-    // Show cursor in fullscreen mode, then hide after inactivity
-    if (fullscreen) {
-      setCursorVisible(true)
-      if (cursorHideTimerRef.current) clearTimeout(cursorHideTimerRef.current)
-      cursorHideTimerRef.current = setTimeout(() => {
-        setCursorVisible(false)
-      }, 3000)
-    }
-  }, [showControls, fullscreen])
-
-  // ── Native touch event listeners for HLS swipe gestures (passive: false to prevent scroll) ──
-  // React's synthetic onTouchMove is passive by default — e.preventDefault() doesn't work.
-  // We must use native DOM listeners with { passive: false }.
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el || isIframe) return
-
-    const handleTouchStart = (e: TouchEvent) => {
-      const touch = e.touches[0]
-      const rect = el.getBoundingClientRect()
-      if (!rect) return
-
-      const x = touch.clientX - rect.left
-      const halfWidth = rect.width / 2
-      const side = x < halfWidth ? 'left' : 'right'
-
-      gestureRef.current = {
-        startX: touch.clientX,
-        startY: touch.clientY,
-        startTime: Date.now(),
-        isSwiping: false,
-        side,
-        currentBrightness: brightnessRef.current,
-        startVolume: volumeRef.current,
-      }
-    }
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (!gestureRef.current) return
-      const touch = e.touches[0]
-      const deltaY = gestureRef.current.startY - touch.clientY // Positive = swipe up
-      const deltaX = Math.abs(touch.clientX - gestureRef.current.startX)
-
-      // Only activate swipe if vertical movement is dominant
-      if (!gestureRef.current.isSwiping) {
-        if (Math.abs(deltaY) > 20 && Math.abs(deltaY) > deltaX) {
-          gestureRef.current.isSwiping = true
-        } else {
-          return
-        }
-      }
-
-      // ★ CRITICAL: Prevent page scroll while swiping — only works with passive:false
-      e.preventDefault()
-
-      const containerHeight = el.getBoundingClientRect().height || 400
-
-      if (gestureRef.current.side === 'right') {
-        // Right side = volume control
-        const volumeChange = deltaY / containerHeight
-        const finalVolume = Math.max(0, Math.min(1, gestureRef.current.startVolume + volumeChange * 1.5))
-
-        setVolume(finalVolume)
-        if (mutedRef.current && finalVolume > 0) setMuted(false)
-
-        if (gestureIndicatorTimer.current) clearTimeout(gestureIndicatorTimer.current)
-        setGestureIndicator({ type: 'volume', value: finalVolume, visible: true })
-        gestureIndicatorTimer.current = setTimeout(() => {
-          setGestureIndicator(null)
-        }, 800)
-      } else {
-        // Left side = brightness control
-        const brightnessChange = deltaY / containerHeight
-        const newBrightness = Math.max(0.1, Math.min(1.5, gestureRef.current.currentBrightness + brightnessChange * 1.5))
-        brightnessRef.current = newBrightness
-
-        const videoEl = el.querySelector('video')
-        if (videoEl) {
-          videoEl.style.filter = `brightness(${newBrightness})`
-        }
-
-        if (gestureIndicatorTimer.current) clearTimeout(gestureIndicatorTimer.current)
-        setGestureIndicator({ type: 'brightness', value: newBrightness, visible: true })
-        gestureIndicatorTimer.current = setTimeout(() => {
-          setGestureIndicator(null)
-        }, 800)
-      }
-    }
-
-    const handleTouchEnd = () => {
-      gestureRef.current = null
-    }
-
-    // Register with passive:false so preventDefault() works
-    el.addEventListener('touchstart', handleTouchStart, { passive: true })
-    el.addEventListener('touchmove', handleTouchMove, { passive: false })
-    el.addEventListener('touchend', handleTouchEnd, { passive: true })
-
-    return () => {
-      el.removeEventListener('touchstart', handleTouchStart)
-      el.removeEventListener('touchmove', handleTouchMove)
-      el.removeEventListener('touchend', handleTouchEnd)
-    }
-  }, [isIframe]) // Re-attach when player type changes
-
-  // Fullscreen change listener
-  useEffect(() => {
-    function handleFullscreenChange() {
-      const isFullscreen = !!document.fullscreenElement
-      setFullscreen(isFullscreen)
-      if (isFullscreen) {
-        // Entering fullscreen — start cursor hide timer
-        setCursorVisible(true)
-        if (cursorHideTimerRef.current) clearTimeout(cursorHideTimerRef.current)
-        cursorHideTimerRef.current = setTimeout(() => {
-          setCursorVisible(false)
-        }, 3000)
-      } else {
-        // Exiting fullscreen — show cursor and cancel timer
-        setCursorVisible(true)
-        if (cursorHideTimerRef.current) clearTimeout(cursorHideTimerRef.current)
-        try {
-          const screen = window.screen as ExtendedScreen
-          screen.orientation.unlock?.()
-        } catch {
-          // Orientation unlock not supported
-        }
-      }
-    }
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    setControlsVisible((v) => !v)
   }, [])
 
-  const togglePlay = useCallback(() => {
-    const video = videoRef.current || containerRef.current?.querySelector('video')
-    if (video) {
-      if (video.paused) {
-        video.play()
-        setPlaying(true)
-      } else {
-        video.pause()
-        setPlaying(false)
-      }
-    }
+  const toggleIframeTouchLock = useCallback(() => {
+    setIframeTouchLocked((v) => !v)
   }, [])
 
-  const toggleFullscreen = useCallback(async () => {
-    if (!containerRef.current) return
-    if (document.fullscreenElement) {
-      try {
-        const screen = window.screen as ExtendedScreen
-        screen.orientation.unlock?.()
-      } catch {
-        // Orientation unlock not supported
-      }
-      document.exitFullscreen()
-    } else {
-      try {
-        await containerRef.current.requestFullscreen()
-        try {
-          const screen = window.screen as ExtendedScreen
-          if (screen.orientation?.lock) {
-            await screen.orientation.lock('landscape')
-          }
-        } catch {
-          // Orientation lock not supported (desktop browsers)
-        }
-      } catch {
-        // Fullscreen request failed
-      }
-    }
+  // ── StreamPlayer event handlers ──
+  const handlePlayerReady = useCallback(() => {
+    setLoading(false)
   }, [])
 
-  const togglePiP = useCallback(async () => {
-    const video = videoRef.current || containerRef.current?.querySelector('video')
-    if (!video) return
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture()
-      } else {
-        await video.requestPictureInPicture()
-      }
-    } catch {
-      // PiP not supported
-    }
-  }, [])
-
-  const handleRetry = useCallback(() => {
+  const handlePlayerPlaying = useCallback(() => {
+    setLoading(false)
     setError(null)
-    setLoading(true)
-    setBuffering(false)
-    setQualityLevels([])
-    setHlsStats(null)
-    setCurrentQuality(-1)
-    // Reset HLS fallback state
-    setHlsLoadMode('direct')
-    setHlsFallbackMpegts(false)
-    // Force player re-creation by toggling the URL
-    const currentUrl = resolvedUrl
-    setResolvedUrl('')
-    requestAnimationFrame(() => {
-      setResolvedUrl(currentUrl)
-    })
-  }, [resolvedUrl])
+  }, [])
 
-  const handleReady = useCallback(() => {
+  const handlePlayerError = useCallback((message: string, _sub?: string) => {
+    setError(message)
     setLoading(false)
-    setBuffering(false)
-    const video = videoRef.current || containerRef.current?.querySelector('video')
-    if (video) {
-      video.play().then(() => setPlaying(true)).catch(() => {})
-    }
   }, [])
 
-  const handleError = useCallback((err: string) => {
-    setError(err)
-    setLoading(false)
-    setBuffering(false)
-  }, [])
-
-  const handleVideoRef = useCallback((video: HTMLVideoElement | null) => {
-    videoRef.current = video
-  }, [])
-
-  const handleQualityLevels = useCallback((levels: QualityLevel[]) => {
-    setQualityLevels(levels)
-  }, [])
-
-  const handleStatsUpdate = useCallback((stats: HlsStats) => {
-    setHlsStats(stats)
-  }, [])
-
-  const handleQualityChange = useCallback((level: number) => {
-    setCurrentQuality(level)
-  }, [])
-
-  const handleLiveStatus = useCallback((status: LiveStatus) => {
-    setIsBehindLive(status.isLive && status.isBehindLive)
-  }, [])
-
-  const handleBuffering = useCallback((isBuffering: boolean) => {
-    setBuffering(isBuffering)
-    if (!isBuffering) {
-      const video = videoRef.current || containerRef.current?.querySelector('video')
-      if (video && !video.paused) {
-        setPlaying(true)
-      }
-    }
-  }, [])
-
-  const handleSeekedToLive = useCallback(() => {
-    setSeekToLive(false)
-    setPlaying(true)
-  }, [])
-
-  const handleBackToLive = useCallback(() => {
-    setSeekToLive(true)
-  }, [])
-
-  // HLS load mode change handler — tracks direct → proxy → mpegts fallback
-  const handleHlsLoadModeChange = useCallback((mode: 'direct' | 'proxy' | 'mpegts') => {
-    console.log(`[video-player] HLS load mode changed: ${mode}`)
-    setHlsLoadMode(mode)
-    if (mode === 'proxy') {
-      // Show loading indicator for proxy connection attempt (direct failed/timed out)
-      setLoading(true)
-      setBuffering(true)
-    }
-  }, [])
-
-  // HLS requests mpegts.js fallback — switch player type
-  const handleRequestMpegts = useCallback(() => {
-    console.log('[video-player] Switching to mpegts.js for m3u8 stream')
-    setHlsFallbackMpegts(true)
-    // The original URL will be used directly via mpegts.js
-    // mpegts.js can handle m3u8 streams too (HLS format)
-  }, [])
-
-  // Screenshot handler
-  const handleScreenshot = useCallback(() => {
-    const video = videoRef.current || containerRef.current?.querySelector('video')
-    if (!video) return
-
-    try {
-      const canvas = document.createElement('canvas')
-      canvas.width = video.videoWidth || 1280
-      canvas.height = video.videoHeight || 720
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-      // Flash effect
-      setScreenshotFlash(true)
-      setTimeout(() => setScreenshotFlash(false), 300)
-
-      // Download
-      const link = document.createElement('a')
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-      link.download = `screenshot-${timestamp}.png`
-      link.href = canvas.toDataURL('image/png')
-      link.click()
-    } catch (e) {
-      console.error('[video-player] Screenshot failed:', e)
-    }
-  }, [])
-
-  // Check if seeking is possible (for showing skip buttons)
-  // For VOD: always seekable. For live: check seekable range (DVR window).
-  // For mpegts: usually live with no DVR, so default to not seekable.
-  const [seekable, setSeekable] = useState(!isLive)
-  useEffect(() => {
-    if (isMpegTs) {
-      // mpegts is always live — skip buttons don't make sense
-      setSeekable(false)
-      return
-    }
-    const video = videoRef.current || containerRef.current?.querySelector('video')
-    if (!video) return
-    const check = () => {
-      try {
-        const seekableRanges = video.seekable
-        if (seekableRanges && seekableRanges.length > 0) {
-          const seekableDuration = seekableRanges.end(seekableRanges.length - 1) - seekableRanges.start(0)
-          setSeekable(seekableDuration > 1) // At least 1 second of seekable range
-        } else {
-          setSeekable(false)
-        }
-      } catch {
-        setSeekable(!isLive) // Default: seekable for VOD, not for live
-      }
-    }
-    const timer = setInterval(check, 2000)
-    check()
-    return () => clearInterval(timer)
-  }, [resolvedUrl, isLive, isMpegTs])
-
-  // Audio track handlers
-  const handleAudioTracks = useCallback((tracks: AudioTrack[]) => {
-    setAudioTracks(tracks)
-    // Set current to default track if available
-    const defaultTrack = tracks.find(t => t.default)
-    if (defaultTrack) setCurrentAudioTrack(defaultTrack.id)
-    else if (tracks.length > 0) setCurrentAudioTrack(0)
-  }, [])
-
-  const handleAudioTrackChange = useCallback((trackId: number) => {
-    setCurrentAudioTrack(trackId)
-  }, [])
-
-  // Subtitle track handlers
-  const handleSubtitleTracks = useCallback((tracks: SubtitleTrack[]) => {
-    setSubtitleTracks(tracks)
-  }, [])
-
-  const handleSubtitleTrackChange = useCallback((trackId: number) => {
-    setCurrentSubtitleTrack(trackId)
-  }, [])
-
-  // Zoom handler
-  const handleZoomChange = useCallback((level: number) => {
-    setZoomLevel(level)
-    // Reset pan when zoom changes
-    if (level <= 1) setPanOffset({ x: 0, y: 0 })
-  }, [])
-
-  // Zoom pan handlers — mouse drag when zoomed in
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-
-    const handleMouseDown = (e: MouseEvent) => {
-      if (zoomLevel <= 1) return
-      // Only pan when clicking on the video area (not controls)
-      const target = e.target as HTMLElement
-      if (target.closest('.player-controls-bottom') || target.closest('[data-settings]')) return
-
-      isPanningRef.current = true
-      panStartRef.current = { x: e.clientX, y: e.clientY, panX: panOffset.x, panY: panOffset.y }
-      e.preventDefault()
-    }
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isPanningRef.current) return
-      const dx = e.clientX - panStartRef.current.x
-      const dy = e.clientY - panStartRef.current.y
-      const scale = zoomLevel
-      // Limit pan range based on zoom level
-      const maxPanX = (scale - 1) * el.clientWidth / 2
-      const maxPanY = (scale - 1) * el.clientHeight / 2
-      setPanOffset({
-        x: Math.max(-maxPanX, Math.min(maxPanX, panStartRef.current.panX + dx)),
-        y: Math.max(-maxPanY, Math.min(maxPanY, panStartRef.current.panY + dy)),
-      })
-    }
-
-    const handleMouseUp = () => {
-      isPanningRef.current = false
-    }
-
-    el.addEventListener('mousedown', handleMouseDown)
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
-
-    return () => {
-      el.removeEventListener('mousedown', handleMouseDown)
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [zoomLevel, panOffset.x, panOffset.y])
-
-  // Touch pan for zoom on mobile
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-
-    const handleTouchStart = (e: TouchEvent) => {
-      if (zoomLevel <= 1) return
-      if (e.touches.length !== 1) return
-      const target = e.target as HTMLElement
-      if (target.closest('.player-controls-bottom') || target.closest('[data-settings]')) return
-
-      isPanningRef.current = true
-      const touch = e.touches[0]
-      panStartRef.current = { x: touch.clientX, y: touch.clientY, panX: panOffset.x, panY: panOffset.y }
-    }
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (!isPanningRef.current || e.touches.length !== 1) return
-      e.preventDefault()
-      const touch = e.touches[0]
-      const dx = touch.clientX - panStartRef.current.x
-      const dy = touch.clientY - panStartRef.current.y
-      const scale = zoomLevel
-      const maxPanX = (scale - 1) * el.clientWidth / 2
-      const maxPanY = (scale - 1) * el.clientHeight / 2
-      setPanOffset({
-        x: Math.max(-maxPanX, Math.min(maxPanX, panStartRef.current.panX + dx)),
-        y: Math.max(-maxPanY, Math.min(maxPanY, panStartRef.current.panY + dy)),
-      })
-    }
-
-    const handleTouchEnd = () => {
-      isPanningRef.current = false
-    }
-
-    el.addEventListener('touchstart', handleTouchStart, { passive: true })
-    el.addEventListener('touchmove', handleTouchMove, { passive: false })
-    el.addEventListener('touchend', handleTouchEnd, { passive: true })
-
-    return () => {
-      el.removeEventListener('touchstart', handleTouchStart)
-      el.removeEventListener('touchmove', handleTouchMove)
-      el.removeEventListener('touchend', handleTouchEnd)
-    }
-  }, [zoomLevel, panOffset.x, panOffset.y])
-
-  // Check if device is mobile/touch
-  const isMobileDevice = typeof window !== 'undefined' && 'ontouchstart' in window
-
-  // Keyboard shortcuts — placed after all handler definitions to avoid TDZ errors
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      switch (e.key.toLowerCase()) {
-        case ' ':
-        case 'k':
-          e.preventDefault()
-          togglePlay()
-          break
-        case 'f':
-          e.preventDefault()
-          toggleFullscreen()
-          break
-        case 'm':
-          e.preventDefault()
-          setMuted(m => !m)
-          break
-        case 'arrowup':
-          e.preventDefault()
-          setVolume(v => Math.min(1, v + 0.1))
-          break
-        case 'arrowdown':
-          e.preventDefault()
-          setVolume(v => Math.max(0, v - 0.1))
-          break
-        case 'escape':
-          if (fullscreen) toggleFullscreen()
-          break
-        case 'q':
-          e.preventDefault()
-          if (qualityLevels.length > 0) {
-            if (currentQuality === -1) {
-              setCurrentQuality(0)
-            } else {
-              const nextIdx = currentQuality + 1
-              if (nextIdx >= qualityLevels.length) {
-                setCurrentQuality(-1)
-              } else {
-                setCurrentQuality(nextIdx)
-              }
-            }
-          }
-          break
-        case 's':
-          if (e.shiftKey) {
-            // Shift+S = Screenshot
-            e.preventDefault()
-            handleScreenshot()
-          } else {
-            e.preventDefault()
-            // Cycle through playback speeds
-            {
-              const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
-              const currentIdx = speeds.indexOf(playbackRate)
-              const nextIdx = currentIdx === -1 ? 2 : (currentIdx + 1) % speeds.length
-              setPlaybackRate(speeds[nextIdx])
-            }
-          }
-          break
-        case 'arrowleft':
-          if (seekable) {
-            e.preventDefault()
-            const video = videoRef.current || containerRef.current?.querySelector('video')
-            if (video) video.currentTime = Math.max(0, video.currentTime - 10)
-          }
-          break
-        case 'arrowright':
-          if (seekable) {
-            e.preventDefault()
-            const video = videoRef.current || containerRef.current?.querySelector('video')
-            if (video) {
-              if (video.duration && isFinite(video.duration)) {
-                video.currentTime = Math.min(video.duration, video.currentTime + 10)
-              } else {
-                video.currentTime += 10
-              }
-            }
-          }
-          break
-        case '>':
-        case '.':
-          e.preventDefault()
-          // Increase speed
-          {
-            const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
-            const currentIdx = speeds.indexOf(playbackRate)
-            if (currentIdx < speeds.length - 1) {
-              setPlaybackRate(speeds[currentIdx + 1])
-            } else if (currentIdx === -1) {
-              setPlaybackRate(1.25)
-            }
-          }
-          break
-        case '<':
-        case ',':
-          e.preventDefault()
-          // Decrease speed
-          {
-            const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
-            const currentIdx = speeds.indexOf(playbackRate)
-            if (currentIdx > 0) {
-              setPlaybackRate(speeds[currentIdx - 1])
-            } else if (currentIdx === -1) {
-              setPlaybackRate(0.75)
-            }
-          }
-          break
-      }
-      showControls()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [fullscreen, showControls, qualityLevels, currentQuality, playbackRate, handleScreenshot, seekable])
+  // Determine the final URL + type for the StreamPlayer.
+  // For 'hls-proxy' we pass the proxyUrl so StreamPlayer rewrites every segment.
+  // For 'mpegts' we also pass the proxyUrl so the .ts segment is fetched through
+  // the proxy (raw .ts URLs are almost always CORS-blocked in the browser).
+  const spType = toStreamPlayerType(resolvedType)
+  const spUrl = resolvedUrl
+  const spProxyUrl = (spType === 'hls-proxy' || spType === 'mpegts') ? '/api/stream-proxy?url=' : undefined
 
   return (
     <div
       ref={containerRef}
       className={`relative bg-black overflow-hidden group ${
-        fullscreen ? `fixed inset-0 z-50 ${cursorVisible ? 'cursor-default' : 'cursor-none'}` : 'rounded-none md:rounded-2xl'
+        fullscreen ? 'fixed inset-0 z-50' : 'rounded-none md:rounded-2xl'
       }`}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={() => {
-        if (isIframe) {
-          if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-          setControlsVisible(false)
-        } else if (playing) {
-          setControlsVisible(false)
-        }
-      }}
-      onClick={() => {
-        if (isIframe) {
-          showControls()
-        }
-      }}
-      onDoubleClick={(e) => { e.stopPropagation() }}
-      onContextMenu={(e) => { if (isIframe) e.preventDefault() }}
       style={fullscreen ? {} : { aspectRatio: '16/9' }}
+      onMouseMove={() => { if (isIframe) showControls() }}
+      onMouseLeave={() => { if (isIframe) setControlsVisible(false) }}
+      onClick={() => { if (isIframe) showControls() }}
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        // Double-click toggles fullscreen for ALL player types
+        const el = containerRef.current
+        if (!el) return
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {})
+        } else {
+          el.requestFullscreen?.().catch(() => {})
+        }
+      }}
+      onContextMenu={(e) => { if (isIframe || isIframeDirect) e.preventDefault() }}
     >
-      {/* Poster / placeholder */}
-      {!resolvedUrl && !loading && (
+      {/* No stream configured */}
+      {!resolvedUrl && !loading && !error && (
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/10 to-black">
           <div className="text-center">
             <p className="text-white/50 text-sm">No stream URL configured</p>
@@ -969,100 +339,67 @@ export function VideoPlayer({
         </div>
       )}
 
-      {/* HLS Player — Native with hls.js + ABR + direct/mpegts fallback */}
-      {isHls && resolvedUrl && !hlsFallbackMpegts && (
-        <div
-          className="absolute inset-0 overflow-hidden"
-          style={{
-            transform: zoomLevel > 1 ? `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)` : undefined,
-            transformOrigin: 'center center',
-            transition: isPanningRef.current ? 'none' : 'transform 0.2s ease-out',
-          }}
-        >
-          <HlsPlayer
-            src={resolvedUrl}
-            originalUrl={streamUrl}
-            proxyUrl={proxyStreamUrl(streamUrl, streamType)}
-            onReady={handleReady}
-            onError={handleError}
-            onQualityLevels={handleQualityLevels}
-            onStatsUpdate={handleStatsUpdate}
-            onVideoRef={handleVideoRef}
-            selectedQuality={currentQuality}
-            volume={volume}
-            muted={muted}
-            playbackRate={playbackRate}
-            aspectMode={aspectMode}
-            onLiveStatus={handleLiveStatus}
-            seekToLive={seekToLive}
-            onSeekedToLive={handleSeekedToLive}
-            onBuffering={handleBuffering}
-            selectedAudioTrack={currentAudioTrack}
-            onAudioTracks={handleAudioTracks}
-            selectedSubtitleTrack={currentSubtitleTrack}
-            onLoadModeChange={handleHlsLoadModeChange}
-            onRequestMpegts={handleRequestMpegts}
-            onSubtitleTracks={handleSubtitleTracks}
-          />
+      {/* Loading spinner — exact match of the website's loading screen spinner
+          (page.tsx "Connecting to GenZ TV…" screen), only without the brand
+          color. Same size (h-8 w-8), same border-b-2 style, neutral white. */}
+      {loading && !error && resolvedUrl && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
         </div>
       )}
 
-      {/* MPEG-TS Player — for raw .ts streams using mpegts.js */}
-      {(isMpegTs || hlsFallbackMpegts) && resolvedUrl && (
-        <div
-          className="absolute inset-0 overflow-hidden"
-          style={{
-            transform: zoomLevel > 1 ? `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)` : undefined,
-            transformOrigin: 'center center',
-            transition: isPanningRef.current ? 'none' : 'transform 0.2s ease-out',
-          }}
-        >
-          <TsPlayer
-            src={hlsFallbackMpegts ? proxyStreamUrl(streamUrl, streamType) : resolvedUrl}
-            onReady={handleReady}
-            onError={handleError}
-            onVideoRef={handleVideoRef}
-            volume={volume}
-            muted={muted}
-            playbackRate={playbackRate}
-            aspectMode={aspectMode}
-            onBuffering={handleBuffering}
-            deinterlace={deinterlace}
-          />
-        </div>
+      {/* ── NEW: StreamPlayer for HLS / HLS-Proxy / MPEG-TS ── */}
+      {/* The player ships its own controls, quality panel, live badge, spinner,
+          error overlay, and stall watchdog. We don't render PlayerControls for
+          these stream types. Title is NOT passed — the channel/match name is
+          already shown in the watch page header above the player. */}
+      {!isIframe && !isIframeDirect && resolvedUrl && !error && (
+        <StreamPlayerWrapper
+          src={spUrl}
+          streamType={spType}
+          proxyUrl={spProxyUrl}
+          poster={poster}
+          muted={false}
+          autoplay={true}
+          onReady={handlePlayerReady}
+          onPlaying={handlePlayerPlaying}
+          onError={handlePlayerError}
+        />
       )}
 
-      {/* iFrame Player — for embed streams */}
-      {/* resolvedUrl is already the proxy URL (set in getInitialResolved / resolve effect) */}
+      {/* ── Iframe Direct Player — raw iframe embed, NO controls/lock/proxy ── */}
+      {/* The iframe content's own controls are used. Use for embedded players
+          that already provide their own UI (YouTube Live, TV network embeds, etc.) */}
+      {isIframeDirect && resolvedUrl && !error && (
+        <IframeDirectPlayer
+          src={resolvedUrl}
+          title={title}
+          onReady={() => setLoading(false)}
+          onError={(e) => { setError(e); setLoading(false) }}
+        />
+      )}
+
+      {/* ── Iframe Player — proxied iframe with controls/lock ── */}
       {isIframe && resolvedUrl && (
         <IframePlayer
-          src={resolvedUrl}
+          src={resolvedType === 'redirect' ? proxyIframeUrl(resolvedUrl) : resolvedUrl}
           originalUrl={streamUrl}
-          onReady={handleReady}
-          onError={handleError}
+          onReady={() => setLoading(false)}
+          onError={(e) => { setError(e); setLoading(false) }}
         />
       )}
 
-      {/* JW-style HLS Player — proxy first (bypasses CORS, rewrites m3u8 URLs), then direct, then native */}
-      {isJw && resolvedUrl && (
-        <JwHlsPlayer
-          src={streamUrl}
-          proxySrc={proxyStreamUrl(streamUrl, 'm3u8_jw') + '&timeout=30000'}
-          onReady={handleReady}
-          onError={handleError}
-          onVideoRef={handleVideoRef}
-          volume={volume}
-          muted={muted}
-          playbackRate={playbackRate}
-          aspectMode={aspectMode}
-          onBuffering={handleBuffering}
-        />
+      {/* Iframe reload hint */}
+      {isIframe && !loading && !error && (
+        <IframeReloadHint />
       )}
 
-      {/* ── Mobile Iframe Touch Overlay ── */}
-      {/* On mobile, a transparent overlay sits on top of the iframe to block ad clicks. */}
-      {/* The user must tap the "Unlock" button to temporarily interact with the iframe. */}
-      {isIframe && isMobileDevice && iframeTouchLocked && (
+      {/* Iframe Touch/Click Overlay — blocks ad clicks until unlocked.
+          Works on ALL devices (mobile + desktop). When locked, a transparent
+          overlay sits on top of the iframe so clicks show controls instead of
+          reaching the iframe's video. When unlocked, the overlay is removed so
+          the user can interact with the iframe video directly. */}
+      {isIframe && iframeTouchLocked && !loading && (
         <div
           className="absolute inset-0 z-[5] cursor-pointer"
           onClick={(e) => {
@@ -1070,146 +407,63 @@ export function VideoPlayer({
             showControls()
           }}
           onTouchStart={(e) => {
-            // Block touch from reaching iframe
             e.stopPropagation()
           }}
         />
       )}
 
-      {/* Gesture indicator overlay */}
-      {gestureIndicator?.visible && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
-          <div className="bg-black/70 backdrop-blur-sm rounded-2xl px-5 py-4 flex flex-col items-center gap-2 min-w-[100px]">
-            {gestureIndicator.type === 'volume' ? (
-              <>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                  {gestureIndicator.value > 0 && (
-                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                  )}
-                  {gestureIndicator.value > 0.5 && (
-                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                  )}
-                  {gestureIndicator.value === 0 && (
-                    <line x1="23" y1="9" x2="17" y2="15" />
-                  )}
-                </svg>
-                <span className="text-white text-sm font-semibold">
-                  {Math.round(gestureIndicator.value * 100)}%
-                </span>
-              </>
-            ) : (
-              <>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="5" />
-                  <line x1="12" y1="1" x2="12" y2="3" />
-                  <line x1="12" y1="21" x2="12" y2="23" />
-                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                  <line x1="1" y1="12" x2="3" y2="12" />
-                  <line x1="21" y1="12" x2="23" y2="12" />
-                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-                </svg>
-                <span className="text-white text-sm font-semibold">
-                  {Math.round(gestureIndicator.value * 100)}%
-                </span>
-              </>
-            )}
-            {/* Progress bar */}
-            <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-white rounded-full transition-all duration-100"
-                style={{ width: `${Math.min(100, gestureIndicator.value * 100 / (gestureIndicator.type === 'brightness' ? 1.5 : 1))}%` }}
-              />
-            </div>
-          </div>
+      {/* Iframe controls overlay — only for iframe mode.
+          StreamPlayer has its own controls, so we don't render these for HLS/TS. */}
+      {isIframe && (
+        <PlayerControls
+          isPlaying={false}
+          onTogglePlay={() => {/* iframe controls its own playback */}}
+          volume={1}
+          onVolumeChange={() => {/* iframe volume not controllable */}}
+          isMuted={false}
+          onToggleMute={() => {}}
+          isFullscreen={false}
+          onToggleFullscreen={() => {
+            const el = containerRef.current
+            if (!el) return
+            if (document.fullscreenElement) {
+              document.exitFullscreen().catch(() => {})
+            } else {
+              el.requestFullscreen?.().catch(() => {})
+            }
+          }}
+          onToggleControlsVisibility={toggleControlsVisibility}
+          title={title}
+          isLive={isLive}
+          isLoading={loading}
+          hasError={!!error}
+          errorMessage={error || undefined}
+          visible={controlsVisible}
+          isIframe={true}
+          iframeTouchLocked={iframeTouchLocked}
+          onToggleIframeTouchLock={toggleIframeTouchLock}
+        />
+      )}
+
+      {/* Error overlay (for non-iframe streams where StreamPlayer/iframe_direct failed to load) */}
+      {error && !isIframe && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/90 p-6 text-center">
+          <div className="text-white/60 text-sm font-medium">{error}</div>
+          <button
+            onClick={() => {
+              setError(null)
+              setLoading(true)
+              // Force re-init by toggling the URL
+              const u = resolvedUrl
+              setResolvedUrl('')
+              setTimeout(() => setResolvedUrl(u), 50)
+            }}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
+          >
+            Try again
+          </button>
         </div>
       )}
-
-      {/* Loading/buffering indicator — same simple border-arc spinner as the
-          site's entry loading screen (src/app/page.tsx), so the player
-          loading state visually matches the rest of the app. White border
-          instead of primary so it stays visible on the dark video surface. */}
-      {(loading || buffering) && !error && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white" />
-        </div>
-      )}
-
-      {/* Iframe reload hint — shows briefly for iframe mode */}
-      {isIframe && !loading && !error && (
-        <IframeReloadHint />
-      )}
-
-      {/* Screenshot flash effect */}
-      {screenshotFlash && (
-        <div className="absolute inset-0 z-40 bg-white animate-in fade-out duration-300 pointer-events-none" />
-      )}
-
-      {/* Controls overlay */}
-      <PlayerControls
-        isPlaying={playing}
-        onTogglePlay={togglePlay}
-        volume={volume}
-        onVolumeChange={(vol: number) => { setVolume(vol); if (muted && vol > 0) setMuted(false) }}
-        isMuted={muted}
-        onToggleMute={() => setMuted(m => !m)}
-        isFullscreen={fullscreen}
-        onToggleFullscreen={toggleFullscreen}
-        onTogglePiP={togglePiP}
-        onToggleControlsVisibility={toggleControlsVisibility}
-        title={title}
-        isLive={isLive}
-        isBehindLive={isHls && isBehindLive}
-        onBackToLive={handleBackToLive}
-        isLoading={loading}
-        hasError={!!error}
-        errorMessage={error || undefined}
-        onRetry={handleRetry}
-        visible={controlsVisible}
-        onControlsBusy={setControlsBusy}
-        qualityLevels={qualityLevels}
-        currentQuality={currentQuality}
-        onQualityChange={handleQualityChange}
-        hlsStats={isHls ? hlsStats : null}
-        playbackRate={playbackRate}
-        onPlaybackRateChange={setPlaybackRate}
-        aspectMode={aspectMode}
-        onAspectModeChange={setAspectMode}
-        isIframe={isIframe}
-        iframeTouchLocked={isIframe && isMobileDevice && iframeTouchLocked}
-        onToggleIframeTouchLock={() => setIframeTouchLocked(prev => !prev)}
-        onScreenshot={isHls || isMpegTs ? handleScreenshot : undefined}
-        canSeek={seekable}
-        audioTracks={audioTracks}
-        currentAudioTrack={currentAudioTrack}
-        onAudioTrackChange={handleAudioTrackChange}
-        subtitleTracks={subtitleTracks}
-        currentSubtitleTrack={currentSubtitleTrack}
-        onSubtitleTrackChange={handleSubtitleTrackChange}
-        zoomLevel={zoomLevel}
-        onZoomChange={handleZoomChange}
-        deinterlace={deinterlace}
-        onDeinterlaceChange={setDeinterlace}
-        showDeinterlace={isMpegTs}
-      />
-
-      {/* Fullscreen rotate hint — shows on mobile in portrait mode */}
-      {fullscreen && (
-        <div className="landscape-hint hidden absolute inset-0 z-20 bg-black/80 flex-col items-center justify-center gap-3 pointer-events-none">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="animate-spin" style={{ animationDuration: '3s' }}>
-            <rect x="4" y="2" width="16" height="20" rx="2" />
-            <line x1="12" y1="18" x2="12" y2="18.01" />
-          </svg>
-          <p className="text-white/80 text-sm font-medium">Rotate for fullscreen</p>
-        </div>
-      )}
-
-      {/* Keyboard shortcut hint */}
-      <div className="absolute bottom-16 left-1/2 -translate-x-1/2 opacity-0 pointer-events-none text-[10px] text-white/60 bg-black/50 px-2 py-1 rounded whitespace-nowrap">
-        Space: Play/Pause • F: Fullscreen • M: Mute • Q: Quality • S: Speed • Shift+S: Screenshot • &larr;&rarr;: Skip 10s
-      </div>
     </div>
   )
 }

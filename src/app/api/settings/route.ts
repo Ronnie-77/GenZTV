@@ -51,7 +51,10 @@ export async function PUT(req: NextRequest) {
         ...(b.adsEnabled !== undefined && { adsEnabled: Boolean(b.adsEnabled) }),
         ...(b.homeAdsEnabled !== undefined && { homeAdsEnabled: Boolean(b.homeAdsEnabled) }),
         ...(b.videoAdsEnabled !== undefined && { videoAdsEnabled: Boolean(b.videoAdsEnabled) }),
+        ...(b.securityEnabled !== undefined && { securityEnabled: Boolean(b.securityEnabled) }),
         ...(b.apkUrl !== undefined && { apkUrl: String(b.apkUrl) }),
+        ...(b.redirectAdUrl !== undefined && { redirectAdUrl: String(b.redirectAdUrl) }),
+        ...(b.redirectAdEnabled !== undefined && { redirectAdEnabled: Boolean(b.redirectAdEnabled) }),
       },
       create: {
         id: 'app',
@@ -67,7 +70,10 @@ export async function PUT(req: NextRequest) {
         adsEnabled: b.adsEnabled !== undefined ? Boolean(b.adsEnabled) : true,
         homeAdsEnabled: b.homeAdsEnabled !== undefined ? Boolean(b.homeAdsEnabled) : true,
         videoAdsEnabled: b.videoAdsEnabled !== undefined ? Boolean(b.videoAdsEnabled) : true,
+        securityEnabled: b.securityEnabled !== undefined ? Boolean(b.securityEnabled) : true,
         apkUrl: b.apkUrl ? String(b.apkUrl) : '',
+        redirectAdUrl: b.redirectAdUrl ? String(b.redirectAdUrl) : '',
+        redirectAdEnabled: b.redirectAdEnabled !== undefined ? Boolean(b.redirectAdEnabled) : false,
       },
     })
     return NextResponse.json(settings)

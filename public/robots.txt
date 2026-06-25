@@ -12,30 +12,3 @@ Allow: /
 
 User-agent: *
 Allow: /
-Disallow: /api/
-Disallow: /admin
-
-# Block known malicious bots
-User-agent: sqlmap
-Disallow: /
-
-User-agent: nikto
-Disallow: /
-
-User-agent: nmap
-Disallow: /
-
-User-agent: masscan
-Disallow: /
-
-User-agent: dirbuster
-Disallow: /
-
-User-agent: gobuster
-Disallow: /
-
-User-agent: wfuzz
-Disallow: /
-
-User-agent: ZAP
-Disallow: /

@@ -13,13 +13,15 @@ export type PageName =
   | 'search'
   | 'admin'
   | 'more'
+  | 'history'
 
-export type AdminPage = 
-  | 'dashboard' 
+export type AdminPage =
+  | 'dashboard'
   | 'analytics'
-  | 'channels' 
-  | 'matches' 
-  | 'categories' 
+  | 'channels'
+  | 'matches'
+  | 'categories'
+  | 'feedback'
   | 'notices'
   | 'notifications'
   | 'settings'
@@ -66,6 +68,15 @@ interface AppState {
   timezoneSource: 'auto' | 'manual'
   setTimezone: (tz: string, source?: 'auto' | 'manual') => void
   detectTimezone: () => void
+
+  // Security master switch (mirror of AppSetting.securityEnabled).
+  // The SecurityProvider reads this to decide whether to install its
+  // protections (right-click block, DevTools detection, anti-debugging, etc.).
+  // Default true; the SecurityProvider hydrates it from /api/settings/security
+  // on mount, and the admin panel's toggle updates both the server and this
+  // store value so the change is reflected instantly across the app.
+  securityEnabled: boolean
+  setSecurityEnabled: (enabled: boolean) => void
 }
 
 const loadFavorites = (): string[] => {
@@ -222,6 +233,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       saveTimezone('UTC', 'auto')
     }
   },
+
+  // Security master switch — default true (secure). The SecurityProvider
+  // hydrates this from the server on mount (see security-provider.tsx).
+  securityEnabled: true,
+  setSecurityEnabled: (enabled) => set({ securityEnabled: enabled }),
 }))
 
 // Initialize from URL hash on load + timezone hydration
@@ -235,7 +251,7 @@ if (typeof window !== 'undefined') {
     // No auto-unlock from URL hash
 
     if (hash) {
-      const validPages: PageName[] = ['home', 'live', 'watch', 'news', 'sports', 'cricket', 'football', 'entertainment', 'favorites', 'search', 'admin', 'more']
+      const validPages: PageName[] = ['home', 'live', 'watch', 'news', 'sports', 'cricket', 'football', 'entertainment', 'favorites', 'search', 'admin', 'more', 'history']
       const page = hashPage as PageName
       if (validPages.includes(page)) {
         // If on watch page with an ID in the hash, restore it

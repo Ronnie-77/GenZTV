@@ -8,6 +8,8 @@ import { Sidebar } from './sidebar'
 import { BottomNav } from './bottom-nav'
 import { NotificationPrompt } from '@/components/notifications/notification-manager'
 import { SiteNoticePopup } from '@/components/layout/site-notice-popup'
+import { RedirectAd } from '@/components/ads/redirect-ad'
+import { FeedbackButton } from '@/components/feedback/feedback-button'
 import { X, Download, Smartphone, Wrench, Clock, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { fetchSettings } from '@/lib/api'
@@ -48,6 +50,7 @@ const FavoritesPage = lazyWithRetry(() => import('@/views/favorites').then(m => 
 const SearchPage = lazyWithRetry(() => import('@/views/search').then(m => ({ default: m.SearchPage })))
 const AdminPage = lazyWithRetry(() => import('@/views/admin').then(m => ({ default: m.AdminPage })))
 const MorePage = lazyWithRetry(() => import('@/views/more').then(m => ({ default: m.MorePage })))
+const HistoryPage = lazyWithRetry(() => import('@/views/history').then(m => ({ default: m.HistoryPage })))
 
 // ── PWA Install Prompt ──
 interface BeforeInstallPromptEvent extends Event {
@@ -354,6 +357,8 @@ export function AppShell() {
           return <AdminPage />
         case 'more':
           return <MorePage />
+        case 'history':
+          return <HistoryPage />
         default:
           return <HomePage />
       }
@@ -419,6 +424,8 @@ export function AppShell() {
       <NotificationPrompt />
       <InstallPrompt />
       <SiteNoticePopup />
+      <RedirectAd />
+      <FeedbackButton />
     </div>
   )
 }

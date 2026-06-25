@@ -21,6 +21,7 @@ import {
   Sun,
   Monitor,
   ChevronDown,
+  History,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -37,6 +38,7 @@ const navItems: { icon: React.ElementType; label: string; page: PageName; badge?
   { icon: CircleDot, label: 'Football', page: 'football' },
   { icon: Film, label: 'Entertainment', page: 'entertainment' },
   { icon: Heart, label: 'Favorites', page: 'favorites' },
+  { icon: History, label: 'History', page: 'history' },
   { icon: Search, label: 'Search', page: 'search' },
 ]
 

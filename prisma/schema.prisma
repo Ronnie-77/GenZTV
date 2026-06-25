@@ -23,6 +23,29 @@ model Channel {
   viewCount    Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  // ── Token Refresh Automation ──
+  // For signed-URL streams (Akamai hdntl, strmd.st secure paths, etc.) the URL
+  // contains a time-limited token that expires. These fields let us refresh the
+  // stream URL automatically before the token dies.
+  //
+  // sourcePageUrl  — the public web page from which the m3u8 was extracted
+  //                  (e.g. "https://fifalive.click/"). The re-extractor fetches
+  //                  this page again and searches for a fresh m3u8 link.
+  // refreshPattern — optional regex (string) used to locate the m3u8 inside the
+  //                  source page HTML. If empty, a generic m3u8 regex is used.
+  // tokenExpiresAt — parsed expiry (ms epoch) of the hdntl `exp=` param, if any.
+  //                  NULL means "unknown expiry" — refresh-on-failure only.
+  // lastRefreshedAt — when the stream URL was last refreshed.
+  // autoRefresh    — if true, the proactive cron + reactive player fallback will
+  //                  attempt to refresh this channel automatically.
+  // refreshError   — last error message from a failed refresh (empty if ok).
+  sourcePageUrl   String    @default("")
+  refreshPattern  String    @default("")
+  tokenExpiresAt  DateTime?
+  lastRefreshedAt DateTime?
+  autoRefresh     Boolean   @default(false)
+  refreshError    String    @default("")
 }
 
 model Match {
@@ -85,6 +108,41 @@ model AppSetting {
   apkUrl           String  @default("")
   ga4MeasurementId String  @default("")  // GA4 Measurement ID (e.g. G-XXXXXXXXXX)
   firebaseConfig   String  @default("{}")  // Firebase config JSON
+  // Master switch for the client-side SecurityProvider. When false, none of
+  // the protections (right-click block, DevTools detection, anti-debug, etc.)
+  // are installed — lets the admin freely use browser dev tools.
+  securityEnabled  Boolean @default(true)
+  // Redirect ad: a direct-link ad URL that opens in a new tab when the user
+  // clicks anywhere on the page (except the video player). Activates 2 minutes
+  // after the user enters the site, then re-activates every 1 hour.
+  redirectAdUrl    String  @default("")
+  redirectAdEnabled Boolean @default(false)
+}
+
+// User feedback submissions. Users can submit feedback (bug report, feature
+// request, compliment, etc.) from the "More" page or a floating feedback
+// button. Admins view and manage these in the admin panel.
+model Feedback {
+  id        String   @id @default(cuid())
+  // Feedback category: bug, feature, compliment, other
+  category  String   @default("other")
+  // User's email (optional — for follow-up)
+  email     String   @default("")
+  // Short subject line
+  subject   String   @default("")
+  // Detailed message body
+  message   String
+  // Current page URL when feedback was submitted (context)
+  page      String   @default("")
+  // User agent + device info (for debugging bug reports)
+  userAgent String   @default("")
+  device    String   @default("") // mobile / desktop / tv
+  browser   String   @default("") // Chrome / Firefox / Safari / etc.
+  // Admin management
+  status    String   @default("new") // new | read | resolved
+  adminNote String   @default("") // private admin note
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model PushSubscription {

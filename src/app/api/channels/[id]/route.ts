@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireAdminAuth } from '@/lib/auth'
+import { parseTokenExpiry } from '@/lib/token-refresh'
 
 // GET /api/channels/[id]
 export async function GET(
@@ -45,6 +46,21 @@ export async function PUT(
         ...(body.tags !== undefined && { tags: Array.isArray(body.tags) ? body.tags.join(',') : body.tags }),
         ...(body.isFeatured !== undefined && { isFeatured: body.isFeatured }),
         ...(body.isActive !== undefined && { isActive: body.isActive }),
+        // Token refresh automation fields
+        ...(body.sourcePageUrl !== undefined && { sourcePageUrl: body.sourcePageUrl }),
+        ...(body.refreshPattern !== undefined && { refreshPattern: body.refreshPattern }),
+        ...(body.autoRefresh !== undefined && { autoRefresh: body.autoRefresh }),
+        // tokenExpiresAt + lastRefreshedAt + refreshError are managed by the
+        // refresh endpoints — but allow admin to clear them (null/'') manually.
+        ...(body.tokenExpiresAt === null && { tokenExpiresAt: null }),
+        ...(body.lastRefreshedAt === null && { lastRefreshedAt: null }),
+        ...(body.refreshError !== undefined && { refreshError: body.refreshError }),
+        // When streamUrl changes, auto-parse the new token expiry (if any).
+        ...(body.streamUrl !== undefined && {
+          tokenExpiresAt: parseTokenExpiry(body.streamUrl).expiresAt
+            ? new Date(parseTokenExpiry(body.streamUrl).expiresAt as number)
+            : null,
+        }),
       },
     })
     return NextResponse.json(channel)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAppStore } from '@/lib/store'
 import { fetchChannel, fetchMatch, fetchChannels, type Channel, type Match } from '@/lib/api'
 import { VideoPlayer } from '@/components/player/video-player'
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { fetchSettings } from '@/lib/api'
+import { addWatchHistory } from '@/lib/use-watch-history'
 
 // Default banner ad (fallback when no custom ad scripts exist).
 // Rendered through the shared sandboxed DynamicAdSlot so document.write()
@@ -71,11 +72,29 @@ export function WatchPage() {
         const ch = await fetchChannel(currentChannelId!)
         setChannel(ch)
         setViewMode('channel')
+        // Add to watch history (channel kind)
+        addWatchHistory({
+          id: ch.id,
+          name: ch.name,
+          logo: ch.logo,
+          category: ch.category,
+          streamType: ch.streamType,
+          kind: 'channel',
+        })
       } catch {
         try {
           const m = await fetchMatch(currentChannelId!)
           setMatch(m)
           setViewMode('match')
+          // Add to watch history (match kind)
+          addWatchHistory({
+            id: m.id,
+            name: m.title,
+            logo: m.thumbnail || m.teamALogo || m.teamBLogo || '',
+            category: m.sport,
+            streamType: 'match',
+            kind: 'match',
+          })
         } catch {
           // Not found
         }
@@ -241,6 +260,14 @@ export function WatchPage() {
                 <VideoPlayer
                   streamUrl={currentStreamUrl}
                   streamType={currentStreamType}
+                  channelId={viewMode === 'channel' ? channel?.id : undefined}
+                  onStreamUrlRefreshed={(newUrl) => {
+                    // Update local channel state so the next render uses the fresh URL.
+                    // The server already persisted the new URL — this is just a client-side mirror.
+                    if (viewMode === 'channel' && channel) {
+                      setChannel({ ...channel, streamUrl: newUrl })
+                    }
+                  }}
                   title={currentTitle}
                   isLive={viewMode === 'match' ? match?.status === 'live' : true}
                 />

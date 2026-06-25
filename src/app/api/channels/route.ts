@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireAdminAuth } from '@/lib/auth'
 import { createChannelNotification } from '@/lib/notification-helpers'
+import { parseTokenExpiry } from '@/lib/token-refresh'
 
 // GET /api/channels — list all channels (with optional filters)
 export async function GET(req: NextRequest) {
@@ -66,6 +67,16 @@ export async function POST(req: NextRequest) {
         tags: Array.isArray(body.tags) ? body.tags.join(',') : (body.tags || ''),
         isFeatured: body.isFeatured || false,
         isActive: body.isActive !== false,
+        // Token refresh automation
+        sourcePageUrl: body.sourcePageUrl || '',
+        refreshPattern: body.refreshPattern || '',
+        autoRefresh: body.autoRefresh === true,
+        // Auto-parse token expiry from the stream URL if present
+        tokenExpiresAt: body.streamUrl
+          ? (parseTokenExpiry(body.streamUrl).expiresAt
+            ? new Date(parseTokenExpiry(body.streamUrl).expiresAt as number)
+            : null)
+          : null,
       },
     })
 

@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Save, RefreshCw, Globe, Tv, Monitor, Shield, Download, Upload, X, FileArchive, Trash2, Megaphone, Plus, Code, Eye, EyeOff, AlertCircle } from 'lucide-react'
+import { Save, RefreshCw, Globe, Tv, Monitor, Shield, ShieldCheck, ShieldOff, Download, Upload, X, FileArchive, Trash2, Megaphone, Plus, Code, Eye, EyeOff, AlertCircle, Lock, Unlock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { fetchSettings, updateSettings, fetchChannels, type AppSettings, type Channel } from '@/lib/api'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { useAppStore } from '@/lib/store'
 
 // Ad script interface
 interface AdScript {
@@ -41,6 +42,17 @@ export function AdminSettings() {
   const [adsEnabled, setAdsEnabled] = useState(true)
   const [homeAdsEnabled, setHomeAdsEnabled] = useState(true)
   const [videoAdsEnabled, setVideoAdsEnabled] = useState(true)
+  const [redirectAdUrl, setRedirectAdUrl] = useState('')
+  const [redirectAdEnabled, setRedirectAdEnabled] = useState(false)
+
+  // Security master switch — instant-action toggle (separate from the main
+  // settings save flow). When toggled, we PATCH /api/settings/security
+  // immediately and update the global store so SecurityProvider reacts
+  // in real time (installs / tears down right-click block, DevTools
+  // detection, etc.) without a page reload.
+  const securityEnabled = useAppStore((s) => s.securityEnabled)
+  const setSecurityEnabled = useAppStore((s) => s.setSecurityEnabled)
+  const [securityToggling, setSecurityToggling] = useState(false)
 
   // Ad scripts state
   const [adScripts, setAdScripts] = useState<AdScript[]>([])
@@ -94,6 +106,8 @@ export function AdminSettings() {
         setAdsEnabled(s.adsEnabled ?? true)
         setHomeAdsEnabled(s.homeAdsEnabled ?? true)
         setVideoAdsEnabled(s.videoAdsEnabled ?? true)
+        setRedirectAdUrl(s.redirectAdUrl || '')
+        setRedirectAdEnabled(s.redirectAdEnabled ?? false)
         // Parse custom ad scripts
         try {
           const parsed = JSON.parse(s.customAdScripts || '[]')
@@ -125,6 +139,48 @@ export function AdminSettings() {
     load()
   }, [])
 
+  // --- Security master switch toggle ---
+  // Instant-action: PATCH the server and update the global store so the
+  // SecurityProvider reacts immediately (no page reload needed). The toggle
+  // is disabled while the request is in-flight to prevent double-taps.
+  const handleSecurityToggle = async (next: boolean) => {
+    setSecurityToggling(true)
+    const prev = securityEnabled
+    // Optimistically update the store so the UI feels instant.
+    setSecurityEnabled(next)
+    try {
+      const res = await fetch('/api/settings/security', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ securityEnabled: next }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err?.error || `HTTP ${res.status}`)
+      }
+      const data = await res.json()
+      // Confirm with the server's authoritative value.
+      if (typeof data?.securityEnabled === 'boolean') {
+        setSecurityEnabled(data.securityEnabled)
+      }
+      toast.success(
+        data.securityEnabled ? 'Security enabled — site protected' : 'Security disabled — dev tools unlocked',
+        {
+          description: data.securityEnabled
+            ? 'Right-click, DevTools & view-source are now blocked for visitors.'
+            : 'You can now use F12, right-click, and inspect elements freely.',
+        }
+      )
+    } catch (err) {
+      // Revert on failure.
+      setSecurityEnabled(prev)
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      toast.error('Failed to toggle security', { description: msg })
+    } finally {
+      setSecurityToggling(false)
+    }
+  }
+
   const handleSave = async () => {
     setSaving(true)
     try {
@@ -142,6 +198,8 @@ export function AdminSettings() {
         adsEnabled,
         homeAdsEnabled,
         videoAdsEnabled,
+        redirectAdUrl,
+        redirectAdEnabled,
       }
 
       let updated: AppSettings | null = null
@@ -298,6 +356,8 @@ export function AdminSettings() {
                 setAdsEnabled(s.adsEnabled ?? true)
                 setHomeAdsEnabled(s.homeAdsEnabled ?? true)
                 setVideoAdsEnabled(s.videoAdsEnabled ?? true)
+                setRedirectAdUrl(s.redirectAdUrl || '')
+                setRedirectAdEnabled(s.redirectAdEnabled ?? false)
                 try {
                   const parsed = JSON.parse(s.customAdScripts || '[]')
                   setAdScripts(Array.isArray(parsed) ? parsed : [])
@@ -537,6 +597,108 @@ export function AdminSettings() {
         )}
       </div>
 
+      {/* ─────────────────────────────────────────────────────────────── */}
+      {/* Security Master Switch — toggle the entire client-side security  */}
+      {/* stack on/off. When OFF, right-click, DevTools (F12), view-source,  */}
+      {/* anti-debugging, and ad-blocker detection are all disabled — letting */}
+      {/* the admin inspect & debug the site. Visitors always have it ON.   */}
+      {/* ─────────────────────────────────────────────────────────────── */}
+      <div className={cn(
+        'bg-card rounded-xl border shadow-sm p-5 space-y-4 transition-colors',
+        securityEnabled ? 'border-border' : 'border-emerald-500/40 bg-emerald-500/5'
+      )}>
+        <div className="flex items-center gap-2 mb-1">
+          {securityEnabled ? (
+            <Lock className="h-4 w-4 text-primary" />
+          ) : (
+            <Unlock className="h-4 w-4 text-emerald-500" />
+          )}
+          <h3 className="text-sm font-semibold">Security & Dev Tools</h3>
+          <span className={cn(
+            'ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full',
+            securityEnabled
+              ? 'bg-primary/10 text-primary'
+              : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+          )}>
+            {securityEnabled ? '● PROTECTED' : '○ DEV MODE'}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Client-side Security</p>
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              Blocks right-click, F12, view-source, DevTools detection &amp; ad-blocker
+              overlay for visitors. Toggle OFF to use browser dev tools yourself.
+            </p>
+          </div>
+          <Switch
+            checked={securityEnabled}
+            onCheckedChange={handleSecurityToggle}
+            disabled={securityToggling}
+          />
+        </div>
+
+        {/* Status banner */}
+        {securityEnabled ? (
+          <div className="bg-primary/5 border border-primary/15 rounded-xl p-3 text-xs text-muted-foreground flex items-start gap-2">
+            <ShieldCheck className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-foreground mb-0.5">Security is ON</p>
+              All client-side protections are active. Right-click, F12, Ctrl+Shift+I,
+              Ctrl+U, and view-source are blocked. DevTools detection will blank the
+              page for non-admin visitors.
+            </div>
+          </div>
+        ) : (
+          <div className="bg-emerald-500/10 border border-emerald-500/25 rounded-xl p-3 text-xs text-emerald-700 dark:text-emerald-300 flex items-start gap-2">
+            <ShieldOff className="h-4 w-4 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold mb-0.5">Dev Mode — security is OFF</p>
+              All client-side protections are disabled. You can now freely use F12,
+              right-click, inspect elements, view source, and the console. The change
+              applies site-wide and persists across reloads. Visitors on other devices
+              are also unaffected because this is a global setting — re-enable before
+              going live.
+            </div>
+          </div>
+        )}
+
+        {/* Quick reference of toggled behaviors */}
+        <div className="grid grid-cols-2 gap-2 text-[10px]">
+          {[
+            { label: 'Right-click menu', on: 'Blocked', off: 'Allowed' },
+            { label: 'F12 / DevTools', on: 'Blocked', off: 'Allowed' },
+            { label: 'Ctrl+U (view source)', on: 'Blocked', off: 'Allowed' },
+            { label: 'DevTools detection', on: 'Active', off: 'Off' },
+            { label: 'Anti-debugging traps', on: 'Active', off: 'Off' },
+            { label: 'Ad-blocker overlay', on: 'Active', off: 'Off' },
+          ].map((item) => (
+            <div
+              key={item.label}
+              className="flex items-center justify-between bg-background/60 rounded-lg px-2.5 py-1.5 border border-border/60"
+            >
+              <span className="text-muted-foreground truncate">{item.label}</span>
+              <span className={cn(
+                'font-semibold ml-2 shrink-0',
+                securityEnabled
+                  ? 'text-primary'
+                  : 'text-emerald-600 dark:text-emerald-400'
+              )}>
+                {securityEnabled ? item.on : item.off}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {securityToggling && (
+          <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            Updating server…
+          </p>
+        )}
+      </div>
+
       {/* Ad Controls */}
       <div className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-4">
         <div className="flex items-center justify-between mb-1">
@@ -696,6 +858,35 @@ export function AdminSettings() {
             <p className="text-[10px] text-muted-foreground">Click "Add Script" to add your first ad script</p>
           </div>
         )}
+      </div>
+
+      {/* Redirect Ad — click-redirect ad slot */}
+      <div className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">Redirect Ad</h3>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Opens a direct-link ad in a new tab when the user clicks anywhere (except the video player).
+              Activates 2 minutes after entry, then every 1 hour.
+            </p>
+          </div>
+          <Switch
+            checked={redirectAdEnabled}
+            onCheckedChange={setRedirectAdEnabled}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Redirect Ad URL</label>
+          <Input
+            value={redirectAdUrl}
+            onChange={(e) => setRedirectAdUrl(e.target.value)}
+            placeholder="https://example.com/your-ad-landing-page"
+            className="text-xs"
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Enter the direct-link ad URL. The user's first click after the 2-minute timer (and every 1 hour after) will open this URL in a new tab.
+          </p>
+        </div>
       </div>
 
       {/* App Info */}

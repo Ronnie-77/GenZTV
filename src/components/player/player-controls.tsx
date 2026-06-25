@@ -606,14 +606,14 @@ export function PlayerControls({
 
           {/* Control bar at bottom */}
           <div
-            className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-8 pointer-events-auto"
+            className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-5 pb-4 pt-8 pointer-events-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               {iframeTouchLocked && onToggleIframeTouchLock && (
                 <button
                   onClick={onToggleIframeTouchLock}
-                  className="p-1.5 rounded-full hover:bg-white/10 transition-colors flex items-center gap-1.5"
+                  className="p-2 rounded-full hover:bg-white/10 transition-colors flex items-center gap-1.5"
                   title="Unlock player to interact with video (e.g. unmute)"
                 >
                   <Unlock className="h-4 w-4 text-amber-400" />
@@ -623,7 +623,7 @@ export function PlayerControls({
               {!iframeTouchLocked && onToggleIframeTouchLock && (
                 <button
                   onClick={onToggleIframeTouchLock}
-                  className="p-1.5 rounded-full hover:bg-white/10 transition-colors flex items-center gap-1.5"
+                  className="p-2 rounded-full hover:bg-white/10 transition-colors flex items-center gap-1.5"
                   title="Lock player to block ads"
                 >
                   <Lock className="h-4 w-4 text-green-400" />
@@ -634,7 +634,7 @@ export function PlayerControls({
               {onTogglePiP && 'pictureInPictureEnabled' in document && (
                 <button
                   onClick={onTogglePiP}
-                  className="p-1.5 rounded-full hover:bg-white/10 transition-colors"
+                  className="p-2 rounded-full hover:bg-white/10 transition-colors"
                   title="Picture in Picture"
                 >
                   <PictureInPicture2 className="h-5 w-5 text-white" />
@@ -642,7 +642,7 @@ export function PlayerControls({
               )}
               <button
                 onClick={onToggleFullscreen}
-                className="p-1.5 rounded-full hover:bg-white/10 transition-colors"
+                className="p-2 rounded-full hover:bg-white/10 transition-colors"
                 title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
               >
                 {isFullscreen ? (

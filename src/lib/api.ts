@@ -37,6 +37,13 @@ export interface Channel {
   viewCount: number
   createdAt: string
   updatedAt: string
+  // Token refresh automation
+  sourcePageUrl: string
+  refreshPattern: string
+  tokenExpiresAt: string | null
+  lastRefreshedAt: string | null
+  autoRefresh: boolean
+  refreshError: string
 }
 
 export interface MatchStream {
@@ -93,6 +100,8 @@ export interface AppSettings {
   homeAdsEnabled: boolean
   videoAdsEnabled: boolean
   apkUrl: string
+  redirectAdUrl: string
+  redirectAdEnabled: boolean
 }
 
 // ============ Notices ============
@@ -152,6 +161,109 @@ export async function updateChannel(id: string, data: Partial<Channel>): Promise
 export async function deleteChannel(id: string): Promise<void> {
   const res = await adminFetch(`${BASE}/channels/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Failed to delete channel')
+}
+
+// ============ Token Refresh Automation ============
+
+export interface RefreshResult {
+  success: boolean
+  channel?: Channel
+  message?: string
+  source?: string
+  newExpiresAt?: number | null
+}
+
+export interface BatchRefreshResult {
+  success: boolean
+  total: number
+  refreshed: number
+  failed: number
+  results: Array<{
+    id: string
+    name: string
+    success: boolean
+    message: string
+    newExpiresAt?: number | null
+  }>
+}
+
+export interface ReactiveRefreshResult {
+  success: boolean
+  refreshed: boolean
+  streamUrl?: string
+  newExpiresAt?: number | null
+  reason?: string
+  message?: string
+}
+
+export interface RefreshStatus {
+  total: number
+  needingRefresh: number
+  expired: number
+  channels: Array<{
+    id: string
+    name: string
+    streamType: string
+    sourcePageUrl: string
+    tokenExpiresAt: string | null
+    lastRefreshedAt: string | null
+    refreshError: string
+    needsRefresh: boolean
+    isExpired: boolean
+  }>
+}
+
+/** Admin: refresh a single channel's stream URL from its source page. */
+export async function refreshChannel(id: string, force: boolean = false): Promise<RefreshResult> {
+  const res = await adminFetch(`${BASE}/channels/${id}/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ force }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Refresh failed' }))
+    throw new Error(err.error || err.detail || `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+/** Admin: batch-refresh all expiring channels. */
+export async function refreshExpiredChannels(forceAll: boolean = false): Promise<BatchRefreshResult> {
+  const res = await adminFetch(`${BASE}/channels/refresh-expired`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ forceAll }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Batch refresh failed' }))
+    throw new Error(err.error || err.detail || `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+/** Admin: get the refresh status of all autoRefresh channels. */
+export async function fetchRefreshStatus(): Promise<RefreshStatus> {
+  const res = await adminFetch(`${BASE}/channels/refresh-expired`)
+  if (!res.ok) throw new Error('Failed to fetch refresh status')
+  return res.json()
+}
+
+/**
+ * Public: reactive refresh triggered by the player when playback fails (403).
+ * Rate-limited per-channel by the server. Returns the new streamUrl if
+ * refresh succeeded — caller should reload the player with it.
+ */
+export async function reactiveRefreshChannel(id: string): Promise<ReactiveRefreshResult> {
+  const res = await fetch(`${BASE}/channels/${id}/reactive-refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Reactive refresh failed' }))
+    throw new Error(err.error || err.reason || `HTTP ${res.status}`)
+  }
+  return res.json()
 }
 
 // ============ Matches ============
@@ -281,7 +393,7 @@ export async function parseM3U(url: string): Promise<{ channels: { name: string;
 
 // ============ File Import ============
 
-export async function importFileContent(content: string, fileType: string): Promise<{ channels: { name: string; logo: string; group: string; url: string; language?: string; country?: string }[]; total: number }> {
+export async function importFileContent(content: string, fileType: string): Promise<{ channels: { name: string; logo: string; group: string; url: string; language?: string; country?: string; streamType?: string }[]; total: number }> {
   const res = await adminFetch(`${BASE}/channels/import-file`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -318,4 +430,66 @@ export async function syncMatchStatuses(): Promise<{ success: boolean; updatedTo
   })
   if (!res.ok) throw new Error('Failed to sync match statuses')
   return res.json()
+}
+
+// ============ Feedback ============
+
+export interface Feedback {
+  id: string
+  category: string
+  email: string
+  subject: string
+  message: string
+  page: string
+  userAgent: string
+  device: string
+  browser: string
+  status: string
+  adminNote: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** Public: submit a new feedback entry. */
+export async function submitFeedback(data: {
+  category?: string
+  email?: string
+  subject?: string
+  message: string
+  page?: string
+}): Promise<{ success: boolean; id: string }> {
+  const res = await fetch(`${BASE}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to submit feedback' }))
+    throw new Error(err.error || `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+/** Admin: fetch all feedback entries. */
+export async function fetchFeedback(): Promise<Feedback[]> {
+  const res = await adminFetch(`${BASE}/feedback`)
+  if (!res.ok) throw new Error('Failed to fetch feedback')
+  return res.json()
+}
+
+/** Admin: update feedback status / admin note. */
+export async function updateFeedback(id: string, data: { status?: string; adminNote?: string }): Promise<Feedback> {
+  const res = await adminFetch(`${BASE}/feedback/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error('Failed to update feedback')
+  return res.json()
+}
+
+/** Admin: delete a feedback entry. */
+export async function deleteFeedback(id: string): Promise<void> {
+  const res = await adminFetch(`${BASE}/feedback/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('Failed to delete feedback')
 }
