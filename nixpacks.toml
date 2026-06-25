@@ -1,0 +1,26 @@
+# Nixpacks build configuration for Railway
+# (Task 28 — revised) Project runs with npm, NOT bun.
+#
+# Problem: bun.lock was committed, so Nixpacks auto-detected Bun and ran
+# `bun install --frozen-lockfile`. Bun version mismatch between local and
+# Railway caused "lockfile had changes, but lockfile is frozen" error.
+#
+# Fix: explicitly use npm for the install phase. npm ci requires a
+# committed package-lock.json (generated via `npm install`). bun.lock is
+# gitignored so Nixpacks no longer auto-detects Bun.
+
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+# Install phase: use npm ci for deterministic, fast installs.
+# npm ci reads package-lock.json exclusively (does not mutate it).
+[phases.install]
+cmds = ["npm ci"]
+
+# Build phase: generate Prisma client, then Next.js build
+[phases.build]
+cmds = ["npm run build"]
+
+# Start phase: Next.js production server
+[start]
+cmd = "npm run start"
