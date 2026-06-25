@@ -54,10 +54,15 @@ export function FeedbackButton() {
       >
         <MessageCircle className="h-4 w-4" />
         <span className="text-xs font-semibold hidden sm:inline">Feedback</span>
-        {/* Dismiss X — appears on hover */}
+        {/* Dismiss X — appears on hover (desktop only).
+            pointer-events-none by default so the invisible X never catches
+            touch/click on mobile (where hover doesn't exist). The X overlaps
+            the feedback button's top-right corner, so without this guard,
+            tapping the button on mobile would hit the invisible X and dismiss
+            the button instead of opening the dialog. */}
         <span
           onClick={handleDismiss}
-          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-secondary border border-border flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-secondary border border-border flex items-center justify-center opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
           role="button"
           tabIndex={0}
           aria-label="Dismiss"

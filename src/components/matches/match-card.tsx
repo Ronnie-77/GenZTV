@@ -1,6 +1,7 @@
-// v18 — Bell moved to header (no background, right of UPCOMING badge); subscribes to notifications
+// v19 — Sport badge + bolder league/time, bigger flags, live elapsed timer, taller Watch Now button
 'use client'
 
+import { useEffect, useState } from 'react'
 import { useAppStore } from '@/lib/store'
 import { type Match } from '@/lib/api'
 import { useCountdown } from '@/lib/hooks'
@@ -38,6 +39,38 @@ function CountdownDisplay({ targetDate, label }: { targetDate: Date; label?: str
         ))}
       </div>
     </div>
+  )
+}
+
+// Live elapsed timer — counts UP from match.startTime so users can see
+// how long a live match has been running. Updates every second.
+// Format: MM:SS (under 1h) or H:MM:SS (1h+).
+function LiveElapsedTimer({ startTime }: { startTime: string }) {
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    const startMs = new Date(startTime).getTime()
+    if (!Number.isFinite(startMs)) return
+    const update = () => setElapsed(Math.max(0, Date.now() - startMs))
+    update()
+    const id = setInterval(update, 1000)
+    return () => clearInterval(id)
+  }, [startTime])
+
+  const totalSec = Math.floor(elapsed / 1000)
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  const formatted =
+    h > 0
+      ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+      : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+
+  return (
+    <span className="live-elapsed-timer" title="Match elapsed time">
+      <span className="live-elapsed-dot" />
+      <span className="live-elapsed-value">{formatted}</span>
+    </span>
   )
 }
 
@@ -119,6 +152,10 @@ export function MatchCard({ match, variant }: MatchCardProps) {
   }
 
   const sportIcon = match.sport === 'cricket' ? '🏏' : match.sport === 'football' ? '⚽' : '🏆'
+  const sportLabel =
+    match.sport === 'cricket' ? 'Cricket' : match.sport === 'football' ? 'Football' : match.sport || 'Sports'
+  const sportClass =
+    match.sport === 'cricket' ? 'sport-cricket' : match.sport === 'football' ? 'sport-football' : 'sport-other'
 
   return (
     <div
@@ -138,12 +175,18 @@ export function MatchCard({ match, variant }: MatchCardProps) {
         <span className="match-card-circle-inner" />
       </div>
 
-      {/* Header: League + Status (+ bell for upcoming, to subscribe to
-          push notifications when the match goes live) */}
+      {/* Header: Sport badge + League name + Status (+ bell for upcoming,
+          to subscribe to push notifications when the match goes live) */}
       <div className="match-card-header">
-        <span className="match-league">
-          <span className="inline-block mr-1" style={{filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.2))'}}>{sportIcon}</span>{match.league || match.sport}
-        </span>
+        <div className="match-league-wrap">
+          <span className={cn('match-sport-badge', sportClass)}>
+            <span className="match-sport-badge-icon">{sportIcon}</span>
+            <span className="match-sport-badge-label">{sportLabel}</span>
+          </span>
+          {match.league && (
+            <span className="match-league">{match.league}</span>
+          )}
+        </div>
         <div className="match-header-actions">
           <span
             className={cn(
@@ -236,10 +279,6 @@ export function MatchCard({ match, variant }: MatchCardProps) {
           <CountdownDisplay targetDate={new Date(match.startTime)} />
         )}
 
-        {baseStatus === 'upcoming' && hasStarted && !hasEnded && (
-          <span className="text-[11px] text-red-500 font-bold animate-live-pulse">● LIVE</span>
-        )}
-
         {baseStatus === 'upcoming' && hasStarted && match.endTime && hasEnded && (
           <span className="text-[11px] text-muted-foreground">Match ended</span>
         )}
@@ -248,34 +287,41 @@ export function MatchCard({ match, variant }: MatchCardProps) {
           <span className="text-[11px] text-muted-foreground">Match ended</span>
         )}
 
-        {/* Action button so users know the card is clickable to start
-            streaming. Label/icon changes per status:
-              • live    → "Watch Now"   (Play icon, red bg) — instant stream
-              • upcoming → (no footer button — the bell icon in the header
-                             subscribes to push notifications; does NOT play)
-              • ended   → "Watch Replay" (RotateCcw icon, muted bg) — VOD/replay */}
+        {/* Live match: elapsed timer in CENTER + Watch Now on the right.
+            The timer is a direct flex child of .match-footer (not wrapped
+            with the button) so justify-content: space-between centers it
+            between [match-time] and [watch-now-btn]. The timer's pulsing
+            red dot already signals LIVE, so no separate ● LIVE badge is
+            needed. (Task 27) */}
         {status === 'live' && (
-          <button
-            className="watch-now-btn"
-            onClick={(e) => {
-              e.stopPropagation()
-              handleWatch()
-            }}
-          >
-            <Play className="h-3 w-3" fill="currentColor" /> Watch Now
-          </button>
+          <>
+            <LiveElapsedTimer startTime={match.startTime} />
+            <button
+              className="watch-now-btn"
+              onClick={(e) => {
+                e.stopPropagation()
+                handleWatch()
+              }}
+            >
+              <Play className="h-3 w-3" fill="currentColor" /> Watch Now
+            </button>
+          </>
         )}
 
+        {/* Upcoming→started auto-transition: same center-timer layout. */}
         {status === 'upcoming' && hasStarted && !hasEnded && (
-          <button
-            className="watch-now-btn"
-            onClick={(e) => {
-              e.stopPropagation()
-              handleWatch()
-            }}
-          >
-            <Play className="h-3 w-3" fill="currentColor" /> Watch Now
-          </button>
+          <>
+            <LiveElapsedTimer startTime={match.startTime} />
+            <button
+              className="watch-now-btn"
+              onClick={(e) => {
+                e.stopPropagation()
+                handleWatch()
+              }}
+            >
+              <Play className="h-3 w-3" fill="currentColor" /> Watch Now
+            </button>
+          </>
         )}
 
         {status === 'ended' && (

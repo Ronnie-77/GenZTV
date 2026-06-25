@@ -44,7 +44,7 @@ import { StreamPlayer, SP_TYPE } from './stream-player'
 import { reactiveRefreshChannel } from '@/lib/api'
 
 // Re-export the stream type so the parent can reference it.
-export type StreamPlayerType = 'hls' | 'hls-proxy' | 'mpegts'
+export type StreamPlayerType = 'hls' | 'hls-proxy' | 'mpegts' | 'dash'
 
 // Max client-side reactive refresh attempts per stream session.
 // The server has its own rate limit (5 per 10 min), but we cap lower on the
@@ -151,7 +151,9 @@ export function StreamPlayerWrapper({
         ? SP_TYPE.HLS_PROXY
         : streamType === 'mpegts'
           ? SP_TYPE.MPEGTS
-          : SP_TYPE.HLS
+          : streamType === 'dash'
+            ? SP_TYPE.DASH
+            : SP_TYPE.HLS
 
       // Build options. streamUrls is an array — we pass a single URL here;
       // the player's CDN-failover support is available if multiple are passed.

@@ -71,6 +71,11 @@ interface HlsPlayerProps {
   onSubtitleTracks?: (tracks: SubtitleTrack[]) => void
   onLoadModeChange?: (mode: LoadMode) => void
   onRequestMpegts?: () => void
+  /** Called whenever hls.js switches to a different quality level (via ABR
+   *  auto-selection OR manual selection). The parent uses this to display
+   *  "Auto (1080p)" in the settings Quality row — showing the user which
+   *  resolution ABR has currently chosen, even when the user selected "Auto". */
+  onCurrentLevelChange?: (level: number) => void
   /** Called when codec detection proves the browser can't decode this stream
    *  (typically HEVC on mobile Chrome/Firefox). Parent should offer iframe
    *  fallback or a clear error message. */
@@ -141,6 +146,7 @@ export function HlsPlayer({
   onSubtitleTracks,
   onLoadModeChange,
   onRequestMpegts,
+  onCurrentLevelChange,
   onCodecUnsupported,
 }: HlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -158,13 +164,13 @@ export function HlsPlayer({
   const cb = useRef({
     onReady, onError, onQualityLevels, onStatsUpdate,
     onAudioTracks, onSubtitleTracks, onLoadModeChange, onRequestMpegts,
-    onCodecUnsupported, proxyUrl,
+    onCurrentLevelChange, onCodecUnsupported, proxyUrl,
   })
   useEffect(() => {
     cb.current = {
       onReady, onError, onQualityLevels, onStatsUpdate,
       onAudioTracks, onSubtitleTracks, onLoadModeChange, onRequestMpegts,
-      onCodecUnsupported, proxyUrl,
+      onCurrentLevelChange, onCodecUnsupported, proxyUrl,
     }
   })
 
@@ -327,7 +333,20 @@ export function HlsPlayer({
     })
 
     // ── Stats Updates ──
-    hls.on(Hls.Events.LEVEL_SWITCHED, () => { if (hlsRef.current) cb.current.onStatsUpdate?.(buildStats(hlsRef.current, video)) })
+    // LEVEL_SWITCHED fires whenever hls.js switches to a different quality
+    // level — either via ABR auto-selection OR a manual `currentLevel` set.
+    // We report the new level index to the parent so it can display
+    // "Auto (1080p)" in the settings Quality row, showing the user which
+    // resolution ABR has currently chosen.
+    hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
+      if (hlsRef.current) {
+        cb.current.onStatsUpdate?.(buildStats(hlsRef.current, video))
+        const levelIndex = data?.level ?? hlsRef.current.currentLevel
+        if (levelIndex !== undefined && levelIndex >= 0) {
+          cb.current.onCurrentLevelChange?.(levelIndex)
+        }
+      }
+    })
     hls.on(Hls.Events.FRAG_LOADED, () => { if (hlsRef.current) cb.current.onStatsUpdate?.(buildStats(hlsRef.current, video)) })
 
     // ── Track Updates ──

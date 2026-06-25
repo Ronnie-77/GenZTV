@@ -20,8 +20,9 @@ interface ParsedChannel {
 // Detection order matters:
 //   1. .ts  extension           → 'mpegts'
 //   2. .m3u8 / .m3u extension   → 'm3u8' (default HLS; StreamPlayer treats it as direct)
-//   3. iframe/embed patterns    → 'iframe'
-//   4. everything else          → undefined (let the frontend decide / show error)
+//   3. .mpd extension           → 'dash' (MPEG-DASH manifest, handled by dash.js)
+//   4. iframe/embed patterns    → 'iframe'
+//   5. everything else          → undefined (let the frontend decide / show error)
 function detectStreamTypeFromUrl(url: string): string | undefined {
   if (!url) return undefined
   let pathname = url
@@ -38,6 +39,10 @@ function detectStreamTypeFromUrl(url: string): string | undefined {
   // HLS manifest
   if (/\.m3u8?(\?.*)?$/i.test(pathname)) {
     return 'm3u8'
+  }
+  // DASH manifest (.mpd)
+  if (/\.mpd(\?.*)?$/i.test(pathname)) {
+    return 'dash'
   }
   // Common iframe/embed hosts — treat as iframe embeds
   if (/(?:youtube\.com\/embed|youtu\.be|player\.twitch\.tv|player\.vimeo\.com|dailymotion\.com\/embed|facebook\.com\/plugins\/video|iframe\.|\/embed\/)/i.test(url)) {
@@ -160,7 +165,7 @@ function parseJSONContent(content: string): ParsedChannel[] {
       // exports use `type` for unrelated metadata ("movie", "live", "tv",
       // "channel", etc.) which caused m3u8 URLs to be misclassified as iframe.
       const streamTypeRaw = String(obj.streamType || obj.stream_type || '').toLowerCase()
-      const validStreamTypes = ['m3u', 'm3u8', 'm3u8_direct', 'm3u8_proxy', 'm3u8_jw', 'iframe', 'iframe_direct', 'mpegts', 'github_m3u', 'direct', 'redirect']
+      const validStreamTypes = ['m3u', 'm3u8', 'm3u8_direct', 'm3u8_proxy', 'm3u8_jw', 'iframe', 'iframe_direct', 'mpegts', 'dash', 'github_m3u', 'direct', 'redirect']
       let streamType = validStreamTypes.includes(streamTypeRaw) ? streamTypeRaw : undefined
 
       // ── URL-based override (fixes remaining misclassification bugs) ──
@@ -176,6 +181,9 @@ function parseJSONContent(content: string): ParsedChannel[] {
       if (urlDetected === 'mpegts') {
         // .ts URL always wins — force mpegts player
         streamType = 'mpegts'
+      } else if (urlDetected === 'dash') {
+        // .mpd URL always wins — force dash player (incompatible with hls.js)
+        streamType = 'dash'
       } else if (urlDetected === 'm3u8' || urlDetected === 'm3u') {
         // .m3u8 URL — override clearly-wrong types (iframe/redirect/mpegts),
         // but preserve explicit HLS sub-types (m3u8_direct/m3u8_proxy/m3u8_jw)

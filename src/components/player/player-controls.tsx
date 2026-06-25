@@ -87,6 +87,16 @@ interface PlayerControlsProps {
   qualityLevels?: QualityLevel[]
   currentQuality?: number
   onQualityChange?: (level: number) => void
+  /** The ACTUAL level hls.js is currently playing (from LEVEL_SWITCHED).
+   *  When currentQuality === -1 (Auto), this lets us display "Auto (1080p)"
+   *  — showing the user which resolution ABR has auto-selected. */
+  currentLevel?: number
+  /** True when the active player is an HLS player (m3u/m3u8/m3u8_direct/
+   *  m3u8_proxy/m3u8_jw). When true, the Quality row is ALWAYS shown in the
+   *  settings menu — even before levels are parsed (shows "Auto" only).
+   *  This matches the behaviour of the new StreamPlayer's built-in quality
+   *  gear, which always shows the quality selector. */
+  isHls?: boolean
   hlsStats?: HlsStats | null
   // VLC-like controls
   playbackRate?: number
@@ -176,6 +186,8 @@ export function PlayerControls({
   qualityLevels = [],
   currentQuality = -1,
   onQualityChange,
+  currentLevel = -1,
+  isHls = false,
   hlsStats,
   playbackRate = 1,
   onPlaybackRateChange,
@@ -242,14 +254,36 @@ export function PlayerControls({
     }
   }
 
-  const hasQualityLevels = qualityLevels.length > 0
+  // Show the Quality row whenever:
+  //   • There are detected quality levels (multi-bitrate manifest), OR
+  //   • The active player is an HLS player — even single-bitrate / not-yet-
+  //     parsed streams should show "Auto" so the user knows the feature exists
+  //     and can see the resolution once ABR reports it via LEVEL_SWITCHED.
+  // This matches the new StreamPlayer's built-in quality gear, which always
+  // shows the quality selector regardless of manifest state.
+  const hasQualityLevels = qualityLevels.length > 0 || isHls
   const hasAudioTracks = audioTracks.length > 1
   const hasSubtitleTracks = subtitleTracks.length > 0
 
-  // Short quality label for display (just resolution without bitrate)
-  const currentQualityShort = currentQuality === -1
-    ? 'Auto'
-    : qualityLevels.find(q => q.index === currentQuality)?.label.split(' · ')[0] || 'Auto'
+  // Short quality label for display.
+  // When the user selected "Auto" (currentQuality === -1), we show the
+  // ACTUAL level ABR has chosen (e.g. "Auto (1080p)") using currentLevel
+  // from LEVEL_SWITCHED. If levels haven't been parsed yet, just "Auto".
+  const currentQualityShort = (() => {
+    if (currentQuality === -1) {
+      // Auto mode — show which resolution ABR picked, if known
+      if (currentLevel >= 0) {
+        const lvl = qualityLevels.find(q => q.index === currentLevel)
+        if (lvl) {
+          const short = lvl.label.split(' · ')[0] // "1080p", "720p", etc.
+          return `Auto (${short})`
+        }
+      }
+      return 'Auto'
+    }
+    // Manual selection — show the chosen level's short label
+    return qualityLevels.find(q => q.index === currentQuality)?.label.split(' · ')[0] || 'Auto'
+  })()
 
   // Speed label
   const speedLabel = playbackRate === 1 ? 'Normal' : `${playbackRate}x`
@@ -398,7 +432,9 @@ export function PlayerControls({
         </div>
       )}
 
-      {/* Quality sub-page */}
+      {/* Quality sub-page — shows whenever there are levels OR the player is HLS.
+          Even if the manifest hasn't been parsed yet (single-quality stream or
+          slow proxy), we still show the "Auto" option so the menu isn't empty. */}
       {settingsPage === 'quality' && hasQualityLevels && (
         <div>
           <SettingsSubHeader label="Quality" onBack={() => setSettingsPage('main')} />
@@ -406,9 +442,22 @@ export function PlayerControls({
             <SettingsOption
               label="Auto"
               active={currentQuality === -1}
-              subLabel={currentQuality === -1 ? '(Adaptive)' : undefined}
+              subLabel={
+                currentQuality === -1 && currentLevel >= 0
+                  ? qualityLevels.find(q => q.index === currentLevel)?.label.split(' · ')[0]
+                    ? `(${qualityLevels.find(q => q.index === currentLevel)!.label.split(' · ')[0]})`
+                    : '(Adaptive)'
+                  : currentQuality === -1
+                    ? '(Adaptive)'
+                    : undefined
+              }
               onClick={() => { onQualityChange?.(-1); setSettingsOpen(false); setSettingsPage('main') }}
             />
+            {qualityLevels.length === 0 && (
+              <div className="px-6 py-2 text-[12px] text-white/40 italic">
+                Detecting quality options…
+              </div>
+            )}
             {[...qualityLevels].reverse().map((level) => {
               const shortLabel = level.label.split(' · ')[0]
               return (
@@ -416,7 +465,7 @@ export function PlayerControls({
                   key={level.index}
                   label={shortLabel}
                   active={currentQuality === level.index}
-                  subLabel={`${(level.bitrate / 1000000).toFixed(1)}Mbps`}
+                  subLabel={level.bitrate > 0 ? `${(level.bitrate / 1000000).toFixed(1)}Mbps` : undefined}
                   onClick={() => { onQualityChange?.(level.index); setSettingsOpen(false); setSettingsPage('main') }}
                 />
               )
@@ -543,6 +592,14 @@ export function PlayerControls({
               <span>Current Quality</span>
               <span className="text-white/90 font-medium">{currentQualityShort}</span>
             </div>
+            {currentQuality === -1 && currentLevel >= 0 && qualityLevels.find(q => q.index === currentLevel) && (
+              <div className="flex justify-between">
+                <span>ABR Playing</span>
+                <span className="text-white/90 font-medium">
+                  {qualityLevels.find(q => q.index === currentLevel)!.label}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span>ABR Mode</span>
               <span className="text-white/90 font-medium">{hlsStats.autoLevelEnabled ? 'Auto' : 'Manual'}</span>
@@ -589,20 +646,19 @@ export function PlayerControls({
             </div>
           )}
 
-          {/* Title + live indicator bar at top */}
-          <div
-            className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent px-3 pt-2.5 pb-6 pointer-events-none"
-          >
-            <div className="flex items-center gap-2">
-              <p className="text-white text-[13px] font-medium truncate">{title}</p>
-              {isLive && (
+          {/* Live indicator only (title removed — the watch page header already
+              shows the channel/match name above the player, so showing it again
+              inside the iframe overlay is redundant and clutters the video). */}
+          {isLive && (
+            <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent px-3 pt-2.5 pb-6 pointer-events-none">
+              <div className="flex items-center gap-2">
                 <span className="flex items-center gap-1 text-[10px] text-red-400 font-semibold shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
                   LIVE
                 </span>
-              )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Control bar at bottom */}
           <div

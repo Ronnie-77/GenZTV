@@ -16,16 +16,70 @@ import { NextRequest, NextResponse } from 'next/server'
 export const maxDuration = 300 // 5 minute timeout for live streams
 
 // Upstream request timeout (ms)
-// Reduced for fast fallback: if upstream doesn't respond in 8s for manifest,
-// it's dead — let hls.js/mpegts.js fall back quickly instead of waiting 15s.
-const UPSTREAM_TIMEOUT_MANIFEST = 8000 // 8s for m3u8 manifests (was 15s)
+// Reduced for fast fallback: if upstream doesn't respond in 5s for manifest,
+// it's dead — let hls.js fall back quickly instead of waiting 8-15s.
+const UPSTREAM_TIMEOUT_MANIFEST = 5000 // 5s for m3u8 manifests (was 8s)
 const UPSTREAM_TIMEOUT_SEGMENT = 15000 // 15s for segments (was 30s)
-const UPSTREAM_TIMEOUT_LIVE = 60000 // 60s for live .ts streams (unchanged)
+// Live .ts streams: 30s for the INITIAL response (headers).
+// Once headers arrive, the stream stays open with no timeout.
+// The old 60s timeout meant a dead upstream took 60s × 2 attempts = 2 MINUTES
+// before the proxy returned 504 — way too long for the user to wait.
+// 30s is enough for slow-but-alive upstreams (e.g. cdn.jsssbd.com ts.php has
+// ~16s TTFB), while dead upstreams fail in 30s instead of 2min.
+const UPSTREAM_TIMEOUT_LIVE = 30000 // 30s for live .ts initial response (was 60s)
 
-// Retry configuration — reduced so failures surface faster
-const MAX_RETRIES_MANIFEST = 1 // 1 retry for manifests (was 2)
+// Retry configuration — 0 retries for manifests: hls.js has its own retry
+// layer (manifestLoadingMaxRetry=1), so the proxy retrying too causes
+// duplicate concurrent upstream fetches (double bandwidth, slower fail).
+// Segments keep 1 retry because hls.js segment retries are more disruptive.
+const MAX_RETRIES_MANIFEST = 0 // 0 retries for manifests (was 1) — let hls.js retry
 const MAX_RETRIES_SEGMENT = 1 // 1 retry for segments (was 2)
 const RETRY_DELAY_MS = 300 // was 500
+
+// ─── In-memory manifest cache ──────────────────────────────────────────────
+// Live m3u8 manifests are reloaded by hls.js every 3-6s. Each reload hits the
+// upstream again (2-3s latency). Caching the rewritten manifest means most
+// live-reload cycles hit our cache instead — dramatically reducing upstream
+// load and stabilizing playback.
+//
+// VOD manifests never change, so the cache is always safe for them.
+//
+// TTL CHOICE (4s):
+//   hls.js reloads live manifests every targetDuration × liveSyncDurationCount
+//   ≈ 3-6s. A 4s TTL means most reload cycles hit our cache (1 upstream fetch
+//   per ~4s instead of per ~3s). This is safe because live playlist segments
+//   are typically 2-6s long — within the 4s cache window, at most ONE new
+//   segment appears, and hls.js will pick it up on the next uncached reload.
+//   The old 2s TTL was too short — on slow upstreams (e.g. cdn.jsssbd.com
+//   hls.php taking 4-5s per fetch), EVERY reload went to upstream, causing
+//   the "m3u8_proxy plays very late" symptom the user reported.
+//
+// The cache key is the full upstream URL. We store { body, ts }.
+// Entries are lazily evicted on read if older than MANIFEST_CACHE_TTL_MS.
+const MANIFEST_CACHE_TTL_MS = 4000 // 4 seconds — safe for live, generous for VOD
+const manifestCache = new Map<string, { body: string; ts: number }>()
+
+function getCachedManifest(url: string): string | null {
+  const entry = manifestCache.get(url)
+  if (!entry) return null
+  if (Date.now() - entry.ts > MANIFEST_CACHE_TTL_MS) {
+    manifestCache.delete(url)
+    return null
+  }
+  return entry.body
+}
+
+function setCachedManifest(url: string, body: string) {
+  manifestCache.set(url, { body, ts: Date.now() })
+  // Lazy eviction: if cache grows beyond 200 entries, prune the oldest 50.
+  // This bounds memory usage even under heavy live-stream churn.
+  if (manifestCache.size > 200) {
+    const entries = [...manifestCache.entries()].sort((a, b) => a[1].ts - b[1].ts)
+    for (let i = 0; i < 50 && i < entries.length; i++) {
+      manifestCache.delete(entries[i][0])
+    }
+  }
+}
 
 // Detect if a .ts URL is a live stream (not a VOD segment)
 function isLiveTsUrl(pathname: string): boolean {
@@ -89,6 +143,28 @@ export async function GET(req: NextRequest) {
     const isTs = (/\.ts(\?.*)?$/.test(parsedUrl.pathname) || /\.ts(\?|$)/.test(url)) && !parsedUrl.pathname.includes('.m3u8') && !parsedUrl.pathname.includes('.m3u')
     const isLiveTs = isTs && isLiveTsUrl(parsedUrl.pathname + parsedUrl.search)
 
+    // ── Manifest cache check (BEFORE upstream fetch) ──
+    // If we have a fresh (≤2s old) rewritten manifest for this URL, serve it
+    // directly — skips the upstream fetch entirely. This is the single biggest
+    // latency win for live streams: hls.js reloads the manifest every 3-6s,
+    // and without caching each reload costs 2-3s of upstream wait.
+    if (isM3u8 && !isTs) {
+      const cached = getCachedManifest(url)
+      if (cached !== null) {
+        return new NextResponse(cached, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/vnd.apple.mpegurl',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': '*',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'X-Stream-Proxy-Cache': 'HIT',
+          },
+        })
+      }
+    }
+
     // Build upstream request headers — use VLC User-Agent for better IPTV server compatibility
     // Many IPTV/streaming servers block browser User-Agents but allow VLC
     const fetchHeaders: Record<string, string> = {
@@ -119,10 +195,13 @@ export async function GET(req: NextRequest) {
       console.log(`[stream-proxy] Live TS stream: ${url}`)
       let response: Response
       try {
+        // 0 retries for live TS — a dead upstream should fail fast (30s)
+        // instead of 30s × 2 = 60s. The mpegts.js client has its own retry
+        // layer that will re-request the URL if needed.
         response = await fetchWithRetry(url, {
           headers: fetchHeaders,
           redirect: 'follow',
-        }, UPSTREAM_TIMEOUT_LIVE, MAX_RETRIES_SEGMENT)
+        }, UPSTREAM_TIMEOUT_LIVE, 0)
       } catch (fetchErr) {
         const msg = fetchErr instanceof Error ? fetchErr.message : 'Unknown fetch error'
         console.error(`[stream-proxy] Live TS fetch failed: ${msg}`)
@@ -237,6 +316,9 @@ export async function GET(req: NextRequest) {
 
     // For m3u8 files, rewrite relative URLs to go through this proxy
     if (isM3u8) {
+      // Cache MISS path — we already checked the cache at the top of GET().
+      // Fetch the manifest from upstream, rewrite URLs, cache the result.
+
       const text = await response.text()
 
       // Log first few lines of the manifest for debugging
@@ -251,6 +333,9 @@ export async function GET(req: NextRequest) {
 
       console.log(`[stream-proxy] Rewrote m3u8 (${text.length} bytes → ${rewritten.length} bytes)`)
 
+      // Cache the rewritten manifest for 2s — subsequent hls.js reloads hit cache
+      setCachedManifest(url, rewritten)
+
       return new NextResponse(rewritten, {
         status: 200,
         headers: {
@@ -259,6 +344,7 @@ export async function GET(req: NextRequest) {
           'Access-Control-Allow-Methods': 'GET, OPTIONS',
           'Access-Control-Allow-Headers': '*',
           'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'X-Stream-Proxy-Cache': 'MISS',
         },
       })
     }

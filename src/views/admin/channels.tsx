@@ -26,6 +26,7 @@ const streamTypeOptions = [
   { value: 'iframe', label: 'iFrame (proxied + lock)' },
   { value: 'iframe_direct', label: '⬛ iFrame Direct (raw embed, no controls/proxy)' },
   { value: 'mpegts', label: 'MPEG-TS (.ts)' },
+  { value: 'dash', label: 'DASH (.mpd)' },
   { value: 'github_m3u', label: 'GitHub M3U' },
 ]
 

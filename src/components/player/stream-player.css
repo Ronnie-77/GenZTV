@@ -619,7 +619,79 @@
               0 2px 6px rgba(0, 0, 0, 0.5);
 }
 
-/* ─── Quality button — premium pill ─── */
+/* ─── Settings (gear) button — premium pill with gear icon ─── */
+/* Replaces the old .sp-quality-btn ("Auto ▾" text button). The gear icon
+   opens the quality panel; the current quality label sits next to it. */
+.sp-settings-btn {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  padding: 5px 10px;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.9);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.sp-settings-btn:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+}
+
+.sp-settings-btn:focus-visible {
+  outline: 2px solid #e63946;
+  outline-offset: 2px;
+}
+
+/* The gear icon itself — spins slightly when the panel is open. */
+.sp-settings-gear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  opacity: 0.9;
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sp-settings-gear svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+  display: block;
+}
+
+.sp-settings-btn[aria-expanded="true"] .sp-settings-gear {
+  transform: rotate(60deg);
+}
+
+/* The quality label next to the gear (e.g. "Auto", "720p", "Auto (1080p)").
+   Hidden on very narrow viewports so the gear is always tappable. */
+.sp-quality-label {
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 380px) {
+  .sp-quality-label { display: none; }
+  .sp-settings-btn { padding: 6px; }
+}
+
+/* Keep the old class names as aliases so any legacy CSS references still
+   work — they just map to the new settings button now. */
 .sp-quality-btn {
   background: rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(6px);

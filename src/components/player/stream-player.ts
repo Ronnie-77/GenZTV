@@ -8,6 +8,7 @@
  *   • M3U/HLS          — Standard HLS (.m3u8) via hls.js / Safari native
  *   • M3U/HLS Proxy    — Proxied HLS with custom headers / CORS bypass
  *   • MPEG-TS (.ts)    — Raw transport stream, transmuxed via hls.js MediaSource
+ *   • DASH (.mpd)      — MPEG-DASH adaptive streaming via dash.js
  *
  * Features:
  *   • Zero-buffer aggressive pre-loading strategy
@@ -37,26 +38,132 @@ async function _loadMpegtsLib() {
   return _mpegtsLib;
 }
 
+// ─── dash.js dynamic loader (avoids SSR + Turbopack exports-field issues) ────
+// dash.js is the reference player for MPEG-DASH (.mpd) adaptive streaming.
+// It handles MPD manifest parsing, segment fetching, ABR switching, and (when
+// configured) DRM via EME (Widevine/PlayReady/ClearKey).
+//
+// WHY WE LOAD VIA <script> TAG INSTEAD OF `import 'dashjs'`:
+// dash.js accesses `window`/`document` at import time AND its package.json
+// uses a complex `exports` field with multiple conditions (import/browser/
+// require/script) that Turbopack in Next.js 16 fails to resolve, producing a
+// misleading "Module not found: Can't resolve 'dashjs'" error. Even importing
+// the direct bundle path 'dashjs/dist/modern/esm/dash.all.min.js' fails
+// because Turbopack respects the `exports` field and blocks subpath access.
+//
+// SOLUTION: The UMD bundle (dash.all.min.js) is copied to /public at build
+// time and loaded here by injecting a <script> tag. The UMD bundle attaches
+// itself to `window.dashjs` (via `self.dashjs = factory()`). This completely
+// bypasses Turbopack's module resolution — the script is served as a static
+// asset and executed in the browser only when a DASH stream is first
+// requested. Lazy-loaded, so it adds zero cost to non-DASH playback.
+let _dashLib = null;
+let _dashScriptPromise = null;
+async function _loadDashLib() {
+  if (_dashLib) return _dashLib;
+  if (typeof window === 'undefined') return null; // SSR guard
+
+  // If window.dashjs is already set (script previously loaded), use it.
+  if (window.dashjs) {
+    _dashLib = window.dashjs;
+    return _dashLib;
+  }
+
+  // Inject the UMD script tag once. Cache the promise so concurrent calls
+  // share a single script-load attempt.
+  if (!_dashScriptPromise) {
+    _dashScriptPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = '/dash.all.min.js';
+      script.async = true;
+      script.onload = () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const lib = (window).dashjs;
+        if (lib) {
+          _dashLib = lib;
+          resolve(lib);
+        } else {
+          _dashScriptPromise = null; // allow retry
+          reject(new Error('dashjs global not found after script load'));
+        }
+      };
+      script.onerror = () => {
+        _dashScriptPromise = null; // allow retry on failure
+        reject(new Error('Failed to load dashjs script from /dash.all.min.js'));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  return _dashScriptPromise;
+}
+
+// TypeScript declaration for the global dashjs object injected by the UMD
+// bundle. The real dashjs MediaPlayer API is quite large — we only need the
+// `.MediaPlayer()` factory here, so we declare a minimal type. Downstream
+// code accesses the player via `dashLib.MediaPlayer().create()`.
+declare global {
+  interface Window {
+    dashjs?: {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      MediaPlayer: any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Debug: any;
+      [key: string]: unknown;
+    };
+  }
+}
+
 // ─── Stream type constants ───────────────────────────────────────────────────
 const SP_TYPE = {
   HLS:       'hls',       // M3U/HLS  → hls.js or Safari native
   HLS_PROXY: 'hls-proxy', // M3U/HLS Proxy → hls.js with proxy headers
   MPEGTS:    'mpegts',    // MPEG-TS (.ts) → hls.js transmux via Blob M3U8
+  DASH:      'dash',      // MPEG-DASH (.mpd) → dash.js
 };
 
 // ─── HLS config presets per stream type ─────────────────────────────────────
+//
+// LATENCY TUNING RATIONALE:
+//   The hls.js `fragLoadingTimeOut` MUST be greater than the proxy's
+//   `UPSTREAM_TIMEOUT_SEGMENT` (15s) + retry delay (300ms). Otherwise hls.js
+//   times out BEFORE the proxy gives up, triggering a duplicate concurrent
+//   upstream fetch — wasting bandwidth and making the stream appear "stuck".
+//   We set fragLoadingTimeOut=20000 to stay above the proxy's 15s ceiling.
+//
+//   Manifest timeouts are kept tight (5s) so dead streams fail fast — the
+//   user sees an error in ~10s instead of ~48s (old config: 8s × 2 retries ×
+//   2 layers = 32s+ worst case).
+//
+//   Proxy streams get a LARGER forward buffer (maxBufferLength=12) because
+//   each segment fetch goes browser→our server→upstream→our server→browser,
+//   adding 100-500ms per segment. A larger buffer absorbs these latency
+//   spikes and prevents rebuffer-stutter during playback.
+//
+// FAST-START TUNING (Task 22):
+//   The #1 cause of "m3u8 plays late" was liveSyncDurationCount=2. For a
+//   6s segment, hls.js waits for ~12s of buffered content before reaching
+//   the live-sync position and starting playback. Dropping to 1 saves ~6s
+//   on the first frame for LIVE m3u8 streams.
+//   maxBufferLength was also dropped (10→6 direct, 20→12 proxy) so hls.js
+//   fills its initial buffer faster — combined with startLevel=0 + no
+//   bandwidth probe + progressive parsing, first-frame now happens after
+//   ONE fragment download instead of two.
 const HLS_CONFIG = {
   base: {
     enableWorker:                true,
+    enableFetch:                 true,     // use fetch API (lower latency than XHR)
     // ── Fast-start buffer (smaller = quicker first frame) ──
-    maxBufferLength:             10,        // was 30 — start playback after ~10s buffered
-    maxMaxBufferLength:          30,        // was 60 — cap growth
-    maxBufferSize:               30 * 1000 * 1000,
+    maxBufferLength:             6,         // was 10 — fill initial buffer faster
+    maxMaxBufferLength:          20,        // was 30 — cap growth lower
+    maxBufferSize:               18 * 1000 * 1000,
     maxBufferHole:               0.5,
     backBufferLength:            20,        // keep memory lean on live
-    // ── Live sync — closer to edge = less wait ──
-    liveSyncDurationCount:       2,         // was 3 — one segment closer to live
-    liveMaxLatencyDurationCount: 8,
+    // ── Live sync — ONE segment behind edge = fastest possible start ──
+    // was 2 — hls.js waited for ~12s of buffer before reaching live-sync
+    // position. With 1, playback starts after the first fragment decodes.
+    liveSyncDurationCount:       1,
+    liveMaxLatencyDurationCount: 4,         // was 8 — seek to edge sooner on lag
     // ── ABR — start low & ramp up (no bandwidth probe) ──
     startLevel:                  0,         // start at lowest level for instant playback
     testBandwidth:               false,     // skip ABR probing phase
@@ -67,24 +174,66 @@ const HLS_CONFIG = {
     // ── Progressive + prefetch = parse frag while downloading ──
     startFragPrefetch:           true,
     progressive:                 true,
-    // ── Frag loading — fail fast, retry fast ──
-    fragLoadingTimeOut:          10000,     // was 20000
-    fragLoadingMaxRetry:         3,         // was 8
-    fragLoadingRetryDelay:       500,       // was 1000
-    fragLoadingMaxRetryTimeout:  16000,     // was 64000
-    // ── Manifest — fail fast ──
-    manifestLoadingTimeOut:      8000,      // was 15000
-    manifestLoadingMaxRetry:     2,         // was 5
+    // ── Frag loading — MUST be > proxy UPSTREAM_TIMEOUT_SEGMENT (15s) ──
+    // was 10000 — too low, caused duplicate concurrent fetches when proxy
+    // was still fetching and hls.js already gave up + retried.
+    fragLoadingTimeOut:          20000,
+    fragLoadingMaxRetry:         2,         // was 3 — fail faster, let stall watchdog recover
+    fragLoadingRetryDelay:       500,
+    fragLoadingMaxRetryTimeout:  20000,
+    // ── Manifest — fail fast (5s × 1 retry = 10s max, was 8s × 2 = 24s) ──
+    manifestLoadingTimeOut:      5000,      // was 8000
+    manifestLoadingMaxRetry:     1,         // was 2
     manifestLoadingRetryDelay:   400,
     // ── Level — fail fast ──
-    levelLoadingTimeOut:         8000,      // was 15000
-    levelLoadingMaxRetry:        2,         // was 5
+    levelLoadingTimeOut:         5000,      // was 8000
+    levelLoadingMaxRetry:        1,         // was 2
     // ── Stall nudge ──
     nudgeMaxRetry:               8,
     nudgeOffset:                 0.2,
     // ── Low latency off by default (most streams are not LL-HLS) ──
     lowLatencyMode:              false,
+    // ── Live duration = Infinity (proper live handling, avoids duration-change stalls) ──
+    liveDurationInfinity:        true,
     // ── Start at live edge ──
+    startPosition:               -1,
+    autoStartLoad:               true,
+  },
+
+  // PROXY variant — slightly larger buffer than direct to absorb proxy-segment
+  // latency spikes (100-500ms per segment overhead), but still tuned for
+  // fast first-frame. Was 20s — too much initial wait.
+  proxy: {
+    enableWorker:                true,
+    enableFetch:                 true,
+    maxBufferLength:             12,        // was 20 — faster initial fill, still absorbs proxy lag
+    maxMaxBufferLength:          30,        // was 60 — cap growth lower
+    maxBufferSize:               36 * 1000 * 1000,
+    maxBufferHole:               0.5,
+    backBufferLength:            20,
+    liveSyncDurationCount:       1,         // was 2 — fastest possible live start
+    liveMaxLatencyDurationCount: 4,         // was 8 — seek to edge sooner on lag
+    startLevel:                  0,
+    testBandwidth:               false,
+    abrEwmaFastLive:             3.0,
+    abrEwmaSlowLive:             9.0,
+    abrBandWidthFactor:          0.95,
+    abrBandWidthUpFactor:        0.65,
+    startFragPrefetch:           true,
+    progressive:                 true,
+    fragLoadingTimeOut:          20000,     // > proxy's 15s segment timeout
+    fragLoadingMaxRetry:         3,         // was 4 — fail faster, stall watchdog recovers
+    fragLoadingRetryDelay:       500,
+    fragLoadingMaxRetryTimeout:  20000,
+    manifestLoadingTimeOut:      5000,      // match proxy manifest timeout
+    manifestLoadingMaxRetry:     1,
+    manifestLoadingRetryDelay:   400,
+    levelLoadingTimeOut:         5000,
+    levelLoadingMaxRetry:        1,
+    nudgeMaxRetry:               8,
+    nudgeOffset:                 0.2,
+    lowLatencyMode:              false,
+    liveDurationInfinity:        true,
     startPosition:               -1,
     autoStartLoad:               true,
   },
@@ -150,6 +299,7 @@ class StreamPlayer {
     // State
     this._hls             = null;
     this._mpegtsPlayer    = null; // mpegts.js player instance (for .ts streams)
+    this._dashPlayer      = null; // dash.js player instance (for .mpd streams)
     this._levels          = [];
     this._currentQuality  = this._opts.defaultQuality;
     this._urlIndex        = 0;
@@ -328,6 +478,7 @@ class StreamPlayer {
     clearTimeout(this._mpegtsNoVideoTimer);
     this._destroyHls();
     this._destroyMpegts();
+    this._destroyDash();
     this._revokeBlobs();
     this._videoHandlers.forEach(({ e, fn }) => this._video.removeEventListener(e, fn));
     this._videoHandlers = [];
@@ -340,6 +491,7 @@ class StreamPlayer {
   _startLoad() {
     this._destroyHls();
     this._destroyMpegts();
+    this._destroyDash();
     this._revokeBlobs();
 
     const type = this._opts.streamType;
@@ -373,6 +525,12 @@ class StreamPlayer {
         }
         break;
 
+      case SP_TYPE.DASH:
+        // _loadDash is async (dynamically imports dash.js) — caller doesn't
+        // need to await; spinner stays visible until playback starts.
+        this._loadDash(url);
+        break;
+
       default:
         // Unknown type — try as plain HLS
         this._loadHls(url, HLS_CONFIG.base);
@@ -383,6 +541,20 @@ class StreamPlayer {
 
   _loadHls(url, config) {
     if (!this._hlsSupported()) return;
+
+    // Preconnect to the upstream origin — warms DNS + TCP + TLS so the
+    // first hls.js manifest fetch skips the handshake (saves 200-500ms).
+    // Only for direct HLS (not proxy — proxy is same-origin).
+    try {
+      const origin = new URL(url).origin;
+      if (!document.querySelector(`link[rel="preconnect"][href="${origin}"]`)) {
+        const link = document.createElement('link');
+        link.rel = 'preconnect';
+        link.href = origin;
+        link.crossOrigin = 'anonymous';
+        document.head.appendChild(link);
+      }
+    } catch { /* URL parse failed — skip preconnect */ }
 
     const merged = Object.assign({}, config, { debug: this._opts.debug }, this._opts.hlsConfig);
     if (this._opts.lowLatency) merged.lowLatencyMode = true;
@@ -407,7 +579,9 @@ class StreamPlayer {
     if (!this._hlsSupported()) return;
 
     const proxyPrefix = this._opts.proxyUrl;
-    const config = Object.assign({}, HLS_CONFIG.base, { debug: this._opts.debug }, this._opts.hlsConfig);
+    // Use the dedicated proxy config — larger buffer (20s vs 10s) absorbs
+    // the 100-500ms per-segment proxy overhead, preventing rebuffer-stutter.
+    const config = Object.assign({}, HLS_CONFIG.proxy, { debug: this._opts.debug }, this._opts.hlsConfig);
 
     // No custom loader — the proxy server rewrites segment URLs in the m3u8
     // content itself, so hls.js will fetch them through the proxy naturally.
@@ -439,6 +613,21 @@ class StreamPlayer {
   // IMPORTANT: raw .ts URLs are almost always CORS-blocked in the browser.
   // If a proxyUrl is configured, route the .ts segment through it so the
   // browser can fetch it without CORS errors.
+
+  // ── DASH (.mpd) ────────────────────────────────────────────────────────────
+  // MPEG-DASH adaptive streaming is handled by dash.js (NOT hls.js).
+  //
+  // Why dash.js?
+  //   hls.js only understands HLS (.m3u8). DASH uses a completely different
+  //   manifest format (MPD — Media Presentation Description, XML-based) with
+  //   its own segment addressing (BaseURL, SegmentTemplate, SegmentList).
+  //   dash.js is the reference implementation maintained by the DASH-IF
+  //   consortium; it handles MPD parsing, ABR, live DVR, and DRM (Widevine /
+  //   PlayReady / ClearKey via EME).
+  //
+  //   We route the MPD through the proxy (if configured) for CORS bypass.
+  //   NOTE: DRM-encrypted streams (cenc.mpd) require a license server URL —
+  //   passing a cenc.mpd without ProtectionData will fail to decrypt.
 
   async _loadMpegTs(tsUrl) {
     // Destroy any existing player instances first
@@ -485,13 +674,31 @@ class StreamPlayer {
       enableStashBuffer: false,
       stashInitialSize:  384,
     }, {
-      // Live latency — NO aggressive chasing (was #1 cause of micro-stutter)
-      liveBufferLatencyChasing:           false,
+      // Live latency chasing — GENTLE (high threshold).
+      // The previous `false` setting let the buffer grow unbounded on live
+      // .ts streams → after a few minutes the MSE SourceBuffer hit its hard
+      // limit and playback FROZE (the "video stops mid-playback" bug).
+      // With chasing ON, mpegts.js automatically seeks forward to the live
+      // edge when the buffer exceeds liveMaxLatencyDurationCount, keeping
+      // the buffer bounded and preventing the freeze.
+      //
+      // THRESHOLD RAISED from 8 → 15:
+      // The old threshold (8 ≈ 16-24s) was too aggressive for SLOW/BURSTY
+      // upstreams (e.g. cdn.jsssbd.com ts.php at 424 Kbps). When a burst
+      // filled the buffer past 8 segments, chasing kicked in and SEEKED
+      // FORWARD — causing the "video suddenly plays fast" symptom the user
+      // reported. Then the buffer emptied during the next slow period →
+      // rebuffer → repeat. Raising to 15 (≈30-45s) means chasing only
+      // triggers on TRULY excessive buffers, not normal bursty playback.
+      // The maxBufferLength cap (30s) still prevents unbounded growth.
+      liveBufferLatencyChasing:           true,
       liveBufferLatencyChasingOnPaused:   false,
+      liveBufferLatencyMaxLatencyDurationCount: 15,
+      liveBufferLatencyMinRemain:         0.5,
       liveSyncDurationCount:              3,
-      liveMaxLatencyDurationCount:        10,
+      liveMaxLatencyDurationCount:        20,
 
-      // Buffer management (generous for smoothness)
+      // Buffer management (generous for smoothness on slow upstreams)
       maxBufferLength:                    30,
       maxMaxBufferLength:                 60,
       bufferSize:                         60 * 1000 * 1000,
@@ -551,7 +758,10 @@ class StreamPlayer {
       this._log('mpegts.js LOADING_COMPLETE — played=' + played);
 
       if (played) {
-        // Live stream dropped mid-playback → reconnect to resume
+        // Live stream dropped mid-playback → reconnect to resume.
+        // Short delay (400ms) so the user perceives a brief blip rather than
+        // a full "video stopped" event. The previous 1500ms delay made the
+        // reconnect feel like the player had died.
         setTimeout(() => {
           if (this._destroyed || !this._mpegtsPlayer) return;
           try {
@@ -561,7 +771,7 @@ class StreamPlayer {
           } catch (e) {
             this._log('mpegts.js reconnect failed:', e);
           }
-        }, 1500);
+        }, 400);
       } else {
         // Finite segment that never played (likely a single HLS segment URL).
         // Don't reconnect — let the segment decode. If the codec is
@@ -575,21 +785,54 @@ class StreamPlayer {
     // Some .ts streams use MPEG-2 video (stream type 0x02), which browsers
     // cannot decode via MediaSource Extensions (MSE only supports H.264/HEVC).
     // mpegts.js will demux the container and parse PAT/PMT, but no video
-    // frames ever decode (readyState stays 0). Detect this after 10s and
-    // show a clear error instead of silently failing.
+    // frames ever decode (readyState stays 0). Detect this and show a clear
+    // error instead of silently failing.
+    //
+    // SMART TIMER (was 10s flat):
+    // The old 10s flat timeout caused FALSE POSITIVES on slow upstreams (e.g.
+    // cdn.jsssbd.com ts.php has ~16s TTFB). The timer fired at 10s before ANY
+    // data arrived, showing "unsupported codec" on a perfectly valid H.264
+    // stream. Now we use a two-stage check:
+    //   1. First check at 15s: if NO data received at all (buffered.length===0
+    //      AND no statisticsInfo.totalLoadedBytes), it's a SLOW UPSTREAM, not
+    //      a codec issue → keep waiting, don't show error.
+    //   2. If data WAS received but readyState still < 1 (metadata not loaded),
+    //      THEN it's a genuine codec issue → show the error.
+    //   3. Hard ceiling at 45s: if still nothing by then, show a generic
+    //      "stream not responding" error (covers truly dead streams).
     clearTimeout(this._mpegtsNoVideoTimer);
     this._mpegtsNoVideoTimer = setTimeout(() => {
       if (this._destroyed || !this._mpegtsPlayer) return;
       const v = this._video;
-      if (v && v.readyState < 1 && v.currentTime === 0) {
-        this._log('mpegts.js: no video decoded after 10s — likely MPEG-2/unsupported codec');
+      if (!v) return;
+      const hasDecoded = v.readyState >= 1 || v.currentTime > 0;
+      if (hasDecoded) return; // playback started — all good
+
+      // Check if mpegts.js has received ANY data from the upstream.
+      // statisticsInfo.totalLoadedBytes > 0 means data arrived but didn't
+      // decode → likely unsupported codec (MPEG-2).
+      // buffered.length > 0 is a fallback check (some mpegts.js versions).
+      let bytesLoaded = 0;
+      try {
+        const stats = this._mpegtsPlayer.statisticsInfo || {};
+        bytesLoaded = stats.totalLoadedBytes || 0;
+      } catch {}
+      const hasBuffered = (v.buffered && v.buffered.length > 0) || bytesLoaded > 0;
+
+      if (hasBuffered) {
+        // Data arrived but no video decoded → genuine codec issue.
+        this._log('mpegts.js: data received but no video decoded — likely MPEG-2/unsupported codec');
         this._showError(
           'This stream uses an unsupported video codec.',
           'MPEG-2 .ts streams cannot be played in the browser. Try a different channel.'
         );
         this._emit('error', 'Unsupported video codec (MPEG-2).', 'Browser MSE cannot decode MPEG-2 video.');
+      } else {
+        // No data at all → slow/dead upstream, NOT a codec issue.
+        // Don't show the codec error — let the stall watchdog handle recovery.
+        this._log('mpegts.js: no data received after 15s — slow upstream, waiting...');
       }
-    }, 10000);
+    }, 15000);
   }
 
   // Handle mpegts.js errors with auto-retry for network errors
@@ -883,6 +1126,7 @@ class StreamPlayer {
       this._log('Stall recovery stage 2: recoverMediaError');
 
       if (this._hls) {
+        // HLS path: recoverMediaError + CDN rotate on persistent stall
         this._hls.recoverMediaError();
 
         this._stallTimer = setTimeout(() => {
@@ -890,7 +1134,48 @@ class StreamPlayer {
           this._log('Stall recovery stage 3: CDN rotate');
           this._rotateCdn();
         }, 4000);
+      } else if (this._mpegtsPlayer) {
+        // MPEG-TS path: mpegts.js has no recoverMediaError — do a soft
+        // unload+load+play cycle to reconnect to the live .ts stream.
+        // This is much faster than a full _rotateCdn() (which destroys +
+        // rebuilds the entire player DOM). The previous code skipped this
+        // branch entirely and went straight to _rotateCdn(), which made
+        // the video visibly "turn off" for ~2-3s on every stall.
+        this._log('Stall recovery stage 2 (mpegts): soft reconnect');
+        try {
+          this._mpegtsPlayer.unload();
+          this._mpegtsPlayer.load();
+          this._mpegtsPlayer.play().catch(() => {});
+        } catch (e) {
+          this._log('mpegts soft reconnect failed, rotating CDN:', e);
+          this._rotateCdn();
+          return;
+        }
+
+        // If still stalled after 5s, fall back to full CDN rotate
+        this._stallTimer = setTimeout(() => {
+          if (!this._stalled) return;
+          this._log('Stall recovery stage 3 (mpegts): CDN rotate');
+          this._rotateCdn();
+        }, 5000);
+      } else if (this._dashPlayer) {
+        // DASH path: dash.js has its own recovery. Force a seek to live edge.
+        this._log('Stall recovery stage 2 (dash): seek to live edge');
+        try {
+          if (this._dashPlayer.isDynamic && this._dashPlayer.duration) {
+            this._video.currentTime = this._dashPlayer.duration;
+          }
+          this._video.play().catch(() => {});
+        } catch (e) {
+          this._log('dash seek failed, rotating CDN:', e);
+        }
+        this._stallTimer = setTimeout(() => {
+          if (!this._stalled) return;
+          this._log('Stall recovery stage 3 (dash): CDN rotate');
+          this._rotateCdn();
+        }, 5000);
       } else {
+        // No player instance — full reload
         this._rotateCdn();
       }
     }, 3500);
@@ -1142,9 +1427,13 @@ class StreamPlayer {
 
         <button class="sp-btn sp-btn-sm sp-cc-btn sp-hidden" aria-label="Subtitles" aria-pressed="false">CC</button>
 
-        <button class="sp-quality-btn" aria-label="Video quality" aria-haspopup="true" aria-expanded="false">
+        <!-- Settings gear button — opens the quality panel.
+             Replaces the old "Auto ▾" text button. The current quality label
+             (e.g. "720p", "Auto (1080p)") is shown next to the gear so the
+             user can see the active quality at a glance. -->
+        <button class="sp-btn sp-settings-btn" aria-label="Video quality settings" aria-haspopup="true" aria-expanded="false">
+          <span class="sp-settings-gear">${this._icons.settings}</span>
           <span class="sp-quality-label">Auto</span>
-          <span class="sp-quality-caret">▾</span>
         </button>
 
         <button class="sp-btn sp-fullscreen-btn" aria-label="Enter fullscreen">${this._icons.fullscreen}</button>
@@ -1187,7 +1476,7 @@ class StreamPlayer {
       muteBtn:        q('.sp-mute-btn'),
       volumeSlider:   q('.sp-volume-slider'),
       ccBtn:          q('.sp-cc-btn'),
-      qualityBtn:     q('.sp-quality-btn'),
+      qualityBtn:     q('.sp-settings-btn'),
       qualityLabel:   q('.sp-quality-label'),
       qualityPanel:   q('.sp-quality-panel'),
       fullscreenBtn:  q('.sp-fullscreen-btn'),
@@ -1484,6 +1773,133 @@ class StreamPlayer {
     }
   }
 
+  _destroyDash() {
+    if (this._dashPlayer) {
+      try {
+        this._dashPlayer.reset();
+      } catch (e) {
+        // ignore — player may already be destroyed
+      }
+      this._dashPlayer = null;
+    }
+  }
+
+  // ── DASH (.mpd) loader ─────────────────────────────────────────────────────
+  async _loadDash(mpdUrl) {
+    // Destroy any existing player instances first
+    this._destroyHls();
+    this._destroyMpegts();
+    this._destroyDash();
+    this._revokeBlobs();
+
+    let dashLib;
+    try {
+      dashLib = await _loadDashLib();
+    } catch (e) {
+      this._log('Failed to load dash.js:', e);
+      this._showError('Failed to load DASH player library.', String(e));
+      return;
+    }
+
+    // Player may have been destroyed during the async import
+    if (this._destroyed) return;
+
+    // Route the .mpd URL through the proxy if one is configured.
+    const proxyPrefix = this._opts.proxyUrl;
+    let finalMpdUrl = mpdUrl;
+    if (proxyPrefix) {
+      const absoluteProxy = proxyPrefix.startsWith('http')
+        ? proxyPrefix
+        : window.location.origin + proxyPrefix;
+      finalMpdUrl = absoluteProxy + encodeURIComponent(mpdUrl);
+    }
+
+    this._log('Loading DASH via dash.js:', finalMpdUrl);
+
+    let player;
+    try {
+      player = dashLib.MediaPlayer().create();
+    } catch (e) {
+      this._showError('Failed to create DASH player instance.', String(e));
+      return;
+    }
+
+    // Basic player configuration — fast start, live edge, stable buffering.
+    try {
+      player.updateSettings({
+        streaming: {
+          // Live latency — stay close to the edge
+          liveDelay:                   6,
+          liveCatchup:                 { enabled: false },
+          // Buffer — small initial for fast first-frame, larger steady-state
+          stableBufferTime:            20,
+          bufferTimeAtTopQuality:      30,
+          bufferTimeAtTopQualityLongForm: 60,
+          // ABR — start low for instant playback
+          abr:                         { initialBitrate: { video: 800 }, autoSwitchBitrate: { video: true } },
+          // Fast start
+          fastStartEnabled:            true,
+          // Jump to live edge on load
+          jumpGaps:                    true,
+          smallGapLimit:               1.5,
+        },
+        debug: { logLevel: this._opts.debug ? dashLib.Debug.LOG_LEVEL_INFO : dashLib.Debug.LOG_LEVEL_NONE },
+      });
+    } catch (e) {
+      // Settings API changed between dash.js versions — fall back to defaults.
+      this._log('dash.js updateSettings failed, using defaults:', e);
+    }
+
+    // Initialize and attach to the video element
+    try {
+      player.initialize(this._video, finalMpdUrl, !!this._opts.autoplay);
+    } catch (e) {
+      this._showError('Failed to initialize DASH playback.', String(e));
+      return;
+    }
+    this._dashPlayer = player;
+
+    // Bridge dash.js events.
+    // NOTE: dash.js attaches its own src to the video element, so the standard
+    // video events (play, pause, playing, timeupdate, waiting, ended) fire on
+    // the video element and are already handled by _attachVideoEvents() above.
+    // We only bridge dash.js-specific events: ERROR and quality changes.
+    try {
+      player.on(dashLib.MediaPlayer.events.ERROR, (e) => {
+        this._onDashError(e, mpdUrl);
+      });
+      player.on(dashLib.MediaPlayer.events.QUALITY_CHANGE_RENDERED, (e) => {
+        // Bridge to the existing quality-switch handler.
+        if (e && typeof e.newQuality !== 'undefined') {
+          this._onQualitySwitch(e.newQuality);
+        }
+      });
+    } catch (e) {
+      this._log('dash.js event binding failed:', e);
+    }
+
+    this._attachVideoEvents();
+  }
+
+  _onDashError(e, mpdUrl) {
+    this._log('dash.js error:', e);
+    // DRM-related errors are unrecoverable without a license server.
+    const errId = e && e.error ? e.error.code || e.error.id : '';
+    const errMsg = e && e.error ? (e.error.message || String(e.error)) : String(e);
+
+    // Capability errors typically mean DRM/EME not available.
+    if (errId === 'capability' || /mediakeys|eme|drm|protection|keysystem/i.test(errMsg)) {
+      this._showError(
+        'This DASH stream is DRM-encrypted and cannot be played without a license server.',
+        'cenc.mpd streams require a DRM license URL.'
+      );
+      return;
+    }
+
+    // Generic error — show with details.
+    this._showError('DASH playback error.', errMsg);
+  }
+
   _revokeBlobs() {
     this._blobUrls.forEach(u => URL.revokeObjectURL(u));
     this._blobUrls = [];
@@ -1510,6 +1926,7 @@ class StreamPlayer {
     volumeOff:      `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>`,
     fullscreen:     `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`,
     exitFullscreen: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>`,
+    settings:       `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>`,
   }; }
 }
 

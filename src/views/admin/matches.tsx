@@ -264,7 +264,7 @@ interface StreamForm {
   channelId: string
   // Mirrors the channel streamType options so matches can use the same
   // embed strategies as channels (iframe, iframe_direct, redirect, etc.)
-  type: 'iframe' | 'iframe_direct' | 'direct' | 'redirect' | 'mpegts' | 'm3u8_jw'
+  type: 'iframe' | 'iframe_direct' | 'direct' | 'redirect' | 'mpegts' | 'm3u8_jw' | 'dash'
   url: string
 }
 
@@ -297,6 +297,7 @@ function StreamInput({ stream, onUpdate, onRemove, onMoveUp, onMoveDown, channel
     else if (ch.streamType === 'redirect') streamType = 'redirect'
     else if (ch.streamType === 'mpegts') streamType = 'mpegts'
     else if (ch.streamType === 'm3u8_jw') streamType = 'm3u8_jw'
+    else if (ch.streamType === 'dash') streamType = 'dash'
 
     onUpdate({
       ...stream,
@@ -463,6 +464,7 @@ function StreamInput({ stream, onUpdate, onRemove, onMoveUp, onMoveDown, channel
           <option value="direct">Direct (M3U8)</option>
           <option value="m3u8_jw">M3U8 JW Player</option>
           <option value="mpegts">MPEG-TS (.ts)</option>
+          <option value="dash">DASH (.mpd)</option>
           <option value="redirect">Redirect</option>
         </select>
         <Input
@@ -783,7 +785,7 @@ export function AdminMatches() {
       name: s.name,
       channel: s.channel,
       channelId: '',
-      type: s.type as 'iframe' | 'iframe_direct' | 'direct' | 'redirect' | 'mpegts',
+      type: s.type as 'iframe' | 'iframe_direct' | 'direct' | 'redirect' | 'mpegts' | 'dash',
       url: s.url,
     })))
     setShowForm(true)

@@ -1118,15 +1118,75 @@ input[type="number"]::-webkit-outer-spin-button {
   justify-content: space-between;
   position: relative;
   z-index: 1;
+  gap: 8px;
+}
+
+/* Sport badge + league name grouped on the left of the header.
+   The badge makes it instantly obvious whether a card is cricket or
+   football; the league name sits beside it, bolder/darker than before. */
+.match-league-wrap {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+}
+
+.match-sport-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 9.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  line-height: 1;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.match-sport-badge-icon {
+  font-size: 11px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.18));
+}
+.match-sport-badge.sport-cricket {
+  background: rgba(34, 197, 94, 0.14);
+  color: #15803d;
+}
+.dark .match-sport-badge.sport-cricket {
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+}
+.match-sport-badge.sport-football {
+  background: rgba(249, 115, 22, 0.14);
+  color: #c2410c;
+}
+.dark .match-sport-badge.sport-football {
+  background: rgba(249, 115, 22, 0.18);
+  color: #fb923c;
+}
+.match-sport-badge.sport-other {
+  background: rgba(124, 140, 248, 0.14);
+  color: #4f46e5;
+}
+.dark .match-sport-badge.sport-other {
+  background: rgba(124, 140, 248, 0.18);
+  color: #a5b4fc;
 }
 
 .match-league {
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 1.2px;
+  letter-spacing: 0.8px;
   color: var(--foreground);
-  opacity: 0.6;
+  opacity: 0.88;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .match-status {
@@ -1249,17 +1309,17 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 .team-logo {
-  width: 53px;
-  height: 53px;
+  width: 60px;
+  height: 60px;
   border-radius: 50%;
   background: var(--secondary);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 800;
   color: var(--foreground);
-  border: 2px solid var(--border);
+  border: 2.5px solid var(--border);
   flex-shrink: 0;
   transition: border-color 0.22s ease;
   overflow: hidden;
@@ -1276,7 +1336,7 @@ input[type="number"]::-webkit-outer-spin-button {
   height: 100%;
   object-fit: cover;
   border-radius: 50%;
-  padding: 3px;
+  padding: 2px;
 }
 
 .team-logo-flag {
@@ -1284,11 +1344,11 @@ input[type="number"]::-webkit-outer-spin-button {
   height: 100%;
   object-fit: cover;
   border-radius: 50%;
-  padding: 3px;
+  padding: 2px;
 }
 
 .team-logo-emoji {
-  font-size: 30px;
+  font-size: 36px;
   line-height: 1;
   filter: drop-shadow(0 1px 2px rgba(0,0,0,0.1));
 }
@@ -1417,7 +1477,10 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 .match-time {
-  opacity: 0.6;
+  opacity: 0.88;
+  font-weight: 700;
+  font-size: 11.5px;
+  color: var(--foreground);
 }
 
 .match-stream-count {
@@ -1429,8 +1492,48 @@ input[type="number"]::-webkit-outer-spin-button {
   color: var(--muted-foreground);
 }
 
+/* Right-side action group in the footer: live elapsed timer sits to
+   the LEFT of the Watch Now button, both vertically centered. */
+.match-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+/* Live elapsed timer — counts up from match start, red mono digits with
+   a pulsing dot, so users can see how long a live match has been running. */
+.live-elapsed-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #FF3B30;
+  line-height: 1;
+  letter-spacing: 0.2px;
+}
+.dark .live-elapsed-timer {
+  color: #FF5252;
+}
+.live-elapsed-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #FF3B30;
+  animation: match-live-dot 1s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.dark .live-elapsed-dot {
+  background: #FF5252;
+}
+.live-elapsed-value {
+  white-space: nowrap;
+}
+
 .watch-now-btn {
-  padding: 5px 14px;
+  padding: 7px 15px;
   border-radius: 20px;
   background: #F43F5E;
   color: #fff;
@@ -1439,12 +1542,13 @@ input[type="number"]::-webkit-outer-spin-button {
   letter-spacing: 0.3px;
   cursor: pointer;
   border: none;
-  transition: background 0.22s ease, transform 0.15s ease;
+  transition: background 0.22s ease, transform 0.15s ease, box-shadow 0.22s ease;
   text-transform: uppercase;
   display: inline-flex;
   align-items: center;
   gap: 5px;
   line-height: 1;
+  box-shadow: 0 2px 6px rgba(244, 63, 94, 0.28);
 }
 .watch-now-btn:hover {
   background: #E11D48;
