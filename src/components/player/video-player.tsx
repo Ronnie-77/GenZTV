@@ -147,7 +147,7 @@ function proxyStreamUrl(url: string): string {
 
 const KNOWN_STREAM_TYPES = new Set([
   'm3u', 'm3u8', 'm3u8_direct', 'm3u8_proxy', 'm3u8_jw',
-  'iframe', 'iframe_direct', 'mpegts', 'dash', 'github_m3u', 'direct', 'redirect',
+  'iframe', 'iframe_direct', 'mpegts', 'dash', 'github_m3u', 'fifalive', 'direct', 'redirect',
 ])
 
 // Compute the resolved URL + backend type synchronously to avoid a flash of wrong UI.
@@ -174,6 +174,7 @@ function getInitialResolved(url: string, type: string): { resolvedUrl: string; r
   if (type === 'iframe') return { resolvedUrl: url, resolvedType: 'iframe' }
   if (type === 'iframe_direct') return { resolvedUrl: url, resolvedType: 'iframe_direct' }
   if (type === 'github_m3u') return { resolvedUrl: url, resolvedType: 'github_m3u' }
+  if (type === 'fifalive') return { resolvedUrl: '', resolvedType: 'fifalive' } // async-resolved below
   if (type === 'm3u8_direct') return { resolvedUrl: url, resolvedType: 'm3u8_direct' }
   if (type === 'm3u8_proxy') return { resolvedUrl: url, resolvedType: 'm3u8_proxy' }
   if (type === 'm3u8_jw') return { resolvedUrl: url, resolvedType: 'm3u8_jw' }
@@ -235,6 +236,9 @@ export function VideoPlayer({
   const isHls = resolvedType === 'm3u' || resolvedType === 'm3u8' ||
                 resolvedType === 'm3u8_direct' || resolvedType === 'm3u8_proxy' ||
                 resolvedType === 'm3u8_jw'
+  // fifalive resolves to an m3u8 (toffeelive) → treat as HLS once resolved.
+  // Until resolved, resolvedType stays 'fifalive' and isHls is false, so no
+  // player renders until we have a real URL.
   const isJw = resolvedType === 'm3u8_jw'
 
   // HLS load mode tracking (direct → proxy → mpegts fallback chain inside HlsPlayer)
@@ -273,6 +277,17 @@ export function VideoPlayer({
 
   // Screenshot toast
   const [screenshotFlash, setScreenshotFlash] = useState(false)
+
+  // fifalive auto-re-resolve: when the toffeelive hdntl token expires
+  // (~24h) the HLS stream errors. Bumping this nonce re-runs the resolve
+  // effect to fetch a fresh token from /api/resolve-fifalive. Also bumped
+  // once shortly after load as a safety net in case the cached token was
+  // already stale when the player opened. (Task 29)
+  const [fifaliveResolveNonce, setFifaliveResolveNonce] = useState(0)
+  // Caps re-resolve attempts to avoid infinite loops if the stream is
+  // genuinely down (not just an expired token). Reset when the user
+  // manually switches channel.
+  const fifaliveRetryCountRef = useRef(0)
 
   // Cursor visibility in fullscreen
   const [cursorVisible, setCursorVisible] = useState(true)
@@ -329,6 +344,11 @@ export function VideoPlayer({
       setCurrentAudioTrack(-1)
       setSubtitleTracks([])
       setCurrentSubtitleTrack(-1)
+      // Reset fifalive retry counter on a fresh channel switch (not on
+      // nonce-driven re-resolves, which are themselves retries).
+      if (fifaliveResolveNonce === 0) {
+        fifaliveRetryCountRef.current = 0
+      }
 
       if (streamType === 'github_m3u' && streamUrl) {
         try {
@@ -360,6 +380,35 @@ export function VideoPlayer({
         } finally {
           setLoading(false)
         }
+      } else if (streamType === 'fifalive') {
+        // fifalive.click/play embeds a toffeelive m3u8 with an hdntl token
+        // that expires ~every 24h. The /api/resolve-fifalive endpoint
+        // fetches the page server-side, extracts the m3u8 URL + token, and
+        // caches it for 20h. On token-expiry errors the player bumps
+        // fifaliveResolveNonce which re-runs this effect to re-resolve
+        // (with force=1 to bypass cache, so a genuinely fresh token is
+        // fetched). Retry is capped at 3 to avoid infinite loops if the
+        // stream is genuinely down. (Task 29)
+        const isRetry = fifaliveResolveNonce > 0
+        try {
+          const url = isRetry
+            ? `/api/resolve-fifalive?force=1&_=${fifaliveResolveNonce}`
+            : `/api/resolve-fifalive?_=${fifaliveResolveNonce}`
+          const res = await fetch(url)
+          if (!res.ok) throw new Error(`resolve-fifalive HTTP ${res.status}`)
+          const data = await res.json()
+          if (data.url) {
+            setResolvedUrl(data.url)
+            setResolvedType('m3u8') // resolved → HLS player takes over
+            onStreamResolved?.(data.url)
+          } else {
+            setError(data.error || 'Failed to resolve fifalive stream')
+          }
+        } catch {
+          setError('Failed to resolve fifalive stream')
+        } finally {
+          setLoading(false)
+        }
       } else if (streamType === 'redirect' && streamUrl) {
         // redirect → iframe proxy, UNLESS the URL is .m3u8 or .ts (URL wins)
         if (isTsUrl(streamUrl)) {
@@ -382,7 +431,7 @@ export function VideoPlayer({
     }
     resolve()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [streamUrl, streamType])
+  }, [streamUrl, streamType, fifaliveResolveNonce])
 
   // Fullscreen change listener
   useEffect(() => {
@@ -515,7 +564,19 @@ export function VideoPlayer({
     setError(err)
     setLoading(false)
     setBuffering(false)
-  }, [])
+    // If this is a fifalive stream, auto-trigger a re-resolve so a fresh
+    // hdntl token is fetched. The error string often contains "403"/"forbidden"/
+    // "token"/"load" when Akamai rejects an expired token. We re-resolve
+    // regardless of the exact message because the only failure mode for
+    // fifalive is token expiry (the page itself is always reachable).
+    // Capped at 3 retries to avoid infinite loops if the stream is
+    // genuinely down. (Task 29)
+    if (streamType === 'fifalive' && fifaliveRetryCountRef.current < 3) {
+      fifaliveRetryCountRef.current += 1
+      // Small delay to avoid hammering the resolver on rapid error bursts.
+      setTimeout(() => setFifaliveResolveNonce(n => n + 1), 1500)
+    }
+  }, [streamType])
 
   const handleVideoRef = useCallback((video: HTMLVideoElement | null) => {
     videoRef.current = video
@@ -651,6 +712,24 @@ export function VideoPlayer({
   // Keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      // Don't capture player shortcuts when the user is typing in a
+      // text field (search bar, input, textarea, contentEditable).
+      // (Task 29) Previously 'f'/'q'/'s'/'k'/'m'/','/'.' were captured
+      // globally even while typing in the channel search bar, so the
+      // characters never reached the input. Now we bail out if the
+      // active element is any kind of text input.
+      const ae = document.activeElement
+      if (ae) {
+        const tag = ae.tagName
+        if (
+          tag === 'INPUT' ||
+          tag === 'TEXTAREA' ||
+          tag === 'SELECT' ||
+          (ae as HTMLElement).isContentEditable
+        ) {
+          return
+        }
+      }
       switch (e.key.toLowerCase()) {
         case ' ':
         case 'k':
@@ -764,9 +843,13 @@ export function VideoPlayer({
   // For m3u/m3u8/m3u8_direct: HlsPlayer tries direct first, falls back to proxyUrl
   // For m3u8_jw: JwHlsPlayer handles proxy-first
   // For dash: StreamPlayerWrapper (dash.js) with proxyUrl
-  const hlsProxyUrl = proxyStreamUrl(streamUrl)
+  // For fifalive / github_m3u: streamUrl is the SOURCE page / file URL, but
+  // the actual m3u8 is in `resolvedUrl`. Proxy must wrap the resolved URL,
+  // not the source URL, so HlsPlayer can fall back direct→proxy correctly.
+  // (Task 29)
+  const hlsProxyUrl = proxyStreamUrl(resolvedUrl || streamUrl)
   const tsUrl = proxyStreamUrl(resolvedUrl) // .ts always through proxy
-  const tsSrcForFallback = hlsFallbackMpegts ? proxyStreamUrl(streamUrl) : tsUrl
+  const tsSrcForFallback = hlsFallbackMpegts ? proxyStreamUrl(resolvedUrl || streamUrl) : tsUrl
 
   return (
     <div

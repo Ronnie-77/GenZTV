@@ -263,9 +263,82 @@ interface StreamForm {
   channel: string
   channelId: string
   // Mirrors the channel streamType options so matches can use the same
-  // embed strategies as channels (iframe, iframe_direct, redirect, etc.)
-  type: 'iframe' | 'iframe_direct' | 'direct' | 'redirect' | 'mpegts' | 'm3u8_jw' | 'dash'
+  // embed strategies as channels. `direct` and `redirect` are kept as
+  // legacy values for rows saved before Task 30; new picks use the
+  // canonical channel streamType (m3u, m3u8_direct, m3u8_proxy, …).
+  type: 'iframe' | 'iframe_direct' | 'direct' | 'redirect' | 'mpegts' | 'm3u8_jw' | 'dash' | 'm3u' | 'm3u8_direct' | 'm3u8_proxy' | 'github_m3u' | 'fifalive'
   url: string
+}
+
+// Stream types that represent an EXPLICIT admin choice for an HLS source.
+// When the URL changes, auto-detection must NOT override these — the admin
+// picked them deliberately (e.g. m3u8_direct for a CORS-open source).
+const EXPLICIT_HLS_TYPES: StreamForm['type'][] = [
+  'm3u8_direct', 'm3u8_proxy', 'm3u8_jw', 'github_m3u', 'fifalive',
+]
+
+/**
+ * Auto-detect the best stream type from a URL.
+ * Returns the detected type, or `null` if nothing matched (caller keeps current).
+ *
+ * Detection order (most specific → least specific):
+ *   .ts  → mpegts
+ *   .mpd → dash
+ *   .m3u8 / m3u8 in path → m3u (auto fallback)
+ *   youtube/twitch/vimeo/embed → iframe
+ *   github raw .m3u → github_m3u
+ */
+function detectStreamTypeFromUrl(url: string): StreamForm['type'] | null {
+  if (!url || !url.trim()) return null
+  const u = url.trim()
+
+  // GitHub-hosted M3U (checked before generic m3u8 so it wins)
+  if (/github\.com\/.+\.m3u/i.test(u) || /raw\.githubusercontent\.com\/.+\.m3u/i.test(u)) {
+    return 'github_m3u'
+  }
+
+  // MPEG-TS (.ts)
+  if (/\.ts(?:$|\?|#)/i.test(u)) return 'mpegts'
+
+  // DASH (.mpd)
+  if (/\.mpd(?:$|\?|#)/i.test(u)) return 'dash'
+
+  // HLS (.m3u8 or .m3u, incl. query strings like ?hdntl=…)
+  if (/\.m3u8?(?:$|\?|#)/i.test(u) || /\/m3u8\//i.test(u) || /m3u8/i.test(u)) {
+    return 'm3u'
+  }
+
+  // Embeddable iframe sources
+  if (/(?:youtube\.com\/embed|youtu\.be|player\.twitch\.tv|player\.vimeo\.com|dailymotion\.com\/embed|facebook\.com\/plugins\/video|\/embed\/)/i.test(u)) {
+    return 'iframe'
+  }
+
+  return null
+}
+
+/**
+ * Resolve the stream type after a URL change.
+ *
+ * Rules:
+ *  • If the admin has an EXPLICIT HLS subtype selected (m3u8_direct,
+ *    m3u8_proxy, m3u8_jw, github_m3u, fifalive) and the new URL is still
+ *    an HLS URL, KEEP the explicit choice — they picked it on purpose.
+ *  • Otherwise, if detection finds a match, use it.
+ *  • Otherwise, keep the current type (don't churn on every keystroke).
+ */
+function resolveTypeForUrl(newUrl: string, currentType: StreamForm['type']): StreamForm['type'] {
+  const detected = detectStreamTypeFromUrl(newUrl)
+  if (!detected) return currentType
+
+  // Don't override an explicit HLS subtype when the URL is still HLS-like.
+  if (
+    EXPLICIT_HLS_TYPES.includes(currentType) &&
+    (detected === 'm3u' || detected === 'github_m3u')
+  ) {
+    return currentType
+  }
+
+  return detected
 }
 
 function StreamInput({ stream, onUpdate, onRemove, onMoveUp, onMoveDown, channels, index, isFirst, isLast }: {
@@ -290,21 +363,22 @@ function StreamInput({ stream, onUpdate, onRemove, onMoveUp, onMoveDown, channel
     : channels
 
   const handleSelectChannel = (ch: Channel) => {
-    let streamType: StreamForm['type'] = 'iframe'
-    if (ch.streamType === 'm3u') streamType = 'direct'
-    else if (ch.streamType === 'iframe') streamType = 'iframe'
-    else if (ch.streamType === 'iframe_direct') streamType = 'iframe_direct'
-    else if (ch.streamType === 'redirect') streamType = 'redirect'
-    else if (ch.streamType === 'mpegts') streamType = 'mpegts'
-    else if (ch.streamType === 'm3u8_jw') streamType = 'm3u8_jw'
-    else if (ch.streamType === 'dash') streamType = 'dash'
+    // ─── Task 30/31 (revised) ───
+    // The channel's streamType is the SINGLE source of truth.
+    // Whatever the admin selected when creating the channel (m3u, m3u8_direct,
+    // m3u8_proxy, iframe, mpegts, fifalive, …) is passed through 1:1 to the
+    // match stream. No remapping, no defaulting, no filtering.
+    //
+    // The <select> dropdown below has an <option> for every channel
+    // streamType, so the picked value is always visible & editable.
+    const channelStreamType = (ch.streamType || 'm3u') as StreamForm['type']
 
     onUpdate({
       ...stream,
       name: ch.name,
       channel: ch.name,
       channelId: ch.id,
-      type: streamType,
+      type: channelStreamType,
       url: ch.streamUrl,
     })
     setShowChannelPicker(false)
@@ -432,8 +506,14 @@ function StreamInput({ stream, onUpdate, onRemove, onMoveUp, onMoveDown, channel
                     <span className={`text-[9px] px-1.5 py-0.5 rounded capitalize ${
                       ch.streamType === 'iframe' ? 'bg-blue-500/10 text-blue-400' :
                       ch.streamType === 'm3u' ? 'bg-green-500/10 text-green-400' :
+                      ch.streamType === 'm3u8_direct' ? 'bg-emerald-500/10 text-emerald-400' :
+                      ch.streamType === 'm3u8_proxy' ? 'bg-amber-500/10 text-amber-400' :
                       ch.streamType === 'm3u8_jw' ? 'bg-teal-500/10 text-teal-400' :
                       ch.streamType === 'mpegts' ? 'bg-purple-500/10 text-purple-400' :
+                      ch.streamType === 'github_m3u' ? 'bg-cyan-500/10 text-cyan-400' :
+                      ch.streamType === 'fifalive' ? 'bg-red-500/10 text-red-400' :
+                      ch.streamType === 'iframe_direct' ? 'bg-slate-500/10 text-slate-400' :
+                      ch.streamType === 'dash' ? 'bg-rose-500/10 text-rose-400' :
                       'bg-orange-500/10 text-orange-400'
                     }`}>
                       {ch.streamType}
@@ -459,18 +539,31 @@ function StreamInput({ stream, onUpdate, onRemove, onMoveUp, onMoveDown, channel
           onChange={(e) => onUpdate({ ...stream, type: e.target.value as StreamForm['type'] })}
           className="h-8 rounded-md border border-input bg-background px-2 text-xs sm:min-w-[100px]"
         >
+          <option value="m3u">M3U8 Auto Fallback</option>
+          <option value="m3u8_direct">🎯 Direct HLS</option>
+          <option value="m3u8_proxy">🛡️ Proxy HLS</option>
+          <option value="m3u8_jw">M3U8 JW Player</option>
+          <option value="github_m3u">GitHub M3U</option>
+          <option value="fifalive">🔴 FifaLive (auto token)</option>
           <option value="iframe">iFrame</option>
           <option value="iframe_direct">iFrame Direct</option>
-          <option value="direct">Direct (M3U8)</option>
-          <option value="m3u8_jw">M3U8 JW Player</option>
           <option value="mpegts">MPEG-TS (.ts)</option>
           <option value="dash">DASH (.mpd)</option>
+          <option value="direct">Direct (legacy)</option>
           <option value="redirect">Redirect</option>
         </select>
         <Input
           placeholder="Stream URL"
           value={stream.url}
-          onChange={(e) => onUpdate({ ...stream, url: e.target.value })}
+          onChange={(e) => {
+            const newUrl = e.target.value
+            // Auto-detect stream type from URL — m3u8 URLs become "m3u"
+            // (auto fallback) instead of staying on the default "iframe".
+            // Explicit HLS subtypes (m3u8_direct / m3u8_proxy / …) are
+            // preserved when the URL is still HLS-like.
+            const newType = resolveTypeForUrl(newUrl, stream.type)
+            onUpdate({ ...stream, url: newUrl, type: newType })
+          }}
           className="h-8 text-xs"
         />
       </div>
@@ -588,7 +681,7 @@ export function AdminMatches() {
   const [status, setStatus] = useState('upcoming')
   const [featured, setFeatured] = useState(false)
   const [streams, setStreams] = useState<StreamForm[]>([
-    { name: 'Stream 1', channel: '', channelId: '', type: 'iframe', url: '' }
+    { name: 'Stream 1', channel: '', channelId: '', type: 'm3u', url: '' }
   ])
 
   // Channels for stream selection
@@ -765,7 +858,7 @@ export function AdminMatches() {
     setEndTimeManuallySet(false)
     setStatus('upcoming')
     setFeatured(false)
-    setStreams([{ name: 'Stream 1', channel: '', channelId: '', type: 'iframe', url: '' }])
+    setStreams([{ name: 'Stream 1', channel: '', channelId: '', type: 'm3u', url: '' }])
   }
 
   const handleEdit = (match: Match) => {
@@ -781,13 +874,26 @@ export function AdminMatches() {
     setEndTimeManuallySet(!!match.endTime) // If match has endTime, consider it manually set
     setStatus(match.status)
     setFeatured(match.isFeatured)
-    setStreams(match.streams.map(s => ({
-      name: s.name,
-      channel: s.channel,
-      channelId: '',
-      type: s.type as 'iframe' | 'iframe_direct' | 'direct' | 'redirect' | 'mpegts' | 'dash',
-      url: s.url,
-    })))
+    setStreams(match.streams.map(s => {
+      // Auto-correct legacy rows: before Task 30/31, m3u8 URLs were often
+      // saved with type='iframe' (channel picker bug + iframe default).
+      // When loading such a match for editing, upgrade the type to match
+      // the actual URL so the admin sees the correct player selected.
+      // Explicit HLS subtypes (m3u8_direct / m3u8_proxy / github_m3u / fifalive)
+      // and non-HLS types (mpegts / dash / iframe_direct) are preserved as-is.
+      let loadedType = s.type as StreamForm['type']
+      if (loadedType === 'iframe' || loadedType === 'direct') {
+        const detected = detectStreamTypeFromUrl(s.url)
+        if (detected) loadedType = detected
+      }
+      return {
+        name: s.name,
+        channel: s.channel,
+        channelId: '',
+        type: loadedType,
+        url: s.url,
+      }
+    }))
     setShowForm(true)
     // Scroll to form after a short delay to allow state to render
     setTimeout(() => {
@@ -867,7 +973,7 @@ export function AdminMatches() {
   }
 
   const addStream = () => {
-    setStreams([...streams, { name: `Stream ${streams.length + 1}`, channel: '', channelId: '', type: 'iframe', url: '' }])
+    setStreams([...streams, { name: `Stream ${streams.length + 1}`, channel: '', channelId: '', type: 'm3u', url: '' }])
   }
 
   const updateStream = (index: number, updated: StreamForm) => {

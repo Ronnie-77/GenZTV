@@ -28,6 +28,7 @@ const streamTypeOptions = [
   { value: 'mpegts', label: 'MPEG-TS (.ts)' },
   { value: 'dash', label: 'DASH (.mpd)' },
   { value: 'github_m3u', label: 'GitHub M3U' },
+  { value: 'fifalive', label: '🔴 FifaLive (auto token refresh)' },
 ]
 
 interface ChannelFormData {
@@ -990,7 +991,7 @@ export function AdminChannels() {
             <div className={form.streamType === 'github_m3u' ? 'md:col-span-1' : 'md:col-span-2'}>
               <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Stream URL</label>
               <Input
-                placeholder={form.streamType === 'iframe' ? 'iFrame HTML or URL' : form.streamType === 'iframe_direct' ? 'Direct embed URL (raw iframe src)' : form.streamType === 'm3u' ? 'M3U8/HLS stream URL' : form.streamType === 'mpegts' ? 'MPEG-TS stream URL (.ts)' : 'Stream URL'}
+                placeholder={form.streamType === 'iframe' ? 'iFrame HTML or URL' : form.streamType === 'iframe_direct' ? 'Direct embed URL (raw iframe src)' : form.streamType === 'm3u' ? 'M3U8/HLS stream URL' : form.streamType === 'mpegts' ? 'MPEG-TS stream URL (.ts)' : form.streamType === 'fifalive' ? 'Auto-resolved from fifalive.click/play (leave empty)' : 'Stream URL'}
                 value={form.streamUrl}
                 onChange={(e) => {
                   const newUrl = e.target.value
