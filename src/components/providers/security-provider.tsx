@@ -418,6 +418,7 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
   // its own (network test removed — it caused false positives on flaky
   // connections and added no real value since DOM bait is the gold standard).
   const adBlockPositiveCountRef = useRef(0)
+  const adBlockInitialCheckDone = useRef(false)
   const AD_BLOCK_THRESHOLD = 2  // require 2+ consecutive positives before showing overlay
 
   const checkAdBlocker = useCallback(async (): Promise<boolean> => {
@@ -521,10 +522,13 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     } else {
       adBlockPositiveCountRef.current = 0
     }
-    // Only show overlay after THRESHOLD consecutive positive checks.
-    // A single transient detection (slow device, brief CSS glitch) won't
-    // trigger the overlay. But 2+ consecutive positives means it's real.
-    setAdBlockerDetected(adBlockPositiveCountRef.current >= AD_BLOCK_THRESHOLD)
+    // For the VERY FIRST check, a single positive is enough — the user
+    // just landed with an ad-blocker active, no point waiting 15s more.
+    // Subsequent periodic checks still need 2+ consecutive positives
+    // to avoid false positives from transient CSS/DOM glitches.
+    const threshold = adBlockInitialCheckDone.current ? AD_BLOCK_THRESHOLD : 1
+    adBlockInitialCheckDone.current = true
+    setAdBlockerDetected(adBlockPositiveCountRef.current >= threshold)
   }, [checkAdBlocker])
 
   // --- Setup all protections ---
@@ -598,6 +602,16 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     const adBlockInitialTimer = setTimeout(runAdBlockerCheck, 1500)
     const adBlockInterval = setInterval(runAdBlockerCheck, 15000)
 
+    // Also re-check when the tab regains focus — ad-blockers may only
+    // inject their CSS after the tab is visible, so a background-tab
+    // initial check might miss the blocker.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        runAdBlockerCheck()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
       document.removeEventListener('contextmenu', handleContextMenu, true)
       document.removeEventListener('keydown', handleKeyDown, true)
@@ -609,6 +623,7 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
       clearInterval(sizeCheckInterval)
       clearTimeout(adBlockInitialTimer)
       clearInterval(adBlockInterval)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       consoleCleanup()
       observerCleanup()
     }
