@@ -34,7 +34,7 @@ cmds = [
   "npm run build"
 ]
 
-# Start phase: Push schema to MySQL, then start Next.js production server
+# Start phase: Switch to MySQL schema, push to DB, then start Next.js
 # --accept-data-loss is safe because MySQL is the source of truth in prod
 [start]
-cmd = "npx prisma db push --accept-data-loss && npm run start"
+cmd = "bash scripts/switch-db.sh mysql && npx prisma db push --accept-data-loss && npx next start"
