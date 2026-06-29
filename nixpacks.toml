@@ -1,40 +1,22 @@
 # Nixpacks build configuration for Railway
-# (Task 28 — revised) Project runs with npm, NOT bun.
 #
-# Problem: bun.lock was committed, so Nixpacks auto-detected Bun and ran
-# `bun install --frozen-lockfile`. Bun version mismatch between local and
-# Railway caused "lockfile had changes, but lockfile is frozen" error.
-#
-# Fix: explicitly use npm for the install phase. npm ci requires a
-# committed package-lock.json (generated via `npm install`). bun.lock is
-# gitignored so Nixpacks no longer auto-detects Bun.
-#
-# MySQL deployment: The build switches the Prisma schema to MySQL before
-# generating the client, so the generated Prisma Client has @db.VarChar,
-# @db.MediumText, etc. The DATABASE_URL env var on Railway must point to
-# a MySQL database. The switch-db.sh script handles schema switching.
+# The default schema.prisma is MySQL (for production).
+# For local SQLite dev, run: cp prisma/schema.sqlite.prisma prisma/schema.prisma && bun run db:push
 
 [phases.setup]
 nixPkgs = ["nodejs_20"]
 
-# Install phase: use npm ci for deterministic, fast installs.
-# npm ci reads package-lock.json exclusively (does not mutate it).
+# Install phase: npm ci reads package-lock.json
 [phases.install]
 cmds = ["npm ci"]
 
-# Build phase:
-#   1. Switch Prisma schema to MySQL (for production client generation)
-#   2. Generate Prisma Client
-#   3. Build Next.js
-# If DATABASE_URL is SQLite (local dev), the switch is skipped.
+# Build phase: Generate Prisma Client (MySQL) + Build Next.js
 [phases.build]
 cmds = [
-  "bash scripts/switch-db.sh mysql",
   "npx prisma generate",
   "npm run build"
 ]
 
-# Start phase: Switch to MySQL schema, push to DB, then start Next.js
-# --accept-data-loss is safe because MySQL is the source of truth in prod
+# Start phase: Push schema to MySQL, then start Next.js
 [start]
-cmd = "bash scripts/switch-db.sh mysql && npx prisma db push --accept-data-loss && npx next start"
+cmd = "npx prisma db push --accept-data-loss && npx next start"
