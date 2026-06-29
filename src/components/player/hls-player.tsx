@@ -160,6 +160,20 @@ export function HlsPlayer({
   const fatalErrorCountRef = useRef(0)
   const mediaErrorCountRef = useRef(0)
 
+  // ── Auto-reconnect / stall-detection state ──
+  // When a live stream stops delivering segments (upstream goes down,
+  // CDN stalls, or the video element fires "ended" unexpectedly), hls.js
+  // may not always emit a fatal error. The stream just freezes. We detect
+  // this by watching currentTime: if it hasn't advanced in 10s while the
+  // video claims to be playing, we attempt an automatic reconnect.
+  const stallWatchdogRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastCurrentTimeRef = useRef(0)
+  const stalledSinceRef = useRef<number | null>(null)  // timestamp when stall started
+  const reconnectCountRef = useRef(0)
+  const MAX_AUTO_RECONNECTS = 5
+  const STALL_THRESHOLD_SEC = 10  // seconds of no progress before reconnect
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Stable refs for callbacks
   const cb = useRef({
     onReady, onError, onQualityLevels, onStatsUpdate,
@@ -183,10 +197,20 @@ export function HlsPlayer({
       clearInterval(statsTimerRef.current)
       statsTimerRef.current = null
     }
+    if (stallWatchdogRef.current) {
+      clearInterval(stallWatchdogRef.current)
+      stallWatchdogRef.current = null
+    }
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
     if (hlsRef.current) {
       hlsRef.current.destroy()
       hlsRef.current = null
     }
+    lastCurrentTimeRef.current = 0
+    stalledSinceRef.current = null
   }, [])
 
   // Create HLS.js instance — proxy mode has very fast fail, direct mode has generous timeouts
@@ -311,6 +335,11 @@ export function HlsPlayer({
         clearTimeout(directTimeoutRef.current)
         directTimeoutRef.current = null
       }
+
+      // Start the stall watchdog now that the stream is live.
+      // This detects when the stream freezes without a fatal error
+      // (e.g., upstream stops sending segments, CDN stalls).
+      startStallWatchdogFnRef.current?.(video)
 
       const levels: QualityLevel[] = data.levels.map((level, index) => ({
         index, width: level.width || 0, height: level.height || 0, bitrate: level.bitrate || 0,
@@ -475,6 +504,120 @@ export function HlsPlayer({
     cleanup()
   }
 
+  // ── Auto-reconnect / stall-detection functions ──
+  // We use refs to break the circular dependency between autoReconnect
+  // and startStallWatchdog (each calls the other).
+  const autoReconnectFnRef = useRef<(video: HTMLVideoElement, reason: string) => void>()
+  const startStallWatchdogFnRef = useRef<(video: HTMLVideoElement) => void>()
+
+  // ── Auto-reconnect: destroy current HLS instance and recreate ──
+  // This is called when the stall watchdog detects the stream has frozen
+  // or when the video element fires "ended" on a live stream.
+  const autoReconnect = useCallback((video: HTMLVideoElement, reason: string) => {
+    if (reconnectCountRef.current >= MAX_AUTO_RECONNECTS) {
+      console.error(`[hls-player] 💀 Max reconnects (${MAX_AUTO_RECONNECTS}) reached after: ${reason}`)
+      cb.current.onError?.('Stream stopped — click Retry to reconnect')
+      return
+    }
+
+    reconnectCountRef.current += 1
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+    const delay = Math.min(1000 * Math.pow(2, reconnectCountRef.current - 1), 16000)
+    console.log(`[hls-player] 🔄 Auto-reconnect #${reconnectCountRef.current}/${MAX_AUTO_RECONNECTS} in ${delay}ms — reason: ${reason}`)
+
+    // Clear stall state
+    lastCurrentTimeRef.current = 0
+    stalledSinceRef.current = null
+
+    reconnectTimerRef.current = setTimeout(() => {
+      if (!videoRef.current) return
+      const mode = loadModeRef.current
+      const url = mode === 'proxy' ? (cb.current.proxyUrl || src) : src
+
+      // Destroy and recreate (partial cleanup — keep refs intact)
+      if (statsTimerRef.current) { clearInterval(statsTimerRef.current); statsTimerRef.current = null }
+      if (stallWatchdogRef.current) { clearInterval(stallWatchdogRef.current); stallWatchdogRef.current = null }
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
+
+      const newHls = initHls(url, videoRef.current, mode === 'direct')
+      if (newHls) {
+        hlsRef.current = newHls
+        // Restart stats timer
+        statsTimerRef.current = setInterval(() => {
+          if (!hlsRef.current) return
+          cb.current.onStatsUpdate?.(buildStats(hlsRef.current, videoRef.current!))
+        }, 2000)
+        // Restart stall watchdog via ref (breaks circular dep)
+        startStallWatchdogFnRef.current?.(videoRef.current)
+      } else {
+        cb.current.onError?.('Failed to reconnect — click Retry')
+      }
+    }, delay)
+  }, [src])
+
+  // Keep ref in sync
+  autoReconnectFnRef.current = autoReconnect
+
+  // ── Stall watchdog: detects when video stops advancing ──
+  const startStallWatchdog = useCallback((video: HTMLVideoElement) => {
+    if (stallWatchdogRef.current) {
+      clearInterval(stallWatchdogRef.current)
+      stallWatchdogRef.current = null
+    }
+    lastCurrentTimeRef.current = 0
+    stalledSinceRef.current = null
+
+    stallWatchdogRef.current = setInterval(() => {
+      // Only check if HLS instance exists and manifest has been parsed
+      if (!hlsRef.current || !manifestParsedRef.current) return
+
+      const currentTime = video.currentTime
+      const isPaused = video.paused
+      const isEnded = video.ended
+
+      // Reset reconnect count on successful progress
+      if (currentTime !== lastCurrentTimeRef.current && !isPaused) {
+        if (reconnectCountRef.current > 0) {
+          console.log(`[hls-player] ✅ Stream recovered after ${reconnectCountRef.current} reconnect(s) — resetting counter`)
+          reconnectCountRef.current = 0
+        }
+        lastCurrentTimeRef.current = currentTime
+        stalledSinceRef.current = null
+        return
+      }
+
+      // Video is progressing but paused — not a stall
+      if (isPaused || isEnded) {
+        lastCurrentTimeRef.current = currentTime
+        stalledSinceRef.current = null
+        return
+      }
+
+      // currentTime hasn't changed while playing → possible stall
+      if (currentTime === lastCurrentTimeRef.current) {
+        const now = Date.now()
+        if (stalledSinceRef.current === null) {
+          stalledSinceRef.current = now
+        }
+        const stallDuration = (now - stalledSinceRef.current) / 1000
+        if (stallDuration >= STALL_THRESHOLD_SEC) {
+          console.warn(`[hls-player] ⚠️ Stall detected: no progress for ${stallDuration.toFixed(1)}s`)
+          // Call autoReconnect via ref (breaks circular dep)
+          autoReconnectFnRef.current?.(video, `Stream stalled for ${stallDuration.toFixed(0)}s`)
+        }
+      } else {
+        lastCurrentTimeRef.current = currentTime
+        stalledSinceRef.current = null
+      }
+    }, 3000)  // Check every 3s
+  }, [])
+
+  // Keep ref in sync — this is a standard "latest ref" pattern used to break
+  // circular useCallback dependencies. The eslint-disable is necessary because
+  // the strict immutability rule doesn't recognize this intentional mutation.
+  // eslint-disable-next-line react-hooks/immutability
+  useEffect(() => { startStallWatchdogFnRef.current = startStallWatchdog })
+
   // ── Main Effect: Initialize player ──
   useEffect(() => {
     const video = videoRef.current
@@ -489,6 +632,7 @@ export function HlsPlayer({
     triedProxyRef.current = false
     triedMpegtsRef.current = false
     manifestParsedRef.current = false
+    reconnectCountRef.current = 0
     loadModeRef.current = 'direct'
     cb.current.onLoadModeChange?.('direct')
 
@@ -499,6 +643,16 @@ export function HlsPlayer({
     video.addEventListener('waiting', handleWaiting)
     video.addEventListener('playing', handlePlaying)
     video.addEventListener('canplay', handleCanPlay)
+
+    // Handle unexpected "ended" event on a live stream.
+    // For live content, the video should never end. If it does, the
+    // upstream server likely dropped the connection — auto-reconnect.
+    const handleEnded = () => {
+      if (!manifestParsedRef.current) return
+      console.warn('[hls-player] ⚠️ Video "ended" event on live stream — auto-reconnecting')
+      autoReconnectFnRef.current?.(video, 'Live stream ended unexpectedly')
+    }
+    video.addEventListener('ended', handleEnded)
 
     const nativeHls = video.canPlayType('application/vnd.apple.mpegurl')
 
@@ -556,6 +710,8 @@ export function HlsPlayer({
         }
         cb.current.onReady?.()
         cb.current.onQualityLevels?.([])
+        // Start stall watchdog for native HLS too
+        startStallWatchdogFnRef.current?.(video)
         video.removeEventListener('loadedmetadata', handleLoadedMetadata)
       }
       video.addEventListener('loadedmetadata', handleLoadedMetadata)
@@ -583,6 +739,7 @@ export function HlsPlayer({
       video.removeEventListener('waiting', handleWaiting)
       video.removeEventListener('playing', handlePlaying)
       video.removeEventListener('canplay', handleCanPlay)
+      video.removeEventListener('ended', handleEnded)
       cleanup()
     }
   }, [src, cleanup, onVideoRef, onBuffering, originalUrl])

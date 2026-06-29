@@ -24,28 +24,16 @@ model Channel {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  // ── Token Refresh Automation ──
-  // For signed-URL streams (Akamai hdntl, strmd.st secure paths, etc.) the URL
-  // contains a time-limited token that expires. These fields let us refresh the
-  // stream URL automatically before the token dies.
-  //
-  // sourcePageUrl  — the public web page from which the m3u8 was extracted
-  //                  (e.g. "https://fifalive.click/"). The re-extractor fetches
-  //                  this page again and searches for a fresh m3u8 link.
-  // refreshPattern — optional regex (string) used to locate the m3u8 inside the
-  //                  source page HTML. If empty, a generic m3u8 regex is used.
-  // tokenExpiresAt — parsed expiry (ms epoch) of the hdntl `exp=` param, if any.
-  //                  NULL means "unknown expiry" — refresh-on-failure only.
-  // lastRefreshedAt — when the stream URL was last refreshed.
-  // autoRefresh    — if true, the proactive cron + reactive player fallback will
-  //                  attempt to refresh this channel automatically.
-  // refreshError   — last error message from a failed refresh (empty if ok).
   sourcePageUrl   String    @default("")
   refreshPattern  String    @default("")
   tokenExpiresAt  DateTime?
   lastRefreshedAt DateTime?
   autoRefresh     Boolean   @default(false)
   refreshError    String    @default("")
+
+  @@index([isActive])
+  @@index([isActive, category])
+  @@index([autoRefresh, isActive])
 }
 
 model Match {
@@ -62,12 +50,14 @@ model Match {
   endTime     DateTime?
   status      String   @default("upcoming")
   isFeatured  Boolean  @default(false)
-  // Tracks when the "match is LIVE" push notification was sent. Null = not sent yet.
-  // Prevents duplicate notifications when multiple visitors trigger the status sync.
   liveNotifiedAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   streams     MatchStream[]
+
+  @@index([status])
+  @@index([status, startTime])
+  @@index([status, endTime])
 }
 
 model MatchStream {
@@ -78,6 +68,8 @@ model MatchStream {
   type       String @default("iframe")
   url        String @default("")
   match      Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@index([matchId])
 }
 
 model Category {
@@ -101,50 +93,31 @@ model AppSetting {
   defaultQuality   String @default("auto")
   bannerAdScript   String @default("")
   socialBarAdScript String @default("")
-  customAdScripts  String @default("[]")  // JSON array of {id, name, script, position, enabled}
+  customAdScripts  String @default("[]")
   adsEnabled       Boolean @default(true)
   homeAdsEnabled   Boolean @default(true)
   videoAdsEnabled  Boolean @default(true)
   apkUrl           String  @default("")
-  ga4MeasurementId String  @default("")  // GA4 Measurement ID (e.g. G-XXXXXXXXXX)
-  firebaseConfig   String  @default("{}")  // Firebase config JSON
-  // Master switch for the client-side SecurityProvider. When false, none of
-  // the protections (right-click block, DevTools detection, anti-debug, etc.)
-  // are installed — lets the admin freely use browser dev tools.
+  ga4MeasurementId String  @default("")
+  firebaseConfig   String  @default("{}")
   securityEnabled  Boolean @default(true)
-  // Redirect ad: a direct-link ad URL that opens in a new tab when the user
-  // clicks anywhere on the page (except the video player). Activates 2 minutes
-  // after the user enters the site, then re-activates on a configurable interval
-  // (default 5 minutes, adjustable by admin).
   redirectAdUrl    String  @default("")
   redirectAdEnabled Boolean @default(false)
-  // Redirect ad re-arm interval in minutes. After the ad fires, it waits this
-  // many minutes before arming again. Default 5 minutes. Admin can set 1-1440.
   redirectAdIntervalMinutes Int @default(5)
 }
 
-// User feedback submissions. Users can submit feedback (bug report, feature
-// request, compliment, etc.) from the "More" page or a floating feedback
-// button. Admins view and manage these in the admin panel.
 model Feedback {
   id        String   @id @default(cuid())
-  // Feedback category: bug, feature, compliment, other
   category  String   @default("other")
-  // User's email (optional — for follow-up)
   email     String   @default("")
-  // Short subject line
   subject   String   @default("")
-  // Detailed message body
   message   String
-  // Current page URL when feedback was submitted (context)
   page      String   @default("")
-  // User agent + device info (for debugging bug reports)
   userAgent String   @default("")
-  device    String   @default("") // mobile / desktop / tv
-  browser   String   @default("") // Chrome / Firefox / Safari / etc.
-  // Admin management
-  status    String   @default("new") // new | read | resolved
-  adminNote String   @default("") // private admin note
+  device    String   @default("")
+  browser   String   @default("")
+  status    String   @default("new")
+  adminNote String   @default("")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -157,109 +130,82 @@ model PushSubscription {
   createdAt   DateTime @default(now())
 }
 
-// Site-wide notices created by the admin.
-//   - "popup" type notices show as a modal popup on website entry (once per
-//     user until dismissed or until the notice's updatedAt changes).
-//   - "push" type notices fire a push notification to all subscribed users
-//     immediately when the admin publishes them (the row is kept for history
-//     but doesn't show as a popup).
-//   - "both" does both: fires push now + shows popup until dismissed.
 model Notice {
   id          String   @id @default(cuid())
-  type        String   @default("popup")  // "popup" | "push" | "both"
-  title       String
-  body        String   @default("")       // main message text (supports newlines)
-  url         String   @default("")       // optional CTA link
-  imageUrl    String   @default("")       // optional banner image
-  isActive    Boolean  @default(true)     // admin can deactivate without deleting
-  // Set to true once the push notification has been fired for this notice.
-  // Prevents duplicate pushes if the admin re-saves an active "push"/"both"
-  // notice. (Popup display has its own client-side dismissal tracking.)
-  pushSent    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-// In-app bell notifications created by the admin.
-// These differ from `Notice` (popup/push site-entry modals) — these are the
-// notifications that appear in the site's top-nav bell dropdown. Every visitor
-// sees the same list; "read" state is tracked client-side per browser via a
-// `lastReadAt` timestamp in localStorage (notifications with createdAt >
-// lastReadAt are "unread"). Optionally also fires a web push to subscribers.
-//   - type: "channel" (auto when a new channel is added) | "update" |
-//     "feature" | "notice" (manual short notice from admin).
-model AppNotification {
-  id          String   @id @default(cuid())
-  type        String   @default("notice")  // "channel" | "update" | "feature" | "notice"
+  type        String   @default("popup")
   title       String
   body        String   @default("")
-  url         String   @default("")        // optional click-through link
-  imageUrl    String   @default("")        // optional icon/banner
-  isActive    Boolean  @default(true)      // admin can hide without deleting
-  // If true, also fire a web push to all subscribers when created.
-  sendPush    Boolean  @default(false)
-  // Set to true once the push has been fired (prevents duplicate pushes on re-save).
+  url         String   @default("")
+  imageUrl    String   @default("")
+  isActive    Boolean  @default(true)
   pushSent    Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
 
-// Analytics models
+model AppNotification {
+  id          String   @id @default(cuid())
+  type        String   @default("notice")
+  title       String
+  body        String   @default("")
+  url         String   @default("")
+  imageUrl    String   @default("")
+  isActive    Boolean  @default(true)
+  sendPush    Boolean  @default(false)
+  pushSent    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 model PageView {
   id          String   @id @default(cuid())
-  sessionId   String   // Browser fingerprint / session ID
-  page        String   // Which page was viewed (home, watch, live, etc.)
-  channelId   String?  // If watching a specific channel
-  matchId     String?  // If watching a specific match (live sport event)
-  referrer    String   @default("")  // Where the visitor came from
+  sessionId   String
+  page        String
+  channelId   String?
+  matchId     String?
+  referrer    String   @default("")
   userAgent   String   @default("")
   country     String   @default("")
   ip          String   @default("")
-  device      String   @default("")  // mobile / desktop / tv (parsed from UA)
-  browser     String   @default("")  // Chrome / Firefox / Safari / Edge / Opera / Samsung / Other
+  device      String   @default("")
+  browser     String   @default("")
   createdAt   DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([sessionId, createdAt])
+  @@index([createdAt])
+  @@index([channelId])
 }
 
 model DailyStat {
   id             String   @id @default(cuid())
-  date           String   @unique  // YYYY-MM-DD format
+  date           String   @unique
   totalViews     Int      @default(0)
   uniqueVisitors Int      @default(0)
-  peakVisitors   Int      @default(0)  // Max concurrent online visitors seen that day (real)
-  topPages       String   @default("{}")  // JSON: { page: count }
-  topChannels    String   @default("{}")  // JSON: { channelId: count }
-  topCountries   String   @default("{}")  // JSON: { country: count }
-  topDevices     String   @default("{}")  // JSON: { device: count } mobile/desktop/tv
-  topBrowsers    String   @default("{}")  // JSON: { browser: count } Chrome/Firefox/...
+  peakVisitors   Int      @default(0)
+  topPages       String   @default("{}")
+  topChannels    String   @default("{}")
+  topCountries   String   @default("{}")
+  topDevices     String   @default("{}")
+  topBrowsers    String   @default("{}")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
 
 model VisitorSession {
   id               String   @id @default(cuid())
-  sessionId        String   @unique  // Browser fingerprint
+  sessionId        String   @unique
   firstSeen        DateTime @default(now())
   lastSeen         DateTime @default(now())
   pageCount        Int      @default(0)
   country          String   @default("")
   userAgent        String   @default("")
   ip               String   @default("")
-  device           String   @default("")  // mobile / desktop / tv
-  browser          String   @default("")  // Chrome / Firefox / Safari / Edge / Opera / Samsung / Other
-  // Live-viewer tracking. Updated by /api/analytics/heartbeat every ~15s while
-  // a visitor is on the watch page. Cleared (set to null) when the visitor
-  // navigates away from watch. Admin's "live viewers" count queries these two
-  // fields against `lastSeen >= now - 60s`.
+  device           String   @default("")
+  browser          String   @default("")
   currentChannelId String?
   currentMatchId   String?
 
-  // Indexes for the hot admin live-viewer queries (polled every 5s):
-  //   - lastSeen             → `count` / `groupBy` filtered by lastSeen >= now-60s
-  //   - currentChannelId     → `groupBy` by channel
-  //   - currentMatchId       → `groupBy` by match
-  // Without these the admin panel's 5-second polling would do full table scans
-  // as the VisitorSession table grows. (SQLite B-tree indexes keep these
-  // queries O(log n + k) instead of O(n).)
   @@index([lastSeen])
   @@index([currentChannelId])
   @@index([currentMatchId])

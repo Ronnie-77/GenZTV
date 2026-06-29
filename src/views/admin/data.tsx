@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Download, Upload, Database, AlertCircle, CheckCircle2, FileJson, HardDrive, Trash2, ArrowRight } from 'lucide-react'
+import { Download, Upload, Database, AlertCircle, CheckCircle2, FileJson, HardDrive, Trash2, ArrowRight, Tv } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -10,6 +10,8 @@ interface ExportMeta {
   version: string
   exportedAt: string
   app: string
+  type?: string
+  count?: number
   counts: {
     channels: number
     matches: number
@@ -23,6 +25,7 @@ interface ExportMeta {
 
 export function AdminData() {
   const [exporting, setExporting] = useState(false)
+  const [exportingChannels, setExportingChannels] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importPreview, setImportPreview] = useState<ExportMeta | null>(null)
   const [importResult, setImportResult] = useState<Record<string, unknown> | null>(null)
@@ -31,7 +34,7 @@ export function AdminData() {
   const [resetting, setResetting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // ── Export ──
+  // ── Export All ──
   const handleExport = async () => {
     setExporting(true)
     try {
@@ -62,6 +65,39 @@ export function AdminData() {
       toast.error(err instanceof Error ? err.message : 'Export failed')
     } finally {
       setExporting(false)
+    }
+  }
+
+  // ── Export Channels Only ──
+  const handleExportChannels = async () => {
+    setExportingChannels(true)
+    try {
+      const res = await fetch('/api/channels/export', { credentials: 'same-origin' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || data.detail || `Export failed (${res.status})`)
+      }
+
+      const data = await res.json()
+
+      // Create downloadable JSON file
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const date = new Date().toISOString().split('T')[0]
+      a.href = url
+      a.download = `genztv-channels-${date}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      const count = data._meta?.count ?? data.channels?.length ?? 0
+      toast.success(`Channels exported! ${count} channels saved.`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Export failed')
+    } finally {
+      setExportingChannels(false)
     }
   }
 
@@ -237,23 +273,43 @@ export function AdminData() {
                 </span>
               ))}
             </div>
-            <Button
-              onClick={handleExport}
-              disabled={exporting}
-              className="mt-4 gap-2"
-            >
-              {exporting ? (
-                <>
-                  <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                  Exporting...
-                </>
-              ) : (
-                <>
-                  <Download className="h-4 w-4" />
-                  Export All Data
-                </>
-              )}
-            </Button>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Button
+                onClick={handleExport}
+                disabled={exporting}
+                className="gap-2"
+              >
+                {exporting ? (
+                  <>
+                    <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4" />
+                    Export All Data
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={handleExportChannels}
+                disabled={exportingChannels}
+                variant="outline"
+                className="gap-2"
+              >
+                {exportingChannels ? (
+                  <>
+                    <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Tv className="h-4 w-4 text-orange-500" />
+                    Export Channels Only
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -323,30 +379,43 @@ export function AdminData() {
                       <div className="flex items-center gap-2 mb-2">
                         <HardDrive className="h-4 w-4 text-muted-foreground" />
                         <span className="text-xs font-semibold">Backup Preview</span>
+                        {importPreview.type === 'channels-only' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-500/10 text-orange-600 font-medium">
+                            Channels Only
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-muted-foreground mb-2">
                         Exported: {new Date(importPreview.exportedAt).toLocaleString()}
                       </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {Object.entries(importPreview.counts).map(([key, count]) => {
-                          if (count === 0) return null
-                          const labels: Record<string, string> = {
-                            channels: '📺 Channels',
-                            matches: '⚽ Matches',
-                            categories: '📁 Categories',
-                            dailyStats: '📊 Daily Stats',
-                            visitorSessions: '👥 Visitors',
-                            pageViews: '👁️ Page Views',
-                            pushSubscriptions: '🔔 Subscribers',
-                          }
-                          return (
-                            <div key={key} className="flex items-center justify-between px-2 py-1.5 rounded-md bg-background text-xs">
-                              <span>{labels[key] || key}</span>
-                              <span className="font-bold">{count as number}</span>
-                            </div>
-                          )
-                        })}
-                      </div>
+                      {/* Channels-only preview */}
+                      {importPreview.type === 'channels-only' ? (
+                        <div className="flex items-center justify-between px-2 py-1.5 rounded-md bg-background text-xs">
+                          <span>📺 Channels</span>
+                          <span className="font-bold">{importPreview.count ?? 0}</span>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {Object.entries(importPreview.counts).map(([key, count]) => {
+                            if (count === 0) return null
+                            const labels: Record<string, string> = {
+                              channels: '📺 Channels',
+                              matches: '⚽ Matches',
+                              categories: '📁 Categories',
+                              dailyStats: '📊 Daily Stats',
+                              visitorSessions: '👥 Visitors',
+                              pageViews: '👁️ Page Views',
+                              pushSubscriptions: '🔔 Subscribers',
+                            }
+                            return (
+                              <div key={key} className="flex items-center justify-between px-2 py-1.5 rounded-md bg-background text-xs">
+                                <span>{labels[key] || key}</span>
+                                <span className="font-bold">{count as number}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
 

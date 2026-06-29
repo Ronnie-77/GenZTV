@@ -1,24 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireAdminAuth } from '@/lib/auth'
+import { apiCache } from '@/lib/cache'
 
 // GET /api/analytics/dashboard — admin analytics dashboard data
-// Returns REAL data only (no fake/mock). Includes daily peak concurrent
-// visitors, top devices (mobile/desktop/tv) and top browsers, in addition
-// to the existing views / visitors / countries / channels metrics.
+//
+// Data logic:
+//   - Today: Live detailed metrics from PageView + VisitorSession + DailyStat
+//     (resets at midnight — PageView/VisitorSession are deleted, DailyStat keeps counts)
+//   - Last 7/30 Days: Views + Unique Visitors from DailyStat only
+//   - Calendar: All DailyStat rows for the selected month
+//   - Top Channels/Countries/Devices: From DailyStat JSON counts (not raw rows)
 export async function GET(request: NextRequest) {
   return requireAdminAuth(request, async () => {
     try {
+      // Check cache first (10s TTL)
+      const cached = apiCache.getDashboard()
+      if (cached) {
+        return NextResponse.json(cached)
+      }
+
       const now = new Date()
       const todayStr = now.toISOString().slice(0, 10)
       const yesterdayStr = new Date(now.getTime() - 86400000).toISOString().slice(0, 10)
       const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10)
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000).toISOString().slice(0, 10)
       const fourteenDaysAgo = new Date(now.getTime() - 13 * 86400000).toISOString().slice(0, 10)
-      // "Online now" window — MUST match /api/admin/live-viewers' active
-      // window (60s) so the dashboard and the admin live-viewer counts stay
-      // consistent with each other.
       const activeSince = new Date(now.getTime() - 60 * 1000)
+
+      // ── Calendar month param ──
+      const { searchParams } = new URL(request.url)
+      const calendarMonth = searchParams.get('month') // "2025-06" format
+      const calendarYear = calendarMonth ? parseInt(calendarMonth.split('-')[0]) : now.getFullYear()
+      const calendarMon = calendarMonth ? parseInt(calendarMonth.split('-')[1]) : now.getMonth() + 1
 
       // Fetch today's stat
       const todayStat = await db.dailyStat.findUnique({ where: { date: todayStr } })
@@ -32,50 +46,45 @@ export async function GET(request: NextRequest) {
         orderBy: { date: 'asc' },
       })
 
-      // Aggregate 7-day stats from dailyStats we already have
+      // Aggregate 7-day stats
       const last7DaysStats = dailyStats.filter(s => s.date >= sevenDaysAgo)
       const last7Days = {
         views: last7DaysStats.reduce((sum, s) => sum + s.totalViews, 0),
         uniqueVisitors: last7DaysStats.reduce((sum, s) => sum + s.uniqueVisitors, 0),
+        days: last7DaysStats.map(s => ({
+          date: s.date,
+          views: s.totalViews,
+          uniqueVisitors: s.uniqueVisitors,
+        })),
       }
 
-      // For 30 days, fetch separately only if needed
-      const last30DaysStats = sevenDaysAgo <= thirtyDaysAgo
-        ? await db.dailyStat.findMany({ where: { date: { gte: thirtyDaysAgo } } })
+      // 30-day stats — fetch separately only if needed
+      const last30DaysStats = fourteenDaysAgo <= thirtyDaysAgo
+        ? await db.dailyStat.findMany({ where: { date: { gte: thirtyDaysAgo } }, orderBy: { date: 'asc' } })
         : last7DaysStats
       const last30Days = {
         views: last30DaysStats.reduce((sum, s) => sum + s.totalViews, 0),
         uniqueVisitors: last30DaysStats.reduce((sum, s) => sum + s.uniqueVisitors, 0),
+        days: last30DaysStats.map(s => ({
+          date: s.date,
+          views: s.totalViews,
+          uniqueVisitors: s.uniqueVisitors,
+        })),
       }
 
-      // Total all time (reuse dailyStats + any older data)
-      const allTimeStats = fourteenDaysAgo <= thirtyDaysAgo
-        ? last30DaysStats
-        : await db.dailyStat.findMany()
-      const totalAllTime = fourteenDaysAgo > thirtyDaysAgo
-        ? {
-            views: allTimeStats.reduce((sum, s) => sum + s.totalViews, 0),
-            uniqueVisitors: allTimeStats.reduce((sum, s) => sum + s.uniqueVisitors, 0),
-          }
-        : {
-            views: last30DaysStats.reduce((sum, s) => sum + s.totalViews, 0),
-            uniqueVisitors: last30DaysStats.reduce((sum, s) => sum + s.uniqueVisitors, 0),
-          }
+      // Total all time — fetch all DailyStat rows
+      const allStats = await db.dailyStat.findMany({ orderBy: { date: 'asc' } })
+      const totalAllTime = {
+        views: allStats.reduce((sum, s) => sum + s.totalViews, 0),
+        uniqueVisitors: allStats.reduce((sum, s) => sum + s.uniqueVisitors, 0),
+      }
 
-      // Online now (real: sessions active in last 60 seconds — matches
-      // /api/admin/live-viewers active window for consistency)
+      // Online now (real: sessions active in last 60 seconds)
       const onlineNow = await db.visitorSession.count({
         where: { lastSeen: { gte: activeSince } },
       })
 
-      // Recent page views.
-      // NOTE: We intentionally do NOT use an explicit `select` here. Earlier
-      // versions selected `device`, `browser`, `country` — but if a developer's
-      // LOCAL Prisma client / SQLite DB hasn't been migrated to the Task-17
-      // schema yet, those fields are "Unknown" and the query throws a 500.
-      // Fetching all fields is safe on both old and new schemas: on old schemas
-      // the new columns simply won't be present in the returned rows (we read
-      // them defensively with `|| ''` below).
+      // Recent page views (only exists for today — yesterday's were deleted at midnight)
       let recentPageViews: Array<{
         page: string
         channelId: string | null
@@ -94,16 +103,24 @@ export async function GET(request: NextRequest) {
         recentPageViews = []
       }
 
-      // Top channels all time — from all DailyStats
-      const allStats = await db.dailyStat.findMany()
+      // ── Top channels/countries/devices from DailyStat JSON counts ──
+      // These are aggregated counts, not raw PageView rows
       const channelCounts: Record<string, number> = {}
+      const countryCounts: Record<string, number> = {}
       const deviceCounts: Record<string, number> = {}
       const browserCounts: Record<string, number> = {}
+
       for (const stat of allStats) {
         try {
           const ch: Record<string, number> = JSON.parse(stat.topChannels || '{}')
           for (const [id, count] of Object.entries(ch)) {
             channelCounts[id] = (channelCounts[id] || 0) + count
+          }
+        } catch { /* skip */ }
+        try {
+          const co: Record<string, number> = JSON.parse(stat.topCountries || '{}')
+          for (const [c, count] of Object.entries(co)) {
+            countryCounts[c] = (countryCounts[c] || 0) + count
           }
         } catch { /* skip */ }
         try {
@@ -120,6 +137,7 @@ export async function GET(request: NextRequest) {
         } catch { /* skip */ }
       }
 
+      // Resolve channel names
       const topChannelIds = Object.entries(channelCounts)
         .sort(([, a], [, b]) => b - a)
         .slice(0, 20)
@@ -143,24 +161,46 @@ export async function GET(request: NextRequest) {
           views,
         }))
 
-      // Top devices all-time (mobile/desktop/tv)
+      const topCountriesAllTime = Object.entries(countryCounts)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 20)
+        .map(([country, count]) => ({ country, count }))
+
       const topDevicesAllTime = Object.entries(deviceCounts)
         .sort(([, a], [, b]) => b - a)
         .map(([device, count]) => ({ device, count }))
 
-      // Top browsers all-time
       const topBrowsersAllTime = Object.entries(browserCounts)
         .sort(([, a], [, b]) => b - a)
         .map(([browser, count]) => ({ browser, count }))
 
+      // ── Calendar data ──
+      // Get all DailyStat rows for the selected month
+      const monthStart = `${calendarYear}-${String(calendarMon).padStart(2, '0')}-01`
+      const nextMon = calendarMon === 12 ? 1 : calendarMon + 1
+      const nextYear = calendarMon === 12 ? calendarYear + 1 : calendarYear
+      const monthEnd = `${nextYear}-${String(nextMon).padStart(2, '0')}-01`
+
+      const calendarStats = await db.dailyStat.findMany({
+        where: {
+          date: { gte: monthStart, lt: monthEnd },
+        },
+        orderBy: { date: 'asc' },
+      })
+
+      const calendarDays = calendarStats.map(s => ({
+        date: s.date,
+        views: s.totalViews,
+        uniqueVisitors: s.uniqueVisitors,
+        peakVisitors: s.peakVisitors || 0,
+      }))
+
+      // Daily chart data
       const dailyChart = dailyStats.map((s) => ({
         date: s.date,
         views: s.totalViews,
         uniqueVisitors: s.uniqueVisitors,
-        // `peakVisitors` was added in Task-17. On a DB that hasn't been
-        // migrated yet the column is absent → value is undefined → fall back
-        // to 0 so the chart still renders.
-        peakVisitors: (s as { peakVisitors?: number }).peakVisitors || 0,
+        peakVisitors: s.peakVisitors || 0,
       }))
 
       const formatStat = (
@@ -185,7 +225,7 @@ export async function GET(request: NextRequest) {
         topBrowsers: JSON.parse(stat?.topBrowsers || '{}'),
       })
 
-      return NextResponse.json({
+      const responseData = {
         today: formatStat(todayStat),
         yesterday: formatStat(yesterdayStat),
         last7Days,
@@ -193,6 +233,7 @@ export async function GET(request: NextRequest) {
         totalAllTime,
         dailyChart,
         topChannelsAllTime,
+        topCountriesAllTime,
         topDevicesAllTime,
         topBrowsersAllTime,
         onlineNow,
@@ -200,12 +241,21 @@ export async function GET(request: NextRequest) {
           page: pv.page,
           channelId: pv.channelId,
           createdAt: pv.createdAt.toISOString(),
-          // Defensive reads — these columns may be absent on an unmigrated DB.
           country: pv.country || '',
           device: pv.device || '',
           browser: pv.browser || '',
         })),
-      })
+        calendar: {
+          year: calendarYear,
+          month: calendarMon,
+          days: calendarDays,
+        },
+      }
+
+      // Cache the dashboard data
+      apiCache.setDashboard(responseData as unknown as Record<string, unknown>)
+
+      return NextResponse.json(responseData)
     } catch (error) {
       console.error('[Analytics] Dashboard error:', error)
       const message = error instanceof Error ? error.message : 'Failed to fetch analytics'

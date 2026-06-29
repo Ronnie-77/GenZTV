@@ -395,21 +395,31 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
 
   // --- 9. Ad-blocker detection (bait element technique) ---
   //
-  // IMPORTANT — false-positive avoidance:
+  // IMPORTANT — false-positive avoidance (v2 — robust):
   // We rely PRIMARILY on the DOM bait element. Ad-blockers ship filter lists
   // (EasyList, etc.) that hide elements with ad-like class names via
   // `display:none` / `height:0`. If the bait is hidden, an ad-blocker is
   // almost certainly active.
   //
+  // v2 improvements to eliminate false positives:
+  //   • A "control" element (no ad classes) is placed alongside the bait —
+  //     if the CONTROL is also hidden, it's a CSS/DOM issue, NOT an ad-blocker.
+  //   • `offsetParent === null` is NO LONGER used — it's unreliable for
+  //     absolutely positioned elements and gives false positives.
+  //   • The initial wait is 300ms (was 100ms) — slower devices need more time.
+  //   • A confirmation re-check runs 500ms later — two positive results are
+  //     required before the overlay is shown. A single transient detection
+  //     is NOT enough.
+  //   • The periodic check (every 15s) requires 2+ consecutive positives
+  //     before setting adBlockerDetected = true. 2+ consecutive negatives
+  //     clear the state.
+  //
   // We do NOT treat a failed fetch to `/ads.js` as ad-blocker evidence on
-  // its own. A fetch to that path can fail for THREE reasons:
-  //   1. The ad-blocker intercepted it (ERR_BLOCKED_BY_CLIENT) — real signal.
-  //   2. The user is offline / network is flaky — common, NOT an ad-blocker.
-  //   3. The server is unreachable — common on mobile/slow networks.
-  // We cannot reliably distinguish (1) from (2)/(3) in `no-cors` mode, so
-  // the network test is only used as a CONFIRMING signal — never alone.
-  // This stops the "ad-blocker detected" overlay from popping up when the
-  // user simply has a bad connection (the user's actual complaint).
+  // its own (network test removed — it caused false positives on flaky
+  // connections and added no real value since DOM bait is the gold standard).
+  const adBlockPositiveCountRef = useRef(0)
+  const AD_BLOCK_THRESHOLD = 2  // require 2+ consecutive positives before showing overlay
+
   const checkAdBlocker = useCallback(async (): Promise<boolean> => {
     if (typeof document === 'undefined') return false
     // Admin bypass
@@ -418,9 +428,17 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     if (!useAppStore.getState().securityEnabled) return false
 
     return new Promise<boolean>((resolve) => {
-      // Create a bait element with class names that ad-blockers target via
-      // their filter lists (EasyList, etc.). If the ad-blocker hides it
-      // (display:none, height:0, offsetParent:null), an ad-blocker is active.
+      // Create a CONTROL element (no ad classes) and a BAIT element (ad classes).
+      // If the control is also hidden, the detection is invalid — it's a
+      // CSS/DOM issue, not an ad-blocker.
+      const control = document.createElement('div')
+      control.className = 'genztv-adblock-control-test'
+      control.style.cssText =
+        'position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;' +
+        'visibility:visible;pointer-events:none;'
+      control.innerHTML = '&nbsp;'
+      document.body.appendChild(control)
+
       const bait = document.createElement('div')
       bait.className =
         'ad-banner ads ad-placement adsbox ad-zone ad-unit textads banner-ads ad-card pub_300x250 pub_300x250m pub_728x90'
@@ -430,71 +448,83 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
       bait.innerHTML = '&nbsp;'
       document.body.appendChild(bait)
 
-      let domBlocked = false
-      let netBlocked = false
       let settled = false
 
       const finish = (blocked: boolean) => {
         if (settled) return
         settled = true
         try { bait.remove() } catch {}
+        try { control.remove() } catch {}
         resolve(blocked)
       }
 
-      // Network test — fire and forget. We do NOT resolve(true) on a network
-      // failure alone (could be offline/flaky network — see comment above).
-      // We only use it to CONFIRM when the DOM bait is also suspicious.
-      const testUrl = '/ads.js?adblocktest=' + Date.now()
-      fetch(testUrl, { method: 'GET', mode: 'no-cors' })
-        .then(() => { /* request succeeded (even as a 404) → no blocker on this path */ })
-        .catch(() => { netBlocked = true })
-
       // DOM check after the browser has a chance to apply CSS rules.
+      // 300ms gives slower devices time to render and apply filter lists.
       setTimeout(() => {
         try {
-          const cs = window.getComputedStyle(bait)
-          domBlocked =
-            bait.offsetParent === null ||
+          // Check if the control element is visible — if it's NOT visible,
+          // the detection is invalid (CSS/DOM issue, not an ad-blocker).
+          const controlCs = window.getComputedStyle(control)
+          const controlVisible =
+            control.offsetHeight > 0 &&
+            control.clientHeight > 0 &&
+            controlCs.display !== 'none' &&
+            controlCs.visibility !== 'hidden'
+
+          if (!controlVisible) {
+            // Control is also hidden — can't reliably detect, treat as no blocker
+            finish(false)
+            return
+          }
+
+          // Control is visible — now check the bait element.
+          // NOTE: offsetParent is NOT checked — it's unreliable for
+          // absolutely positioned elements and causes false positives.
+          const baitCs = window.getComputedStyle(bait)
+          const baitHidden =
             bait.offsetHeight === 0 ||
             bait.clientHeight === 0 ||
-            cs.display === 'none' ||
-            cs.visibility === 'hidden'
-        } catch {
-          domBlocked = false
-        }
+            baitCs.display === 'none' ||
+            baitCs.visibility === 'hidden'
 
-        if (domBlocked) {
-          // DOM bait is hidden → ad-blocker is active. The network test
-          // result is irrelevant here.
-          finish(true)
-        } else {
-          // DOM bait is visible. Wait briefly for the network test to settle
-          // — but we will ONLY flag as blocked if the network test ALSO
-          // failed. If only the network failed (and the DOM bait is fine),
-          // it's a network issue, NOT an ad-blocker. (User complaint fix.)
-          setTimeout(() => {
-            // Require BOTH signals — DOM bait hidden alone is enough above,
-            // but if we got here the DOM bait was visible. So we only flag
-            // blocked if the network test failed too. This catches
-            // network-only ad-blockers that don't touch the DOM but do
-            // intercept ad-network URLs — while not flagging pure network
-            // outages (where the DOM bait is visible AND the fetch failed
-            // because there's no connection).
-            //
-            // In practice: this branch almost never triggers a false
-            // positive because a working browser with no ad-blocker will
-            // receive the DOM bait correctly. If you see false positives
-            // here, drop the network test entirely and rely on DOM only.
+          if (baitHidden) {
+            // Bait is hidden but control is visible → ad-blocker likely active.
+            // Run a confirmation check 500ms later to avoid transient false positives.
+            setTimeout(() => {
+              try {
+                // Re-check the bait element
+                const reCs = window.getComputedStyle(bait)
+                const reHidden =
+                  bait.offsetHeight === 0 ||
+                  bait.clientHeight === 0 ||
+                  reCs.display === 'none' ||
+                  reCs.visibility === 'hidden'
+                finish(reHidden)
+              } catch {
+                finish(false)
+              }
+            }, 500)
+          } else {
             finish(false)
-          }, 600)
+          }
+        } catch {
+          finish(false)
         }
-      }, 100)
+      }, 300)
     })
   }, [])
 
   const runAdBlockerCheck = useCallback(async () => {
     const blocked = await checkAdBlocker()
-    setAdBlockerDetected(blocked)
+    if (blocked) {
+      adBlockPositiveCountRef.current += 1
+    } else {
+      adBlockPositiveCountRef.current = 0
+    }
+    // Only show overlay after THRESHOLD consecutive positive checks.
+    // A single transient detection (slow device, brief CSS glitch) won't
+    // trigger the overlay. But 2+ consecutive positives means it's real.
+    setAdBlockerDetected(adBlockPositiveCountRef.current >= AD_BLOCK_THRESHOLD)
   }, [checkAdBlocker])
 
   // --- Setup all protections ---

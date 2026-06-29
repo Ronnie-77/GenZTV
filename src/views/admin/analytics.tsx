@@ -17,6 +17,9 @@ import {
   RefreshCw,
   Loader2,
   Flame,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -75,18 +78,27 @@ interface RecentPageView {
   browser: string
 }
 
+interface CalendarDay {
+  date: string
+  views: number
+  uniqueVisitors: number
+  peakVisitors: number
+}
+
 interface AnalyticsData {
   today: DayStat
   yesterday: DayStat
-  last7Days: { views: number; uniqueVisitors: number }
-  last30Days: { views: number; uniqueVisitors: number }
+  last7Days: { views: number; uniqueVisitors: number; days: { date: string; views: number; uniqueVisitors: number }[] }
+  last30Days: { views: number; uniqueVisitors: number; days: { date: string; views: number; uniqueVisitors: number }[] }
   totalAllTime: { views: number; uniqueVisitors: number }
   dailyChart: DailyChartPoint[]
   topChannelsAllTime: TopChannelAllTime[]
+  topCountriesAllTime: { country: string; count: number }[]
   topDevicesAllTime: TopDeviceAllTime[]
   topBrowsersAllTime: TopBrowserAllTime[]
   onlineNow: number
   recentPageViews: RecentPageView[]
+  calendar: { year: number; month: number; days: CalendarDay[] }
 }
 
 // --- Helpers ---
@@ -181,13 +193,18 @@ export function AdminAnalytics() {
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  })
 
-  const fetchData = useCallback(async (showRefreshSpinner = false) => {
+  const fetchData = useCallback(async (showRefreshSpinner = false, month?: string) => {
     try {
       if (showRefreshSpinner) setRefreshing(true)
       setError(null)
 
-      const res = await fetch('/api/analytics/dashboard')
+      const url = month ? `/api/analytics/dashboard?month=${month}` : '/api/analytics/dashboard'
+      const res = await fetch(url)
       if (res.status === 401) {
         throw new Error('Authentication required — please log in again')
       }
@@ -721,6 +738,20 @@ export function AdminAnalytics() {
               <p className="text-xs text-muted-foreground mt-0.5">Unique Visitors</p>
             </div>
           </div>
+          {/* Daily breakdown */}
+          {data.last7Days.days.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-border space-y-1.5 max-h-32 overflow-y-auto scrollbar-hide">
+              {data.last7Days.days.map(d => (
+                <div key={d.date} className="flex items-center justify-between text-[10px]">
+                  <span className="text-muted-foreground">{formatShortDate(d.date)}</span>
+                  <span className="tabular-nums">
+                    <span className="font-medium">{d.views.toLocaleString()}</span>
+                    <span className="text-muted-foreground ml-2">{d.uniqueVisitors.toLocaleString()} UV</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="bg-card rounded-xl border border-border shadow-sm p-5">
           <div className="flex items-center gap-2 mb-3">
@@ -737,7 +768,135 @@ export function AdminAnalytics() {
               <p className="text-xs text-muted-foreground mt-0.5">Unique Visitors</p>
             </div>
           </div>
+          {/* Daily breakdown */}
+          {data.last30Days.days.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-border space-y-1.5 max-h-32 overflow-y-auto scrollbar-hide">
+              {[...data.last30Days.days].reverse().slice(0, 7).map(d => (
+                <div key={d.date} className="flex items-center justify-between text-[10px]">
+                  <span className="text-muted-foreground">{formatShortDate(d.date)}</span>
+                  <span className="tabular-nums">
+                    <span className="font-medium">{d.views.toLocaleString()}</span>
+                    <span className="text-muted-foreground ml-2">{d.uniqueVisitors.toLocaleString()} UV</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
+      </div>
+
+      {/* ─── Calendar Section ─── */}
+      <div className="bg-card rounded-xl border border-border shadow-sm p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-primary" />
+            <h3 className="text-sm font-semibold">Daily Stats Calendar</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={() => {
+                const [y, m] = calendarMonth.split('-').map(Number)
+                const prev = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`
+                setCalendarMonth(prev)
+                fetchData(false, prev)
+              }}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm font-medium min-w-[120px] text-center">
+              {new Date(calendarMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={() => {
+                const [y, m] = calendarMonth.split('-').map(Number)
+                const next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
+                setCalendarMonth(next)
+                fetchData(false, next)
+              }}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+        {/* Calendar Grid */}
+        {(() => {
+          const calData = data.calendar
+          const daysInMonth = new Date(calData.year, calData.month, 0).getDate()
+          const firstDayOfWeek = new Date(calData.year, calData.month - 1, 1).getDay()
+          const dayMap = new Map(calData.days.map(d => [d.date, d]))
+          const todayStr = new Date().toISOString().slice(0, 10)
+          const maxViews = Math.max(...calData.days.map(d => d.views), 1)
+
+          const cells: React.ReactNode[] = []
+
+          // Day headers
+          const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+          const headers = dayLabels.map(d => (
+            <div key={d} className="text-[10px] font-semibold text-muted-foreground text-center py-1">
+              {d}
+            </div>
+          ))
+
+          // Empty cells before first day
+          for (let i = 0; i < firstDayOfWeek; i++) {
+            cells.push(<div key={`empty-${i}`} />)
+          }
+
+          // Day cells
+          for (let day = 1; day <= daysInMonth; day++) {
+            const dateStr = `${calData.year}-${String(calData.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+            const dayData = dayMap.get(dateStr)
+            const isToday = dateStr === todayStr
+            const isFuture = new Date(dateStr) > new Date()
+            const intensity = dayData ? Math.max(dayData.views / maxViews, 0) : 0
+
+            cells.push(
+              <div
+                key={dateStr}
+                className={`relative rounded-lg p-1.5 text-center transition-all duration-200 ${
+                  isToday
+                    ? 'ring-2 ring-primary bg-primary/5'
+                    : isFuture
+                    ? 'opacity-30'
+                    : 'hover:bg-secondary/50'
+                }`}
+                title={dayData ? `${dateStr}: ${dayData.views.toLocaleString()} views, ${dayData.uniqueVisitors.toLocaleString()} visitors, peak ${dayData.peakVisitors}` : dateStr}
+              >
+                <div className="text-[10px] font-medium text-muted-foreground mb-0.5">{day}</div>
+                {dayData && !isFuture && (
+                  <>
+                    <div className="text-[10px] font-bold tabular-nums leading-tight">
+                      {dayData.views >= 1000 ? `${(dayData.views / 1000).toFixed(1)}K` : dayData.views}
+                    </div>
+                    <div className="text-[8px] text-muted-foreground tabular-nums leading-tight">
+                      {dayData.uniqueVisitors >= 1000 ? `${(dayData.uniqueVisitors / 1000).toFixed(1)}K` : dayData.uniqueVisitors} UV
+                    </div>
+                    {/* Intensity bar */}
+                    <div className="mt-1 h-0.5 rounded-full bg-secondary overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-teal-500 to-emerald-400"
+                        style={{ width: `${Math.max(intensity * 100, 2)}%` }}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )
+          }
+
+          return (
+            <div className="grid grid-cols-7 gap-1">
+              {headers}
+              {cells}
+            </div>
+          )
+        })()}
       </div>
 
       {/* ─── Top Channels All Time ─── */}
@@ -758,6 +917,24 @@ export function AdminAnalytics() {
                   <span className="truncate font-medium">{ch.name}</span>
                 </div>
                 <span className="text-muted-foreground tabular-nums ml-2">{formatNumber(ch.views)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ─── Top Countries All Time ─── */}
+      {data.topCountriesAllTime && data.topCountriesAllTime.length > 0 && (
+        <div className="bg-card rounded-xl border border-border shadow-sm p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Globe className="h-4 w-4 text-amber-500" />
+            <h3 className="text-sm font-semibold">Top Countries — All Time</h3>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {data.topCountriesAllTime.slice(0, 12).map(({ country, count }) => (
+              <div key={country} className="flex items-center justify-between text-xs py-2 px-3 rounded-lg bg-secondary/30">
+                <span className="font-medium truncate">{country}</span>
+                <span className="text-muted-foreground tabular-nums ml-2">{formatNumber(count)}</span>
               </div>
             ))}
           </div>

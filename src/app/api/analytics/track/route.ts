@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { parseUserAgent } from '@/lib/ua-parser'
 import { lookupCountry, countryFromHeaders } from '@/lib/geo'
+import { apiCache } from '@/lib/cache'
 
 // POST /api/analytics/track — track a page view
 // Records REAL visitor data only: IP, User-Agent → device + browser,
@@ -46,8 +47,94 @@ function stripNewFields<T extends Record<string, unknown>>(data: T): Partial<T> 
   return out as Partial<T>
 }
 
+// ── Auto-Cleanup ──
+// Probabilistically triggers analytics data cleanup (1% chance per request).
+// Two modes:
+//   1. Midnight reset: If a new day has started since the last reset, deletes
+//      ALL PageView + VisitorSession rows (DailyStat has the aggregated counts).
+//   2. Old data cleanup: Deletes PageViews older than 90 days and VisitorSessions
+//      older than 30 days (for days that weren't reset).
+// Fire-and-forget — does NOT block the track response.
+
+let _lastResetDate: string | null = null
+
+function triggerAutoCleanup() {
+  try {
+    const now = new Date()
+    const todayStr = now.toISOString().slice(0, 10)
+
+    // ── Midnight Reset ──
+    // If the date changed since the last reset, perform the daily reset:
+    // Delete ALL PageView + VisitorSession rows. DailyStat keeps the counts.
+    if (_lastResetDate && _lastResetDate !== todayStr) {
+      console.log(`[Analytics Daily Reset] Date changed from ${_lastResetDate} to ${todayStr} — resetting...`)
+      _lastResetDate = todayStr
+
+      // Delete all PageViews (detailed data not needed — DailyStat has counts)
+      db.pageView.deleteMany({}).then((result) => {
+        if (result.count > 0) {
+          console.log(`[Analytics Daily Reset] Deleted ${result.count} PageViews`)
+        }
+      }).catch((err) => {
+        console.error('[Analytics Daily Reset] PageView deletion failed:', err)
+      })
+
+      // Delete all VisitorSessions (stale — new day)
+      db.visitorSession.deleteMany({}).then((result) => {
+        if (result.count > 0) {
+          console.log(`[Analytics Daily Reset] Deleted ${result.count} VisitorSessions`)
+        }
+      }).catch((err) => {
+        console.error('[Analytics Daily Reset] VisitorSession deletion failed:', err)
+      })
+
+      // Invalidate all caches
+      try { apiCache.clear() } catch { /* ignore */ }
+
+      return // Skip old-data cleanup on reset day
+    }
+
+    // Initialize the reset date tracker
+    if (!_lastResetDate) {
+      _lastResetDate = todayStr
+    }
+
+    // ── Old Data Cleanup (fallback for non-reset days) ──
+    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+    db.pageView.deleteMany({
+      where: { createdAt: { lt: ninetyDaysAgo } },
+    }).then((result) => {
+      if (result.count > 0) {
+        console.log(`[Analytics Auto-Cleanup] Deleted ${result.count} old PageViews`)
+      }
+    }).catch((err) => {
+      console.error('[Analytics Auto-Cleanup] PageView cleanup failed:', err)
+    })
+
+    db.visitorSession.deleteMany({
+      where: { lastSeen: { lt: thirtyDaysAgo } },
+    }).then((result) => {
+      if (result.count > 0) {
+        console.log(`[Analytics Auto-Cleanup] Deleted ${result.count} old VisitorSessions`)
+      }
+    }).catch((err) => {
+      console.error('[Analytics Auto-Cleanup] VisitorSession cleanup failed:', err)
+    })
+  } catch {
+    // Non-critical — never fail the track request
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
+    // ── Probabilistic auto-cleanup (1% chance per request) ──
+    // Fire-and-forget: don't await, don't block the response
+    if (Math.random() < 0.01) {
+      triggerAutoCleanup()
+    }
+
     const body = await request.json()
     const { page, channelId, matchId, referrer } = body as {
       page: string
