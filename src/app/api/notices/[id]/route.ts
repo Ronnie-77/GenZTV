@@ -50,7 +50,7 @@ export async function PATCH(
     const validTypes = ['popup', 'push', 'both']
     const finalType = type && validTypes.includes(type) ? type : existing.type
     const finalTitle = typeof title === 'string' ? title.trim() : existing.title
-    const finalBody = typeof noticeBody === 'string' ? noticeBody : existing.body
+    const finalBody = typeof noticeBody === 'string' ? noticeBody : (existing.body ?? null)
     const finalUrl = typeof url === 'string' ? url : existing.url
     const finalImage = typeof imageUrl === 'string' ? imageUrl : existing.imageUrl
     const finalActive = typeof isActive === 'boolean' ? isActive : existing.isActive
@@ -82,7 +82,7 @@ export async function PATCH(
       try {
         pushResult = await sendPushToAll({
           title: updated.title,
-          body: updated.body || 'New update from GenZ TV',
+          body: updated.body ?? 'New update from GenZ TV',
           icon: updated.imageUrl || '/logo.svg',
           image: updated.imageUrl || undefined,
           url: updated.url || '/',

@@ -310,16 +310,16 @@ export async function POST(request: NextRequest) {
     // Defensive reads: topDevices/topBrowsers/topCountries may be absent on an
     // unmigrated DB (the column simply won't exist in the returned row).
     const pv = currentStat as Record<string, unknown>
-    const topPages: Record<string, number> = JSON.parse((pv.topPages as string) || '{}')
-    const topChannels: Record<string, number> = JSON.parse((pv.topChannels as string) || '{}')
-    const topCountries: Record<string, number> = JSON.parse((pv.topCountries as string) || '{}')
+    const topPages: Record<string, number> = JSON.parse((pv.topPages as string) ?? '{}')
+    const topChannels: Record<string, number> = JSON.parse((pv.topChannels as string) ?? '{}')
+    const topCountries: Record<string, number> = JSON.parse((pv.topCountries as string) ?? '{}')
     let topDevices: Record<string, number> = {}
     let topBrowsers: Record<string, number> = {}
     try {
-      topDevices = JSON.parse((pv.topDevices as string) || '{}')
+      topDevices = JSON.parse((pv.topDevices as string) ?? '{}')
     } catch { /* column absent on old schema */ }
     try {
-      topBrowsers = JSON.parse((pv.topBrowsers as string) || '{}')
+      topBrowsers = JSON.parse((pv.topBrowsers as string) ?? '{}')
     } catch { /* column absent on old schema */ }
 
     topPages[page] = (topPages[page] || 0) + 1

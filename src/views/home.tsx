@@ -50,10 +50,10 @@ export function HomePage() {
     fetchSettings().then(s => {
       setApkUrl(s.apkUrl || '')
       setHomeAdsEnabled(s.adsEnabled && (s.homeAdsEnabled ?? true))
-      setLegacySocialBarScript(s.socialBarAdScript || '')
+      setLegacySocialBarScript(s.socialBarAdScript ?? '')
       // Parse custom ad scripts for home page
       try {
-        const all = JSON.parse(s.customAdScripts || '[]')
+        const all = JSON.parse(s.customAdScripts ?? '[]')
         const enabled = (a: {enabled: boolean}) => a.enabled
         setHomeAdScripts(all.filter((a: {position: string; enabled: boolean}) => a.position === 'home-banner' && enabled(a)))
         setHomeUpcomingMobileAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'home-upcoming-mobile' && enabled(a)))

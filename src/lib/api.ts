@@ -93,9 +93,9 @@ export interface AppSettings {
   featuredChannelId: string
   heroBannerText: string
   defaultQuality: string
-  bannerAdScript: string
-  socialBarAdScript: string
-  customAdScripts: string  // JSON array of {id, name, script, position, enabled}
+  bannerAdScript: string | null
+  socialBarAdScript: string | null
+  customAdScripts: string | null  // JSON array of {id, name, script, position, enabled}
   adsEnabled: boolean
   homeAdsEnabled: boolean
   videoAdsEnabled: boolean
@@ -111,7 +111,7 @@ export interface Notice {
   id: string
   type: 'popup' | 'push' | 'both'
   title: string
-  body: string
+  body: string | null
   url: string
   imageUrl: string
   isActive: boolean

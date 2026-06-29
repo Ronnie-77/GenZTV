@@ -97,7 +97,7 @@ export function AdminNotices() {
     setEditingId(n.id)
     setFType(n.type as NoticeType)
     setFTitle(n.title)
-    setFBody(n.body)
+    setFBody(n.body ?? '')
     setFUrl(n.url)
     setFImage(n.imageUrl)
     setFActive(n.isActive)

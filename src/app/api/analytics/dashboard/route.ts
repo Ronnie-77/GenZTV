@@ -112,25 +112,25 @@ export async function GET(request: NextRequest) {
 
       for (const stat of allStats) {
         try {
-          const ch: Record<string, number> = JSON.parse(stat.topChannels || '{}')
+          const ch: Record<string, number> = JSON.parse(stat.topChannels ?? '{}')
           for (const [id, count] of Object.entries(ch)) {
             channelCounts[id] = (channelCounts[id] || 0) + count
           }
         } catch { /* skip */ }
         try {
-          const co: Record<string, number> = JSON.parse(stat.topCountries || '{}')
+          const co: Record<string, number> = JSON.parse(stat.topCountries ?? '{}')
           for (const [c, count] of Object.entries(co)) {
             countryCounts[c] = (countryCounts[c] || 0) + count
           }
         } catch { /* skip */ }
         try {
-          const dev: Record<string, number> = JSON.parse(stat.topDevices || '{}')
+          const dev: Record<string, number> = JSON.parse(stat.topDevices ?? '{}')
           for (const [d, count] of Object.entries(dev)) {
             deviceCounts[d] = (deviceCounts[d] || 0) + count
           }
         } catch { /* skip */ }
         try {
-          const br: Record<string, number> = JSON.parse(stat.topBrowsers || '{}')
+          const br: Record<string, number> = JSON.parse(stat.topBrowsers ?? '{}')
           for (const [b, count] of Object.entries(br)) {
             browserCounts[b] = (browserCounts[b] || 0) + count
           }
@@ -218,11 +218,11 @@ export async function GET(request: NextRequest) {
         views: stat?.totalViews || 0,
         uniqueVisitors: stat?.uniqueVisitors || 0,
         peakVisitors: stat?.peakVisitors || 0,
-        topPages: JSON.parse(stat?.topPages || '{}'),
-        topChannels: JSON.parse(stat?.topChannels || '{}'),
-        topCountries: JSON.parse(stat?.topCountries || '{}'),
-        topDevices: JSON.parse(stat?.topDevices || '{}'),
-        topBrowsers: JSON.parse(stat?.topBrowsers || '{}'),
+        topPages: JSON.parse(stat?.topPages ?? '{}'),
+        topChannels: JSON.parse(stat?.topChannels ?? '{}'),
+        topCountries: JSON.parse(stat?.topCountries ?? '{}'),
+        topDevices: JSON.parse(stat?.topDevices ?? '{}'),
+        topBrowsers: JSON.parse(stat?.topBrowsers ?? '{}'),
       })
 
       const responseData = {

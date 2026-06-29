@@ -56,9 +56,9 @@ export function WatchPage() {
   useEffect(() => {
     fetchSettings().then(s => {
       setVideoAdsEnabled(s.adsEnabled && (s.videoAdsEnabled ?? true))
-      setLegacySocialBarScript(s.socialBarAdScript || '')
+      setLegacySocialBarScript(s.socialBarAdScript ?? '')
       try {
-        const all = JSON.parse(s.customAdScripts || '[]')
+        const all = JSON.parse(s.customAdScripts ?? '[]')
         const enabled = (a: {enabled: boolean}) => a.enabled
         setVideoAboveMobileAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'video-above-mobile' && enabled(a)))
         setVideoAbovePcAds(all.filter((a: {position: string; enabled: boolean}) => a.position === 'video-above-pc' && enabled(a)))

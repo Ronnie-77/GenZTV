@@ -115,7 +115,7 @@ export function AdminSettings() {
         setRedirectAdInterval(String(s.redirectAdIntervalMinutes ?? 5))
         // Parse custom ad scripts
         try {
-          const parsed = JSON.parse(s.customAdScripts || '[]')
+          const parsed = JSON.parse(s.customAdScripts ?? '[]')
           setAdScripts(Array.isArray(parsed) ? parsed : [])
         } catch {
           setAdScripts([])
@@ -197,8 +197,8 @@ export function AdminSettings() {
         heroBannerText,
         defaultQuality,
         apkUrl,
-        bannerAdScript: settings?.bannerAdScript || '',
-        socialBarAdScript: settings?.socialBarAdScript || '',
+        bannerAdScript: settings?.bannerAdScript ?? '',
+        socialBarAdScript: settings?.socialBarAdScript ?? '',
         customAdScripts: JSON.stringify(adScripts),
         adsEnabled,
         homeAdsEnabled,
@@ -371,7 +371,7 @@ export function AdminSettings() {
                 setRedirectAdEnabled(s.redirectAdEnabled ?? false)
                 setRedirectAdInterval(String(s.redirectAdIntervalMinutes ?? 5))
                 try {
-                  const parsed = JSON.parse(s.customAdScripts || '[]')
+                  const parsed = JSON.parse(s.customAdScripts ?? '[]')
                   setAdScripts(Array.isArray(parsed) ? parsed : [])
                 } catch {
                   setAdScripts([])

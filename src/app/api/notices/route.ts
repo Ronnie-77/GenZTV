@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     }
     const validTypes = ['popup', 'push', 'both']
     const finalType = validTypes.includes(type) ? type! : 'popup'
-    const finalBody = typeof noticeBody === 'string' ? noticeBody : ''
+    const finalBody = typeof noticeBody === 'string' ? noticeBody : null
     const finalUrl = typeof url === 'string' ? url : ''
     const finalImage = typeof imageUrl === 'string' ? imageUrl : ''
     const finalActive = isActive !== false // default true unless explicitly false
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
       try {
         pushResult = await sendPushToAll({
           title: notice.title,
-          body: notice.body || 'New update from GenZ TV',
+          body: notice.body ?? 'New update from GenZ TV',
           icon: notice.imageUrl || '/logo.svg',
           image: notice.imageUrl || undefined,
           url: notice.url || '/',

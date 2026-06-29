@@ -10,6 +10,8 @@ import { requireAdminAuth } from '@/lib/auth'
 // analytics enrichment fields (device, browser, peakVisitors, topDevices,
 // topBrowsers) and the GA4 / Firebase settings — so a hosting change via
 // export → import loses nothing.
+//
+// Also supports channels-only imports (type: "channels-only" in _meta).
 export async function POST(req: NextRequest) {
   return requireAdminAuth(req, async () => {
     try {
@@ -30,6 +32,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid import file — missing _meta.version header. Make sure this is a GenZ TV backup file.' }, { status: 400 })
       }
 
+      const meta = body._meta as Record<string, unknown>
+      const isChannelsOnly = meta.type === 'channels-only'
+
       const r = {
         channels: { imported: 0, skipped: 0 },
         matches: { imported: 0, skipped: 0 },
@@ -41,6 +46,27 @@ export async function POST(req: NextRequest) {
         pushSubscriptions: { imported: 0, skipped: 0 },
       }
 
+      // ── Channels-Only Import Path ──
+      if (isChannelsOnly) {
+        if (Array.isArray(body.channels)) {
+          for (const ch of body.channels as Record<string, unknown>[]) {
+            try {
+              await db.channel.upsert({
+                where: { id: ch.id as string },
+                update: { name: ch.name as string, logo: (ch.logo as string) ?? '', category: (ch.category as string) ?? 'entertainment', streamType: (ch.streamType as string) ?? 'm3u', streamUrl: (ch.streamUrl as string) ?? '', githubM3uPath: (ch.githubM3uPath as string) ?? '', language: (ch.language as string) ?? '', country: (ch.country as string) ?? '', tags: (ch.tags as string) ?? '', isFeatured: (ch.isFeatured as boolean) ?? false, isActive: (ch.isActive as boolean) ?? true, viewCount: (ch.viewCount as number) ?? 0 },
+                create: { id: ch.id as string, name: ch.name as string, logo: (ch.logo as string) ?? '', category: (ch.category as string) ?? 'entertainment', streamType: (ch.streamType as string) ?? 'm3u', streamUrl: (ch.streamUrl as string) ?? '', githubM3uPath: (ch.githubM3uPath as string) ?? '', language: (ch.language as string) ?? '', country: (ch.country as string) ?? '', tags: (ch.tags as string) ?? '', isFeatured: (ch.isFeatured as boolean) ?? false, isActive: (ch.isActive as boolean) ?? true, viewCount: (ch.viewCount as number) ?? 0 },
+              })
+              r.channels.imported++
+            } catch { r.channels.skipped++ }
+          }
+        }
+
+        console.log('[Data Import] Channels-only import complete:', JSON.stringify(r))
+        return NextResponse.json({ success: true, result: r })
+      }
+
+      // ── Full Import Path ──
+
       // Settings — ALL fields including GA4 / Firebase config
       if (body.settings && (body.settings as Record<string, unknown>)?.id) {
         const s = body.settings as Record<string, unknown>
@@ -51,8 +77,8 @@ export async function POST(req: NextRequest) {
               appName: s.appName as string, logoUrl: s.logoUrl as string,
               maintenanceMode: s.maintenanceMode as boolean, featuredChannelId: s.featuredChannelId as string,
               heroBannerText: s.heroBannerText as string, defaultQuality: s.defaultQuality as string,
-              bannerAdScript: s.bannerAdScript as string, socialBarAdScript: s.socialBarAdScript as string,
-              customAdScripts: s.customAdScripts as string, adsEnabled: s.adsEnabled as boolean,
+              bannerAdScript: s.bannerAdScript ? String(s.bannerAdScript) : null, socialBarAdScript: s.socialBarAdScript ? String(s.socialBarAdScript) : null,
+              customAdScripts: s.customAdScripts ? String(s.customAdScripts) : null, adsEnabled: s.adsEnabled as boolean,
               homeAdsEnabled: s.homeAdsEnabled as boolean, videoAdsEnabled: s.videoAdsEnabled as boolean,
               apkUrl: s.apkUrl as string,
               ga4MeasurementId: (s.ga4MeasurementId as string) ?? '',
@@ -62,14 +88,14 @@ export async function POST(req: NextRequest) {
               id: 'app', appName: (s.appName as string) || 'GenZ TV', logoUrl: (s.logoUrl as string) || '',
               maintenanceMode: (s.maintenanceMode as boolean) || false, featuredChannelId: (s.featuredChannelId as string) || '',
               heroBannerText: (s.heroBannerText as string) || '', defaultQuality: (s.defaultQuality as string) || 'auto',
-              bannerAdScript: (s.bannerAdScript as string) || '', socialBarAdScript: (s.socialBarAdScript as string) || '',
-              customAdScripts: (s.customAdScripts as string) || '[]',
+              bannerAdScript: s.bannerAdScript ? String(s.bannerAdScript) : null, socialBarAdScript: s.socialBarAdScript ? String(s.socialBarAdScript) : null,
+              customAdScripts: s.customAdScripts ? String(s.customAdScripts) : null,
               adsEnabled: s.adsEnabled !== undefined ? (s.adsEnabled as boolean) : true,
               homeAdsEnabled: s.homeAdsEnabled !== undefined ? (s.homeAdsEnabled as boolean) : true,
               videoAdsEnabled: s.videoAdsEnabled !== undefined ? (s.videoAdsEnabled as boolean) : true,
               apkUrl: (s.apkUrl as string) || '',
               ga4MeasurementId: (s.ga4MeasurementId as string) || '',
-              firebaseConfig: (s.firebaseConfig as string) || '{}',
+              firebaseConfig: s.firebaseConfig ? String(s.firebaseConfig) : null,
             },
           })
           r.settings = true

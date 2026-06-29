@@ -1,14 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { isAdminAuthenticated } from '@/lib/auth'
+import { apiCache } from '@/lib/cache'
 
 // GET /api/settings — public read (needed for maintenance mode check, app name, etc.)
 export async function GET() {
   try {
+    // Check cache first
+    const cached = apiCache.getSettings()
+    if (cached) {
+      return NextResponse.json(cached)
+    }
+
     let settings = await db.appSetting.findUnique({ where: { id: 'app' } })
     if (!settings) {
       settings = await db.appSetting.create({ data: { id: 'app' } })
     }
+
+    // Cache the settings
+    apiCache.setSettings(settings as unknown as Record<string, unknown>)
+
     return NextResponse.json(settings)
   } catch (error) {
     console.error('[Settings] Error fetching settings:', error)
@@ -45,9 +56,9 @@ export async function PUT(req: NextRequest) {
         ...(b.featuredChannelId !== undefined && { featuredChannelId: String(b.featuredChannelId) }),
         ...(b.heroBannerText !== undefined && { heroBannerText: String(b.heroBannerText) }),
         ...(b.defaultQuality !== undefined && { defaultQuality: String(b.defaultQuality) }),
-        ...(b.bannerAdScript !== undefined && { bannerAdScript: String(b.bannerAdScript) }),
-        ...(b.socialBarAdScript !== undefined && { socialBarAdScript: String(b.socialBarAdScript) }),
-        ...(b.customAdScripts !== undefined && { customAdScripts: typeof b.customAdScripts === 'string' ? b.customAdScripts : JSON.stringify(b.customAdScripts) }),
+        ...(b.bannerAdScript !== undefined && { bannerAdScript: b.bannerAdScript ? String(b.bannerAdScript) : null }),
+        ...(b.socialBarAdScript !== undefined && { socialBarAdScript: b.socialBarAdScript ? String(b.socialBarAdScript) : null }),
+        ...(b.customAdScripts !== undefined && { customAdScripts: typeof b.customAdScripts === 'string' ? (b.customAdScripts || null) : JSON.stringify(b.customAdScripts ?? []) }),
         ...(b.adsEnabled !== undefined && { adsEnabled: Boolean(b.adsEnabled) }),
         ...(b.homeAdsEnabled !== undefined && { homeAdsEnabled: Boolean(b.homeAdsEnabled) }),
         ...(b.videoAdsEnabled !== undefined && { videoAdsEnabled: Boolean(b.videoAdsEnabled) }),
@@ -65,9 +76,9 @@ export async function PUT(req: NextRequest) {
         featuredChannelId: b.featuredChannelId ? String(b.featuredChannelId) : '',
         heroBannerText: b.heroBannerText ? String(b.heroBannerText) : '',
         defaultQuality: b.defaultQuality ? String(b.defaultQuality) : 'auto',
-        bannerAdScript: b.bannerAdScript ? String(b.bannerAdScript) : '',
-        socialBarAdScript: b.socialBarAdScript ? String(b.socialBarAdScript) : '',
-        customAdScripts: typeof b.customAdScripts === 'string' ? b.customAdScripts : JSON.stringify(b.customAdScripts || []),
+        bannerAdScript: b.bannerAdScript ? String(b.bannerAdScript) : null,
+        socialBarAdScript: b.socialBarAdScript ? String(b.socialBarAdScript) : null,
+        customAdScripts: typeof b.customAdScripts === 'string' ? (b.customAdScripts || null) : JSON.stringify(b.customAdScripts ?? []),
         adsEnabled: b.adsEnabled !== undefined ? Boolean(b.adsEnabled) : true,
         homeAdsEnabled: b.homeAdsEnabled !== undefined ? Boolean(b.homeAdsEnabled) : true,
         videoAdsEnabled: b.videoAdsEnabled !== undefined ? Boolean(b.videoAdsEnabled) : true,
@@ -78,6 +89,10 @@ export async function PUT(req: NextRequest) {
         redirectAdIntervalMinutes: b.redirectAdIntervalMinutes !== undefined ? Math.max(1, Math.min(1440, parseInt(b.redirectAdIntervalMinutes as string) || 5)) : 5,
       },
     })
+
+    // Invalidate settings cache
+    apiCache.invalidateSettings()
+
     return NextResponse.json(settings)
   } catch (error) {
     console.error('[Settings] Error updating settings:', error)
