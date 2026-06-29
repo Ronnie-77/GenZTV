@@ -124,7 +124,7 @@ model Feedback {
 
 model PushSubscription {
   id          String @id @default(cuid())
-  endpoint    String @unique @db.VarChar(1000)
+  endpoint    String @unique @db.VarChar(767)
   p256dh      String @db.VarChar(500)
   auth        String @db.VarChar(100)
   createdAt   DateTime @default(now())
