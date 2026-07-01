@@ -231,36 +231,54 @@ export function HlsPlayer({
       useMMS: true,
       enableSoftKfKey: true,
 
-      maxBufferLength: 60,
-      maxMaxBufferLength: 120,
-      maxBufferSize: 120 * 1000000,
+      // ── Buffer tuning (matched to HLS.js demo defaults) ──
+      // Old values (60/120/120MB) caused excessive buffering on CDN-hosted
+      // live streams (e.g. streamhostingcdn.top). The player tried to buffer
+      // 60s ahead before starting playback, and maxMaxBufferLength=120
+      // caused it to hold too much data. Demo page uses 30/600/60MB which
+      // gives much smoother live playback with faster time-to-first-frame.
+      maxBufferLength: 30,
+      maxMaxBufferLength: 600,
+      maxBufferSize: 60 * 1000000,
       maxBufferHole: 0.5,
 
-      abrEwmaDefaultEstimate: 500000,
+      // ── ABR tuning ──
+      // Old abrEwmaDefaultEstimate=500000 (500kbps) started at lowest quality
+      // and took several seconds to upswitch. 1.5Mbps default matches most
+      // CDN-hosted 720p streams, so ABR starts near the right quality.
+      abrEwmaDefaultEstimate: 1500000,
       abrBandWidthFactor: 0.95,
       abrBandWidthUpFactor: 0.7,
       abrMaxWithRealBitrate: true,
 
+      // ── Live sync tuning ──
+      // liveMaxLatencyDurationCount MUST match hls.js demo (Infinity).
+      // Previous values (10, then 30) caused forced seek-forward when the
+      // player fell behind — this created visible buffering stutters on
+      // CDN-hosted live streams like streamhostingcdn.top. Infinity means
+      // hls.js never forces a catch-up seek; the player naturally stays
+      // where it is and keeps playing. This matches the hls.js demo page
+      // behavior where the same streams play smoothly.
       liveSyncDurationCount: 3,
-      liveMaxLatencyDurationCount: 10,
+      liveMaxLatencyDurationCount: Infinity,
       liveDurationInfinity: true,
       progressive: true,
 
       // FAST-FAIL timeouts: most IPTV streams either work in <3s or never will.
-      // Old config (8s direct + retries) wasted 16-24s before mpegts.js fallback.
-      // New config: direct fails in 5s, proxy in 3s → mpegts.js in ~8s worst case.
-      // Fallback chain: direct → proxy → mpegts — total ~8s worst case (was ~25s)
+      // Direct mode: 8s timeout gives CDN-hosted streams (like streamhostingcdn.top)
+      // enough time to respond while still falling back reasonably fast.
+      // Proxy mode: 5s — proxy adds latency, so upstream must respond faster.
       fragLoadingMaxRetry: isDirect ? 1 : 1,
-      fragLoadingMaxRetryTimeout: isDirect ? 8000 : 5000,
-      fragLoadingTimeOut: isDirect ? 8000 : 5000,
+      fragLoadingMaxRetryTimeout: isDirect ? 10000 : 6000,
+      fragLoadingTimeOut: isDirect ? 10000 : 6000,
 
-      manifestLoadingMaxRetry: 0,  // 0 retries for BOTH modes — fail on first timeout, fall to mpegts
-      manifestLoadingMaxRetryTimeout: isDirect ? 5000 : 3000,
-      manifestLoadingTimeOut: isDirect ? 5000 : 3000,  // 5s direct, 3s proxy
+      manifestLoadingMaxRetry: 0,  // 0 retries — fail fast, let fallback chain handle it
+      manifestLoadingMaxRetryTimeout: isDirect ? 8000 : 5000,
+      manifestLoadingTimeOut: isDirect ? 8000 : 5000,  // 8s direct (CDN needs time), 5s proxy
 
       levelLoadingMaxRetry: 0,
-      levelLoadingMaxRetryTimeout: isDirect ? 5000 : 3000,
-      levelLoadingTimeOut: isDirect ? 5000 : 3000,
+      levelLoadingMaxRetryTimeout: isDirect ? 8000 : 5000,
+      levelLoadingTimeOut: isDirect ? 8000 : 5000,
 
       startLevel: -1,
 
@@ -667,12 +685,14 @@ export function HlsPlayer({
       }
       hlsRef.current = hls
 
-      // 5-second timeout: if manifest not parsed within 5s, switch to proxy mode
-      // (was 10s — too long, users saw 15s+ loading screens)
+      // 8-second timeout: if manifest not parsed within 8s, switch to proxy mode.
+      // Was 5s — too short for some CDN-hosted streams (e.g. streamhostingcdn.top)
+      // that need 6-7s for initial manifest fetch. 8s gives direct mode a fair
+      // chance before falling back to proxy (which adds latency).
       directTimeoutRef.current = setTimeout(() => {
         if (manifestParsedRef.current) return // already parsed, no need to switch
         if (triedProxyRef.current) return // already tried proxy
-        console.log('[hls-player] ⏱️ Direct mode timed out (5s) → switching to proxy')
+        console.log('[hls-player] ⏱️ Direct mode timed out (8s) → switching to proxy')
         triedProxyRef.current = true
         loadModeRef.current = 'proxy'
         cb.current.onLoadModeChange?.('proxy')
@@ -691,7 +711,7 @@ export function HlsPlayer({
         } else {
           finalError('Direct connection timed out and no proxy fallback available')
         }
-      }, 5000)
+      }, 8000)
 
       // Stats timer
       statsTimerRef.current = setInterval(() => {
