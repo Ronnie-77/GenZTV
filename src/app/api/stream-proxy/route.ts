@@ -18,8 +18,8 @@ export const maxDuration = 300 // 5 minute timeout for live streams
 // Upstream request timeout (ms)
 // Reduced for fast fallback: if upstream doesn't respond in 5s for manifest,
 // it's dead — let hls.js fall back quickly instead of waiting 8-15s.
-const UPSTREAM_TIMEOUT_MANIFEST = 5000 // 5s for m3u8 manifests (was 8s)
-const UPSTREAM_TIMEOUT_SEGMENT = 15000 // 15s for segments (was 30s)
+const UPSTREAM_TIMEOUT_MANIFEST = 8000 // 8s for m3u8 manifests — increased to handle slow CDNs like streamhostingcdn.top
+const UPSTREAM_TIMEOUT_SEGMENT = 20000 // 20s for segments — CDN-hosted streams sometimes need more time on first segment
 // Live .ts streams: 30s for the INITIAL response (headers).
 // Once headers arrive, the stream stays open with no timeout.
 // The old 60s timeout meant a dead upstream took 60s × 2 attempts = 2 MINUTES
@@ -56,7 +56,7 @@ const RETRY_DELAY_MS = 300 // was 500
 //
 // The cache key is the full upstream URL. We store { body, ts }.
 // Entries are lazily evicted on read if older than MANIFEST_CACHE_TTL_MS.
-const MANIFEST_CACHE_TTL_MS = 4000 // 4 seconds — safe for live, generous for VOD
+const MANIFEST_CACHE_TTL_MS = 3000 // 3 seconds — balances freshness with reducing upstream load for live streams
 const manifestCache = new Map<string, { body: string; ts: number }>()
 
 function getCachedManifest(url: string): string | null {
