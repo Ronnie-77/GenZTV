@@ -210,3 +210,17 @@ model VisitorSession {
   @@index([currentChannelId])
   @@index([currentMatchId])
 }
+
+// ── Public live chat ──
+model ChatMessage {
+  id         String   @id @default(cuid())
+  username   String   @db.VarChar(100)
+  avatar     String   @db.VarChar(50)
+  content    String   @db.VarChar(1000)
+  reactions  String   @default("{}") @db.MediumText
+  replyToId  String?  @db.VarChar(100)
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([replyToId])
+}
