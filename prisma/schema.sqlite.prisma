@@ -104,6 +104,9 @@ model AppSetting {
   redirectAdUrl    String  @default("")
   redirectAdEnabled Boolean @default(false)
   redirectAdIntervalMinutes Int @default(5)
+  monetagEnabled   Boolean @default(false)
+  monetagZoneId    String  @default("")
+  monetagDomain    String  @default("5gvci.com")
 }
 
 model Feedback {
@@ -209,4 +212,18 @@ model VisitorSession {
   @@index([lastSeen])
   @@index([currentChannelId])
   @@index([currentMatchId])
+}
+
+// ── Public live chat ──
+model ChatMessage {
+  id         String   @id @default(cuid())
+  username   String
+  avatar     String
+  content    String
+  reactions  String   @default("{}")
+  replyToId  String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([replyToId])
 }

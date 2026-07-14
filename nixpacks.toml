@@ -1,27 +1,23 @@
 # Nixpacks build configuration for Railway
 #
-# Production uses MySQL. The build phase copies schema.mysql.prisma
-# over schema.prisma so that prisma generate + Next.js build produce
-# a MySQL-compatible client. Local dev keeps schema.prisma as SQLite.
+# The default schema.prisma is MySQL (for production).
+# For local SQLite dev, run: cp prisma/schema.sqlite.prisma prisma/schema.prisma && bun run db:push
 
 [phases.setup]
 nixPkgs = ["nodejs_20", "openssl"]
 
-# Install phase: npm ci reads package-lock.json
 [phases.install]
 cmds = ["npm ci"]
 
-# Build phase: Switch to MySQL schema → Generate Prisma Client → Build Next.js
 [phases.build]
 cmds = [
-  "cp prisma/schema.mysql.prisma prisma/schema.prisma",
   "npx prisma generate",
   "npm run build",
   "cp -r prisma .next/standalone/prisma",
   "cp -r node_modules/.prisma .next/standalone/node_modules/.prisma"
 ]
 
-# Start phase: Push schema then start standalone server
-# Using ";" instead of "&&" so the server starts even if prisma db push fails
+# Start: push schema then start server
+# Using ";" not "&&" so server starts even if prisma db push fails
 [start]
 cmd = "npx prisma db push --accept-data-loss; node .next/standalone/server.js"
