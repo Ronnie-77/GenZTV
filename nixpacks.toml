@@ -5,7 +5,7 @@
 # a MySQL-compatible client. Local dev keeps schema.prisma as SQLite.
 
 [phases.setup]
-nixPkgs = ["nodejs_20"]
+nixPkgs = ["nodejs_20", "openssl"]
 
 # Install phase: npm ci reads package-lock.json
 [phases.install]
@@ -16,12 +16,12 @@ cmds = ["npm ci"]
 cmds = [
   "cp prisma/schema.mysql.prisma prisma/schema.prisma",
   "npx prisma generate",
-  "npm run build"
+  "npm run build",
+  "cp -r prisma .next/standalone/prisma",
+  "cp -r node_modules/.prisma .next/standalone/node_modules/.prisma"
 ]
 
-# Start phase: Push schema (best-effort) then start standalone server
+# Start phase: Push schema then start standalone server
 # Using ";" instead of "&&" so the server starts even if prisma db push fails
-# (e.g. when the DB is already up-to-date or temporarily unreachable).
-# The standalone server.js automatically reads PORT and HOSTNAME env vars.
 [start]
-cmd = "npx prisma db push --accept-data-loss 2>/dev/null; node .next/standalone/server.js"
+cmd = "npx prisma db push --accept-data-loss; node .next/standalone/server.js"
