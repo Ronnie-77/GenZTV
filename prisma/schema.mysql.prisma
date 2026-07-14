@@ -1,0 +1,212 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Channel {
+  id           String   @id @default(cuid())
+  name         String
+  logo         String   @default("") @db.VarChar(500)
+  category     String   @default("entertainment") @db.VarChar(100)
+  streamType   String   @default("m3u") @db.VarChar(50)
+  streamUrl    String   @default("") @db.VarChar(2000)
+  githubM3uPath String  @default("") @db.VarChar(500)
+  language     String   @default("") @db.VarChar(100)
+  country      String   @default("") @db.VarChar(100)
+  tags         String   @default("") @db.VarChar(500)
+  isFeatured   Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  viewCount    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sourcePageUrl   String    @default("") @db.VarChar(2000)
+  refreshPattern  String    @default("") @db.VarChar(500)
+  tokenExpiresAt  DateTime?
+  lastRefreshedAt DateTime?
+  autoRefresh     Boolean   @default(false)
+  refreshError    String    @default("") @db.VarChar(1000)
+
+  @@index([isActive])
+  @@index([isActive, category])
+  @@index([autoRefresh, isActive])
+}
+
+model Match {
+  id          String   @id @default(cuid())
+  title       String   @db.VarChar(500)
+  sport       String   @default("football") @db.VarChar(50)
+  teamA       String   @db.VarChar(200)
+  teamALogo   String   @default("") @db.VarChar(500)
+  teamB       String   @db.VarChar(200)
+  teamBLogo   String   @default("") @db.VarChar(500)
+  league      String   @default("") @db.VarChar(200)
+  thumbnail   String   @default("") @db.VarChar(500)
+  startTime   DateTime
+  endTime     DateTime?
+  status      String   @default("upcoming") @db.VarChar(20)
+  isFeatured  Boolean  @default(false)
+  liveNotifiedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  streams     MatchStream[]
+
+  @@index([status])
+  @@index([status, startTime])
+  @@index([status, endTime])
+}
+
+model MatchStream {
+  id         String @id @default(cuid())
+  matchId    String
+  name       String @default("Stream 1") @db.VarChar(200)
+  channel    String @default("") @db.VarChar(200)
+  type       String @default("iframe") @db.VarChar(50)
+  url        String @default("") @db.VarChar(2000)
+  match      Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@index([matchId])
+}
+
+model Category {
+  id           String   @id @default(cuid())
+  name         String   @db.VarChar(200)
+  icon         String   @default("") @db.VarChar(100)
+  color        String   @default("") @db.VarChar(50)
+  order        Int      @default(0)
+  channelCount Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AppSetting {
+  id               String @id @default("app")
+  appName          String @default("GenZ TV") @db.VarChar(200)
+  logoUrl          String @default("") @db.VarChar(500)
+  maintenanceMode  Boolean @default(false)
+  featuredChannelId String @default("") @db.VarChar(200)
+  heroBannerText   String @default("") @db.VarChar(500)
+  defaultQuality   String @default("auto") @db.VarChar(20)
+  bannerAdScript   String?  @db.MediumText
+  socialBarAdScript String?  @db.MediumText
+  customAdScripts  String?  @db.MediumText
+  adsEnabled       Boolean @default(true)
+  homeAdsEnabled   Boolean @default(true)
+  videoAdsEnabled  Boolean @default(true)
+  apkUrl           String  @default("") @db.VarChar(500)
+  ga4MeasurementId String  @default("") @db.VarChar(50)
+  firebaseConfig   String?  @db.MediumText
+  securityEnabled  Boolean @default(true)
+  redirectAdUrl    String @default("") @db.VarChar(500)
+  redirectAdEnabled Boolean @default(false)
+  redirectAdIntervalMinutes Int @default(5)
+}
+
+model Feedback {
+  id        String   @id @default(cuid())
+  category  String   @default("other") @db.VarChar(50)
+  email     String   @default("") @db.VarChar(200)
+  subject   String   @default("") @db.VarChar(500)
+  message   String?  @db.LongText
+  page      String   @default("") @db.VarChar(500)
+  userAgent String   @default("") @db.VarChar(500)
+  device    String   @default("") @db.VarChar(50)
+  browser   String   @default("") @db.VarChar(50)
+  status    String   @default("new") @db.VarChar(20)
+  adminNote String   @default("") @db.VarChar(1000)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PushSubscription {
+  id          String @id @default(cuid())
+  endpoint    String @unique @db.VarChar(767)
+  p256dh      String @db.VarChar(500)
+  auth        String @db.VarChar(100)
+  createdAt   DateTime @default(now())
+}
+
+model Notice {
+  id          String   @id @default(cuid())
+  type        String   @default("popup") @db.VarChar(20)
+  title       String   @db.VarChar(500)
+  body        String?  @db.MediumText
+  url         String   @default("") @db.VarChar(500)
+  imageUrl    String   @default("") @db.VarChar(500)
+  isActive    Boolean  @default(true)
+  pushSent    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AppNotification {
+  id          String   @id @default(cuid())
+  type        String   @default("notice") @db.VarChar(50)
+  title       String   @db.VarChar(500)
+  body        String   @default("") @db.VarChar(1000)
+  url         String   @default("") @db.VarChar(500)
+  imageUrl    String   @default("") @db.VarChar(500)
+  isActive    Boolean  @default(true)
+  sendPush    Boolean  @default(false)
+  pushSent    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PageView {
+  id          String   @id @default(cuid())
+  sessionId   String   @db.VarChar(50)
+  page        String   @db.VarChar(100)
+  channelId   String?  @db.VarChar(100)
+  matchId     String?  @db.VarChar(100)
+  referrer    String   @default("") @db.VarChar(500)
+  userAgent   String   @default("") @db.VarChar(500)
+  country     String   @default("") @db.VarChar(10)
+  ip          String   @default("") @db.VarChar(50)
+  device      String   @default("") @db.VarChar(50)
+  browser     String   @default("") @db.VarChar(50)
+  createdAt   DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([sessionId, createdAt])
+  @@index([createdAt])
+  @@index([channelId])
+}
+
+model DailyStat {
+  id             String   @id @default(cuid())
+  date           String   @unique @db.VarChar(10)
+  totalViews     Int      @default(0)
+  uniqueVisitors Int      @default(0)
+  peakVisitors   Int      @default(0)
+  topPages       String?  @db.MediumText
+  topChannels    String?  @db.MediumText
+  topCountries   String?  @db.MediumText
+  topDevices     String?  @db.MediumText
+  topBrowsers    String?  @db.MediumText
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model VisitorSession {
+  id               String   @id @default(cuid())
+  sessionId        String   @unique @db.VarChar(50)
+  firstSeen        DateTime @default(now())
+  lastSeen         DateTime @default(now())
+  pageCount        Int      @default(0)
+  country          String   @default("") @db.VarChar(10)
+  userAgent        String   @default("") @db.VarChar(500)
+  ip               String   @default("") @db.VarChar(50)
+  device           String   @default("") @db.VarChar(50)
+  browser          String   @default("") @db.VarChar(50)
+  currentChannelId String?  @db.VarChar(100)
+  currentMatchId   String?  @db.VarChar(100)
+
+  @@index([lastSeen])
+  @@index([currentChannelId])
+  @@index([currentMatchId])
+}

@@ -1,0 +1,5 @@
+$ bun --hot index.ts
+[chat-service] Using database: /home/z/my-project/db/custom.db
+[chat-service] Database connected
+[chat-service] Socket.IO server running on port 3004
+[chat-service] Client connected (1 total)

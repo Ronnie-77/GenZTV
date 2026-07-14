@@ -1,0 +1,10 @@
+{
+  "name": "genztv-token-refresh-cron",
+  "version": "1.0.0",
+  "description": "Proactive token refresh daemon — every 30 minutes calls /api/channels/refresh-expired to re-extract m3u8 URLs whose tokens are about to expire.",
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts"
+  },
+  "dependencies": {}
+}
