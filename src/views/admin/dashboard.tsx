@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Tv, Trophy, Eye, Heart, Radio, Clock, TrendingUp, Plus, Database, RefreshCw, Bell, Send, ArrowRight, Users, Wifi, BarChart3 } from 'lucide-react'
+import { Tv, Trophy, Eye, Heart, Radio, Clock, TrendingUp, Plus, Database, RefreshCw, ArrowRight, Users, Wifi, BarChart3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useAppStore } from '@/lib/store'
-import { fetchChannels, fetchMatches, fetchCategories, sendPushNotification, type Channel, type Match, type Category } from '@/lib/api'
+import { fetchChannels, fetchMatches, fetchCategories, type Channel, type Match, type Category } from '@/lib/api'
 import { toast } from 'sonner'
 
 export function AdminDashboard() {
@@ -15,8 +15,6 @@ export function AdminDashboard() {
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [seeding, setSeeding] = useState(false)
-  const [subscriberCount, setSubscriberCount] = useState<number | null>(null)
-  const [sendingTest, setSendingTest] = useState(false)
   const [onlineNow, setOnlineNow] = useState<number>(0)
   const [todayViews, setTodayViews] = useState<number>(0)
   const [todayVisitors, setTodayVisitors] = useState<number>(0)
@@ -32,11 +30,6 @@ export function AdminDashboard() {
       setChannels(ch)
       setMatches(mt)
       setCategories(ct)
-      // Load subscriber count
-      fetch('/api/push/subscribers')
-        .then(r => r.json())
-        .then(data => setSubscriberCount(data.count))
-        .catch(() => {})
       // Load real analytics data (requires admin auth cookie)
       fetch('/api/analytics/dashboard')
         .then(r => {
@@ -92,23 +85,6 @@ export function AdminDashboard() {
     }
   }
 
-  const handleTestNotification = async () => {
-    setSendingTest(true)
-    try {
-      const result = await sendPushNotification({
-        title: '🧪 Test Notification',
-        body: 'This is a test notification from GenZ TV Admin Panel!',
-        url: '/',
-        tag: 'test-notification',
-      })
-      toast.success('Test Notification Sent', { description: `Sent: ${result.sent}, Failed: ${result.failed}` })
-    } catch (err) {
-      toast.error('Failed to send test notification', { description: err instanceof Error ? err.message : 'Unknown error' })
-    } finally {
-      setSendingTest(false)
-    }
-  }
-
   const stats: Array<{ icon: typeof Tv; label: string; value: string | number; color: string; bgColor: string; iconBg: string; pulse?: boolean }> = [
     { icon: Wifi, label: 'Online Now', value: onlineNow, color: 'text-emerald-600', bgColor: 'bg-emerald-500/10', iconBg: 'bg-emerald-500/15', pulse: onlineNow > 0 },
     { icon: Eye, label: "Today's Views", value: todayViews.toLocaleString(), color: 'text-teal-600', bgColor: 'bg-teal-500/10', iconBg: 'bg-teal-500/15' },
@@ -159,9 +135,9 @@ export function AdminDashboard() {
         })}
       </div>
 
-      {/* Quick Actions + Subscribers Row */}
+      {/* Quick Actions + Overview Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Quick Actions */}
+        {/* Quick Actions Card */}
         <div className="bg-card rounded-xl border border-border shadow-sm p-5">
           <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-primary" />
@@ -186,38 +162,32 @@ export function AdminDashboard() {
           </div>
         </div>
 
-        {/* Notification Subscribers */}
+        {/* Today's Overview Card */}
         <div className="bg-card rounded-xl border border-border shadow-sm p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <Bell className="h-4 w-4 text-primary" />
-              Push Subscribers
-            </h3>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleTestNotification}
-              disabled={sendingTest || (subscriberCount ?? 0) === 0}
-              className="gap-1.5 btn-press text-xs h-7"
-            >
-              <Send className={`h-3 w-3 ${sendingTest ? 'animate-pulse' : ''}`} />
-              {sendingTest ? 'Sending...' : 'Send Test'}
-            </Button>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-primary/10 text-primary">
-              <Users className="h-5 w-5" />
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <Users className="h-4 w-4 text-primary" />
+            Today&apos;s Overview
+          </h3>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600">
+                <Wifi className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold tracking-tight">{onlineNow}</p>
+                <p className="text-xs text-muted-foreground">Online now</p>
+              </div>
             </div>
-            <div>
-              <p className="text-2xl font-bold tracking-tight">{subscriberCount ?? '—'}</p>
-              <p className="text-xs text-muted-foreground">Active subscribers</p>
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-teal-500/10 text-teal-600">
+                <Eye className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold tracking-tight">{todayViews.toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">Page views</p>
+              </div>
             </div>
           </div>
-          {(subscriberCount ?? 0) === 0 && (
-            <p className="text-xs text-muted-foreground mt-3 pl-11">
-              No subscribers yet. Users will be prompted to enable notifications when they visit the app.
-            </p>
-          )}
         </div>
       </div>
 

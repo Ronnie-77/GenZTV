@@ -15,7 +15,6 @@ export async function GET(req: NextRequest) {
       // restored when changing hosting. (The 100MB import cap protects against
       // abuse; SQLite + JSON easily handles tens of thousands of rows.)
       const pageViews = await db.pageView.findMany()
-      const pushSubscriptions = await db.pushSubscription.findMany()
 
       return NextResponse.json({
         _meta: {
@@ -26,11 +25,10 @@ export async function GET(req: NextRequest) {
             channels: channels.length, matches: matches.length,
             categories: categories.length, dailyStats: dailyStats.length,
             visitorSessions: visitorSessions.length, pageViews: pageViews.length,
-            pushSubscriptions: pushSubscriptions.length,
           },
         },
         settings, channels, matches, categories,
-        dailyStats, visitorSessions, pageViews, pushSubscriptions,
+        dailyStats, visitorSessions, pageViews,
       })
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : 'Export failed' }, { status: 500 })

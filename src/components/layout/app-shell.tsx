@@ -6,11 +6,9 @@ import { useAnalytics } from '@/lib/analytics'
 import { TopNav } from './top-nav'
 import { Sidebar } from './sidebar'
 import { BottomNav } from './bottom-nav'
-import { NotificationPrompt } from '@/components/notifications/notification-manager'
-import { SiteNoticePopup } from '@/components/layout/site-notice-popup'
+
 import { RedirectAd } from '@/components/ads/redirect-ad'
-import { ChatWidget } from '@/components/chat/chat-widget'
-import { ComingSoonDialog } from '@/components/layout/coming-soon-dialog'
+
 import { X, Download, Smartphone, Wrench, Clock, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { fetchSettings } from '@/lib/api'
@@ -308,8 +306,7 @@ export function AppShell() {
   }, [currentPage])
 
   // Register service worker unconditionally (needed for PWA install on
-  // mobile / desktop). The notifications hook also registers it, but only
-  // when its UI mounts — so we register here to be safe.
+  // mobile / desktop).
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (!('serviceWorker' in navigator)) return
@@ -426,12 +423,9 @@ export function AppShell() {
         </main>
       </div>
       <BottomNav />
-      <NotificationPrompt />
       <InstallPrompt />
-      <SiteNoticePopup />
       <RedirectAd />
-      <ChatWidget />
-      <ComingSoonDialog />
+
     </div>
   )
 }

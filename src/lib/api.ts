@@ -108,21 +108,6 @@ export interface AppSettings {
   monetagDomain: string
 }
 
-// ============ Notices ============
-
-export interface Notice {
-  id: string
-  type: 'popup' | 'push' | 'both'
-  title: string
-  body: string | null
-  url: string
-  imageUrl: string
-  isActive: boolean
-  pushSent: boolean
-  createdAt: string
-  updatedAt: string
-}
-
 // ============ Channels ============
 
 export async function fetchChannels(params?: { category?: string; search?: string; featured?: boolean; includeInactive?: boolean }): Promise<Channel[]> {
@@ -404,25 +389,6 @@ export async function importFileContent(content: string, fileType: string): Prom
     body: JSON.stringify({ content, fileType }),
   })
   if (!res.ok) throw new Error('Failed to parse import file')
-  return res.json()
-}
-
-// ============ Push Notifications ============
-
-export async function sendPushNotification(payload: {
-  type?: 'new-match'
-  match?: { id: string; title: string; sport: string; teamA: string; teamB: string; league?: string }
-  title?: string
-  body?: string
-  url?: string
-  tag?: string
-}): Promise<{ sent: number; failed: number }> {
-  const res = await adminFetch(`${BASE}/push/notify`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!res.ok) throw new Error('Failed to send notification')
   return res.json()
 }
 

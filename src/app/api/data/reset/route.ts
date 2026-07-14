@@ -9,7 +9,6 @@ export async function POST(req: NextRequest) {
       await db.pageView.deleteMany()
       await db.dailyStat.deleteMany()
       await db.visitorSession.deleteMany()
-      await db.pushSubscription.deleteMany()
       await db.matchStream.deleteMany()
       await db.match.deleteMany()
       await db.channel.deleteMany()

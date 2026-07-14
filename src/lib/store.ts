@@ -22,18 +22,8 @@ export type AdminPage =
   | 'matches'
   | 'categories'
   | 'feedback'
-  | 'notices'
-  | 'notifications'
   | 'settings'
   | 'data'
-
-// User type for Google authentication
-export interface User {
-  id: string
-  email: string
-  name: string
-  picture?: string
-}
 
 interface AppState {
   // Navigation
@@ -86,16 +76,6 @@ interface AppState {
   securityEnabled: boolean
   setSecurityEnabled: (enabled: boolean) => void
 
-  // User authentication (Google/Gmail login)
-  user: User | null
-  setUser: (user: User | null) => void
-  isLoggedIn: boolean
-
-  // "Coming Soon" dialog — shown when a user clicks "Sign in with Google".
-  // Google OAuth is not yet wired up in this deployment, so instead of
-  // triggering a broken/redirecting sign-in flow we show a friendly popup.
-  comingSoonOpen: boolean
-  setComingSoonOpen: (open: boolean) => void
 }
 
 const loadFavorites = (): string[] => {
@@ -138,25 +118,7 @@ const saveTimezone = (tz: string, source: 'auto' | 'manual') => {
   localStorage.setItem('zeng-timezone', JSON.stringify({ tz, source }))
 }
 
-// Load user from localStorage
-const loadUser = (): User | null => {
-  if (typeof window === 'undefined') return null
-  try {
-    const stored = localStorage.getItem('zeng-user')
-    return stored ? JSON.parse(stored) : null
-  } catch {
-    return null
-  }
-}
 
-const saveUser = (user: User | null) => {
-  if (typeof window === 'undefined') return
-  if (user) {
-    localStorage.setItem('zeng-user', JSON.stringify(user))
-  } else {
-    localStorage.removeItem('zeng-user')
-  }
-}
 
 export const useAppStore = create<AppState>((set, get) => ({
   // Navigation
@@ -278,17 +240,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   securityEnabled: true,
   setSecurityEnabled: (enabled) => set({ securityEnabled: enabled }),
 
-  // User authentication
-  user: null,
-  setUser: (user) => {
-    saveUser(user)
-    set({ user, isLoggedIn: !!user })
-  },
-  isLoggedIn: false,
 
-  // "Coming Soon" dialog
-  comingSoonOpen: false,
-  setComingSoonOpen: (open) => set({ comingSoonOpen: open }),
 }))
 
 // Initialize from URL hash on load + timezone hydration
@@ -297,9 +249,6 @@ if (typeof window !== 'undefined') {
     const hash = window.location.hash.replace('#/', '').replace('#', '')
     const hashPage = hash.split('/')[0]
     const hashSubPage = hash.split('/')[1] || ''
-
-    // Note: Admin auth is now handled server-side via /api/auth/verify
-    // No auto-unlock from URL hash
 
     if (hash) {
       const validPages: PageName[] = ['home', 'live', 'watch', 'news', 'sports', 'cricket', 'football', 'entertainment', 'favorites', 'search', 'admin', 'more', 'history']
@@ -320,12 +269,6 @@ if (typeof window !== 'undefined') {
   // Hydrate timezone from localStorage or auto-detect on client
   const tzData = loadTimezone()
   useAppStore.setState({ timezone: tzData.tz, timezoneSource: tzData.source })
-
-  // Hydrate user from localStorage
-  const userData = loadUser()
-  if (userData) {
-    useAppStore.setState({ user: userData, isLoggedIn: true })
-  }
 
   // Listen for hash changes (browser back/forward, manual URL entry)
   window.addEventListener('hashchange', initFromUrl)

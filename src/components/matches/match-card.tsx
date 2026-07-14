@@ -5,9 +5,7 @@ import { useEffect, useState } from 'react'
 import { useAppStore } from '@/lib/store'
 import { type Match } from '@/lib/api'
 import { useCountdown } from '@/lib/hooks'
-import { useNotifications } from '@/lib/use-notifications'
-import { Clock, Play, Bell, RotateCcw } from 'lucide-react'
-import { toast } from 'sonner'
+import { Clock, Play, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface MatchCardProps {
@@ -103,8 +101,6 @@ function formatMatchTime(dateStr: string, timezone: string) {
 
 export function MatchCard({ match, variant }: MatchCardProps) {
   const { setCurrentPage, setCurrentChannelId, setCurrentMatchId, timezone } = useAppStore()
-  const { subscribe, isSubscribed, permission } = useNotifications()
-
   // Check if an upcoming match has started (auto-transition to live)
   // Check if a live match has ended (auto-transition to ended)
   const baseStatus = variant || match.status || 'default'
@@ -122,33 +118,6 @@ export function MatchCard({ match, variant }: MatchCardProps) {
     setCurrentChannelId(match.id)
     setCurrentMatchId(match.id)
     setCurrentPage('watch')
-  }
-
-  // Bell click — subscribes the user to push notifications so they get
-  // alerted when this match goes live. Does NOT navigate to the watch page
-  // or start streaming. If already subscribed, just confirms. If
-  // notifications are unsupported/unavailable, informs the user.
-  const handleNotifyMe = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (permission === 'unsupported') {
-      toast.info('Notifications are not available on this device/browser.', {
-        description: 'Open the site directly in a supported browser to enable alerts.',
-      })
-      return
-    }
-    if (isSubscribed) {
-      toast.success("You're all set! 🔔", {
-        description: `We'll notify you when ${match.teamA} vs ${match.teamB} goes live.`,
-      })
-      return
-    }
-    const ok = await subscribe()
-    if (ok) {
-      toast.success('Notifications enabled! 🔔', {
-        description: `We'll notify you when ${match.teamA} vs ${match.teamB} goes live.`,
-      })
-    }
-    // If subscribe() failed it already showed its own error toast.
   }
 
   const sportIcon = match.sport === 'cricket' ? '🏏' : match.sport === 'football' ? '⚽' : '🏆'
@@ -175,8 +144,7 @@ export function MatchCard({ match, variant }: MatchCardProps) {
         <span className="match-card-circle-inner" />
       </div>
 
-      {/* Header: Sport badge + League name + Status (+ bell for upcoming,
-          to subscribe to push notifications when the match goes live) */}
+      {/* Header: Sport badge + League name + Status */}
       <div className="match-card-header">
         <div className="match-league-wrap">
           <span className={cn('match-sport-badge', sportClass)}>
@@ -198,17 +166,6 @@ export function MatchCard({ match, variant }: MatchCardProps) {
           >
             {status === 'live' ? 'LIVE' : status === 'upcoming' ? 'UPCOMING' : 'ENDED'}
           </span>
-          {status === 'upcoming' && !hasStarted && (
-            <button
-              type="button"
-              className="match-bell-btn"
-              onClick={handleNotifyMe}
-              title="Get a push notification when this match goes live"
-              aria-label="Notify me when this match goes live"
-            >
-              <Bell className="h-3.5 w-3.5" />
-            </button>
-          )}
         </div>
       </div>
 

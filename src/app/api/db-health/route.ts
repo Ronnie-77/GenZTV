@@ -51,15 +51,6 @@ export async function GET() {
       settingsCheck = `FAILED: ${e instanceof Error ? e.message : String(e)}`
     }
 
-    // Check ChatMessage table exists
-    let chatCheck = 'not tested'
-    try {
-      await prisma.chatMessage.count()
-      chatCheck = 'OK'
-    } catch (e: unknown) {
-      chatCheck = `FAILED: ${e instanceof Error ? e.message : String(e)}`
-    }
-
     results.checks = {
       ...results.checks as object,
       db_connection: 'OK',
@@ -67,7 +58,6 @@ export async function GET() {
       match_count: matchCount,
       category_count: categoryCount,
       settings_check: settingsCheck,
-      chat_table_check: chatCheck,
     }
 
     await prisma.$disconnect()

@@ -51,7 +51,6 @@ model Match {
   endTime     DateTime?
   status      String   @default("upcoming") @db.VarChar(20)
   isFeatured  Boolean  @default(false)
-  liveNotifiedAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   streams     MatchStream[]
@@ -126,41 +125,6 @@ model Feedback {
   updatedAt DateTime @updatedAt
 }
 
-model PushSubscription {
-  id          String @id @default(cuid())
-  endpoint    String @unique @db.VarChar(767)
-  p256dh      String @db.VarChar(500)
-  auth        String @db.VarChar(100)
-  createdAt   DateTime @default(now())
-}
-
-model Notice {
-  id          String   @id @default(cuid())
-  type        String   @default("popup") @db.VarChar(20)
-  title       String   @db.VarChar(500)
-  body        String?  @db.MediumText
-  url         String   @default("") @db.VarChar(500)
-  imageUrl    String   @default("") @db.VarChar(500)
-  isActive    Boolean  @default(true)
-  pushSent    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-model AppNotification {
-  id          String   @id @default(cuid())
-  type        String   @default("notice") @db.VarChar(50)
-  title       String   @db.VarChar(500)
-  body        String   @default("") @db.VarChar(1000)
-  url         String   @default("") @db.VarChar(500)
-  imageUrl    String   @default("") @db.VarChar(500)
-  isActive    Boolean  @default(true)
-  sendPush    Boolean  @default(false)
-  pushSent    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
 model PageView {
   id          String   @id @default(cuid())
   sessionId   String   @db.VarChar(50)
@@ -213,18 +177,4 @@ model VisitorSession {
   @@index([lastSeen])
   @@index([currentChannelId])
   @@index([currentMatchId])
-}
-
-// ── Public live chat ──
-model ChatMessage {
-  id         String   @id @default(cuid())
-  username   String   @db.VarChar(100)
-  avatar     String   @db.VarChar(50)
-  content    String   @db.VarChar(1000)
-  reactions  String   @default("{}") @db.MediumText
-  replyToId  String?  @db.VarChar(100)
-  createdAt  DateTime @default(now())
-
-  @@index([createdAt])
-  @@index([replyToId])
 }

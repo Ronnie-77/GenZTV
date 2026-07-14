@@ -9,7 +9,6 @@
  *   settings      — 60s  (app settings rarely change)
  *   categories    — 60s  (categories rarely change)
  *   matches       — 15s  (match status changes often during live events)
- *   notifications — 30s  (notifications update moderately)
  *   dashboard     — 10s  (analytics dashboard, near-real-time)
  */
 
@@ -26,7 +25,6 @@ class ApiCache {
   private static readonly TTL_SETTINGS = 60_000
   private static readonly TTL_CATEGORIES = 60_000
   private static readonly TTL_MATCHES = 15_000
-  private static readonly TTL_NOTIFICATIONS = 30_000
   private static readonly TTL_DASHBOARD = 10_000
 
   // ── Internal helpers ──
@@ -110,20 +108,6 @@ class ApiCache {
 
   invalidateMatches(): void {
     this.deleteByPrefix('matches:')
-  }
-
-  // ── Notifications ──
-
-  getNotifications(cacheKey: string): unknown[] | null {
-    return this.get<unknown[]>(`notifications:${cacheKey}`)
-  }
-
-  setNotifications(cacheKey: string, data: unknown[]): void {
-    this.set(`notifications:${cacheKey}`, data, ApiCache.TTL_NOTIFICATIONS)
-  }
-
-  invalidateNotifications(): void {
-    this.deleteByPrefix('notifications:')
   }
 
   // ── Analytics Dashboard ──

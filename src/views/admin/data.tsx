@@ -19,7 +19,6 @@ interface ExportMeta {
     dailyStats: number
     visitorSessions: number
     pageViews: number
-    pushSubscriptions: number
   }
 }
 
@@ -219,7 +218,6 @@ export function AdminData() {
       { key: 'dailyStats', label: 'Daily Stats' },
       { key: 'visitorSessions', label: 'Visitor Sessions' },
       { key: 'pageViews', label: 'Page Views' },
-      { key: 'pushSubscriptions', label: 'Push Subscriptions' },
     ]
 
     return (
@@ -283,7 +281,7 @@ export function AdminData() {
               আপনার সমস্ত ডাটা একটি JSON ফাইলে ডাউনলোড করুন। চ্যানেল, ম্যাচ, ক্যাটেগরি, সেটিংস, অ্যানালিটিক্স — সবকিছু অন্তর্ভুক্ত থাকবে।
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              {['চ্যানেল', 'ম্যাচ', 'ক্যাটেগরি', 'সেটিংস', 'অ্যানালিটিক্স', 'পুশ সাবস্ক্রিপশন'].map(item => (
+              {['চ্যানেল', 'ম্যাচ', 'ক্যাটেগরি', 'সেটিংস', 'অ্যানালিটিক্স'].map(item => (
                 <span key={item} className="text-[10px] px-2 py-1 rounded-full bg-secondary text-muted-foreground font-medium">
                   {item}
                 </span>
@@ -421,7 +419,6 @@ export function AdminData() {
                               dailyStats: '📊 Daily Stats',
                               visitorSessions: '👥 Visitors',
                               pageViews: '👁️ Page Views',
-                              pushSubscriptions: '🔔 Subscribers',
                             }
                             return (
                               <div key={key} className="flex items-center justify-between px-2 py-1.5 rounded-md bg-background text-xs">

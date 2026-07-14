@@ -6,7 +6,6 @@ import { useAppStore } from '@/lib/store'
 import { Search, Menu, Tv, Moon, Sun, Monitor, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { NotificationBell } from '@/components/notifications/notification-manager'
 import { TimezoneSelector } from '@/components/timezone/timezone-selector'
 import { cn } from '@/lib/utils'
 
@@ -62,16 +61,11 @@ export function TopNav() {
           </div>
         </div>
 
-        {/* Right: Timezone (mobile) + Notification + Theme (PC) */}
+        {/* Right: Timezone (mobile) + Theme (PC) */}
         <div className="flex items-center gap-1.5 shrink-0">
           {/* Timezone selector - mobile only */}
           <div className="lg:hidden flex items-center [&_button]:px-2 [&_button]:py-2 [&_button]:rounded-lg [&_button]:bg-secondary/60 [&_button]:min-h-[36px] [&_button]:min-w-[44px]">
             <TimezoneSelector />
-          </div>
-
-          {/* Notification Bell - PC */}
-          <div className="hidden lg:block">
-            <NotificationBell dropdownAlign="right" />
           </div>
 
           {/* Theme Dropdown - PC */}
@@ -117,9 +111,7 @@ export function TopNav() {
             )}
           </div>
 
-          {/* Mobile: Theme Toggle (light/dark/system) — placed BEFORE the bell
-              so the notification bell is the rightmost icon (its dropdown opens
-              to the LEFT, keeping it fully on-screen on narrow phones). */}
+          {/* Mobile: Theme Toggle (light/dark/system) */}
           <div className="lg:hidden relative">
             <button
               onClick={() => setMobileThemeOpen(!mobileThemeOpen)}
@@ -167,11 +159,6 @@ export function TopNav() {
             )}
           </div>
 
-          {/* Mobile: Notification Bell — rightmost icon. dropdownAlign="left"
-              so the dropdown opens to the LEFT, staying fully on-screen. */}
-          <div className="lg:hidden">
-            <NotificationBell dropdownAlign="left" />
-          </div>
         </div>
       </div>
     </header>

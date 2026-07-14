@@ -43,7 +43,6 @@ export async function POST(req: NextRequest) {
         dailyStats: { imported: 0, skipped: 0 },
         visitorSessions: { imported: 0, skipped: 0 },
         pageViews: { imported: 0, skipped: 0 },
-        pushSubscriptions: { imported: 0, skipped: 0 },
       }
 
       // ── Channels-Only Import Path ──
@@ -259,20 +258,6 @@ export async function POST(req: NextRequest) {
             })
             r.pageViews.imported++
           } catch { r.pageViews.skipped++ }
-        }
-      }
-
-      // Push Subscriptions
-      if (Array.isArray(body.pushSubscriptions)) {
-        for (const ps of body.pushSubscriptions as Record<string, unknown>[]) {
-          try {
-            await db.pushSubscription.upsert({
-              where: { endpoint: ps.endpoint as string },
-              update: { p256dh: ps.p256dh as string, auth: ps.auth as string },
-              create: { endpoint: ps.endpoint as string, p256dh: ps.p256dh as string, auth: ps.auth as string },
-            })
-            r.pushSubscriptions.imported++
-          } catch { r.pushSubscriptions.skipped++ }
         }
       }
 
