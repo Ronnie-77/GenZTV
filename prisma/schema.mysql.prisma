@@ -104,6 +104,9 @@ model AppSetting {
   redirectAdUrl    String @default("") @db.VarChar(500)
   redirectAdEnabled Boolean @default(false)
   redirectAdIntervalMinutes Int @default(5)
+  monetagEnabled   Boolean @default(false)
+  monetagZoneId    String  @default("") @db.VarChar(200)
+  monetagDomain    String  @default("5gvci.com") @db.VarChar(200)
 }
 
 model Feedback {
