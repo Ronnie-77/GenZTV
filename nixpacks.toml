@@ -1,7 +1,7 @@
 # Nixpacks build configuration for Railway
 #
 # The default schema.prisma is MySQL (for production).
-# For local SQLite dev, run: cp prisma/schema.sqlite.prisma prisma/schema.prisma && bun run db:push
+# For local SQLite dev, run: bash scripts/switch-db.sh sqlite && bun run db:push
 
 [phases.setup]
 nixPkgs = ["nodejs_20", "openssl"]
@@ -11,13 +11,16 @@ cmds = ["npm ci"]
 
 [phases.build]
 cmds = [
+  # Ensure MySQL schema is active (in case repo has SQLite schema committed)
+  "if [ -f prisma/schema.mysql.prisma ]; then cp prisma/schema.mysql.prisma prisma/schema.prisma; fi",
   "npx prisma generate",
   "npm run build",
   "cp -r prisma .next/standalone/prisma",
   "cp -r node_modules/.prisma .next/standalone/node_modules/.prisma"
 ]
 
-# Start: push schema then start server
-# Using ";" not "&&" so server starts even if prisma db push fails
+# Start: push schema (with up to 3 retries) then start server
+# Using ";" so server starts even if all prisma db push attempts fail
+# The app also has a runtime fallback that auto-creates missing columns
 [start]
-cmd = "npx prisma db push --accept-data-loss; node .next/standalone/server.js"
+cmd = "npx prisma db push --accept-data-loss || (sleep 2 && npx prisma db push --accept-data-loss) || (sleep 3 && npx prisma db push --accept-data-loss); node .next/standalone/server.js"

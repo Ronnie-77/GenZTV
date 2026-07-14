@@ -42,7 +42,7 @@ export async function GET() {
     const matchCount = await prisma.match.count()
     const categoryCount = await prisma.category.count()
 
-    // Check if AppSetting table has the monetag columns
+    // Check if AppSetting table is accessible
     let settingsCheck = 'not tested'
     try {
       const settings = await prisma.appSetting.findUnique({ where: { id: 'app' } })

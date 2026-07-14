@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { syncMatchStatusesAndNotify } from '@/lib/match-sync'
+import { syncMatchStatuses } from '@/lib/match-sync'
 import { requireAdminAuth } from '@/lib/auth'
 import { apiCache } from '@/lib/cache'
 
 // GET /api/matches — list all matches (auto-syncs statuses based on time)
 export async function GET(req: NextRequest) {
   try {
-    // Auto-sync match statuses based on current time AND fire live
-    // notifications for matches that just went live. Fire-and-forget so
-    // the list response isn't blocked by notification sends.
-    syncMatchStatusesAndNotify().catch((err) => {
+    // Auto-sync match statuses based on current time.
+    // Fire-and-forget so the list response isn't blocked.
+    syncMatchStatuses().catch((err) => {
       console.error('[Matches] Background status sync failed:', err)
     })
 
@@ -62,10 +61,6 @@ export async function GET(req: NextRequest) {
 }
 
 // POST /api/matches — create a new match (admin only)
-//
-// NOTE: Per the new product decision, creating a match does NOT send a push
-// notification. Users are notified when the match goes LIVE (at the actual
-// scheduled start time), not when it's merely scheduled.
 export async function POST(req: NextRequest) {
   return requireAdminAuth(req, async () => {
   try {
@@ -100,9 +95,6 @@ export async function POST(req: NextRequest) {
 
     // Invalidate match caches
     apiCache.invalidateMatches()
-
-    // No push notification on match creation — users are notified when the
-    // match goes LIVE (handled by syncMatchStatusesAndNotify above).
 
     return NextResponse.json(match, { status: 201 })
   } catch (error) {

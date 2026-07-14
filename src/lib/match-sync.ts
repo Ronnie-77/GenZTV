@@ -18,11 +18,11 @@ import { db } from '@/lib/db'
 export const LIVE_EARLY_MINUTES = 0
 
 /**
- * Synchronously sync match statuses.
+ * Sync match statuses based on current time.
  *
  * @returns Counts of what was updated.
  */
-export async function syncMatchStatusesAndNotify(): Promise<{
+export async function syncMatchStatuses(): Promise<{
   updatedToLive: number
   updatedToEnded: number
 }> {

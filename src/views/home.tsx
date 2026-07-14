@@ -67,8 +67,7 @@ export function HomePage() {
   // Fetch real data from API.
   // refetchInterval=60s silently refreshes the live + upcoming lists so that
   // matches move to the Live section at their actual start time AND the
-  // server-side status sync runs regularly (which fires the LIVE push
-  // notification at the real start time, not early).
+  // server-side status sync runs regularly.
   const { matches: liveMatches, loading: loadingLive } = useMatches({ status: 'live', refetchInterval: 60_000 })
   const { matches: upcomingMatches, loading: loadingUpcoming } = useMatches({ status: 'upcoming', refetchInterval: 60_000 })
   const { channels } = useChannels({})

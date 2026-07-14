@@ -34,8 +34,7 @@ export function useChannels(params?: { category?: string; search?: string; featu
 // refreshes. Background refreshes do NOT toggle `loading` (so there's no
 // spinner flash) — they silently update the matches data. This is used by
 // the home page to keep the live/upcoming sections fresh and to regularly
-// trigger the server-side match-status sync (which fires LIVE push
-// notifications at the actual start time).
+// trigger the server-side match-status sync.
 export function useMatches(params?: { sport?: string; status?: string; featured?: boolean; refetchInterval?: number }) {
   const [matches, setMatches] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
@@ -63,7 +62,7 @@ export function useMatches(params?: { sport?: string; status?: string; featured?
   }, [load])
 
   // Periodic silent refetch — keeps the live/upcoming sections fresh and
-  // triggers the server-side status sync (which fires LIVE notifications).
+  // triggers the server-side status sync.
   useEffect(() => {
     if (!params?.refetchInterval) return
     const interval = setInterval(() => {
