@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Switch Prisma schema between SQLite (sandbox/dev) and MySQL (production)
-# Usage: bash scripts/switch-db.sh sqlite | bash scripts/switch-db.sh mysql
+# Switch Prisma schema between SQLite (sandbox/dev) and PostgreSQL (production/Neon)
+# Usage: bash scripts/switch-db.sh sqlite | bash scripts/switch-db.sh postgresql
 #
-# Railway build: called automatically by nixpacks.toml with "mysql"
-# Local dev:     called manually with "sqlite" to restore SQLite schema
+# Vercel build: uses default schema.prisma (PostgreSQL)
+# Local dev:    called manually with "sqlite" to use SQLite schema
 
 set -e
 
@@ -15,24 +15,23 @@ if [ "$1" = "sqlite" ]; then
   echo "✅ Active schema: SQLite (schema.sqlite.prisma → schema.prisma)"
   echo "   Run 'bun run db:push' to sync the database."
 
-elif [ "$1" = "mysql" ]; then
-  echo "🔄 Switching to MySQL schema..."
-  if [ -f "$SCHEMA_DIR/schema.mysql.prisma" ]; then
-    cp "$SCHEMA_DIR/schema.mysql.prisma" "$SCHEMA_DIR/schema.prisma"
+elif [ "$1" = "postgresql" ] || [ "$1" = "postgres" ] || [ "$1" = "pg" ]; then
+  echo "🔄 Switching to PostgreSQL schema..."
+  if [ -f "$SCHEMA_DIR/schema.postgresql.prisma" ]; then
+    cp "$SCHEMA_DIR/schema.postgresql.prisma" "$SCHEMA_DIR/schema.prisma"
   else
-    echo "⚠️  No schema.mysql.prisma found. Using current schema.prisma as-is."
-    echo "   Make sure schema.prisma has provider = \"mysql\" and @db.* annotations."
+    echo "⚠️  No schema.postgresql.prisma found. Using current schema.prisma as-is."
   fi
-  echo "✅ Active schema: MySQL (schema.prisma)"
-  echo "   Make sure DATABASE_URL points to a MySQL database."
+  echo "✅ Active schema: PostgreSQL (schema.prisma)"
+  echo "   Make sure DATABASE_URL points to a Neon/PostgreSQL database."
   echo "   Run 'npx prisma db push' to sync the database."
 
 elif [ "$1" = "auto" ]; then
   # Auto-detect from DATABASE_URL env var
   DB_URL="${DATABASE_URL:-}"
-  if echo "$DB_URL" | grep -qi "^mysql"; then
-    echo "🔍 Auto-detected MySQL from DATABASE_URL"
-    bash "$0" mysql
+  if echo "$DB_URL" | grep -qi "^postgres"; then
+    echo "🔍 Auto-detected PostgreSQL from DATABASE_URL"
+    bash "$0" postgresql
   elif echo "$DB_URL" | grep -qi "^file:\|^sqlite"; then
     echo "🔍 Auto-detected SQLite from DATABASE_URL"
     bash "$0" sqlite
@@ -44,10 +43,10 @@ elif [ "$1" = "auto" ]; then
   fi
 
 else
-  echo "Usage: bash scripts/switch-db.sh [sqlite|mysql|auto]"
+  echo "Usage: bash scripts/switch-db.sh [sqlite|postgresql|auto]"
   echo ""
-  echo "  sqlite  — Use SQLite schema (for sandbox/local dev)"
-  echo "  mysql   — Use MySQL schema (for production/Railway)"
-  echo "  auto    — Auto-detect from DATABASE_URL environment variable"
+  echo "  sqlite      — Use SQLite schema (for sandbox/local dev)"
+  echo "  postgresql  — Use PostgreSQL schema (for production/Neon/Vercel)"
+  echo "  auto        — Auto-detect from DATABASE_URL environment variable"
   exit 1
 fi

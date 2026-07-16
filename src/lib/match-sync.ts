@@ -7,6 +7,9 @@ import { db } from '@/lib/db'
  * `/api/matches` route (auto-sync on GET) and the
  * `/api/matches/sync-statuses` route (explicit admin-triggered sync)
  * without creating a circular import between two route handlers.
+ *
+ * When matches flip from "upcoming" → "live", this function automatically
+ * sends push notifications to all subscribed users (Google-style).
  */
 
 /**
@@ -19,12 +22,14 @@ export const LIVE_EARLY_MINUTES = 0
 
 /**
  * Sync match statuses based on current time.
+ * When matches go live, automatically send push notifications.
  *
- * @returns Counts of what was updated.
+ * @returns Counts of what was updated + notification results.
  */
 export async function syncMatchStatuses(): Promise<{
   updatedToLive: number
   updatedToEnded: number
+  notificationsSent: number
 }> {
   const now = new Date()
   const liveThreshold = new Date(now.getTime() + LIVE_EARLY_MINUTES * 60 * 1000)
@@ -49,6 +54,7 @@ export async function syncMatchStatuses(): Promise<{
 
   let updatedToLive = 0
   let updatedToEnded = 0
+  let notificationsSent = 0
 
   // Update upcoming → live (only for matches that haven't ended yet)
   if (startingMatches.length > 0) {
@@ -64,6 +70,65 @@ export async function syncMatchStatuses(): Promise<{
       data: { status: 'live' },
     })
     updatedToLive = result.count
+
+    // 🔔 Send push notifications for matches that just went LIVE
+    if (updatedToLive > 0) {
+      try {
+        // Fetch full match details for the matches that just went live
+        const liveMatches = await db.match.findMany({
+          where: {
+            id: { in: startingMatches.map(m => m.id) },
+            status: 'live', // only the ones that actually got updated
+          },
+          select: {
+            id: true,
+            title: true,
+            sport: true,
+            teamA: true,
+            teamALogo: true,
+            teamB: true,
+            teamBLogo: true,
+            league: true,
+          },
+        })
+
+        // Dynamically import push sender to avoid circular deps at module level
+        const { sendMatchLiveNotification } = await import('@/lib/push')
+
+        // Send notification for each match that went live
+        // Use Promise.allSettled so one failure doesn't block others
+        const pushResults = await Promise.allSettled(
+          liveMatches.map(match =>
+            sendMatchLiveNotification({
+              id: match.id,
+              title: match.title,
+              sport: match.sport,
+              teamA: match.teamA,
+              teamALogo: match.teamALogo,
+              teamB: match.teamB,
+              teamBLogo: match.teamBLogo,
+              league: match.league,
+            })
+          )
+        )
+
+        // Count successful notifications
+        for (const r of pushResults) {
+          if (r.status === 'fulfilled' && r.value.sent > 0) {
+            notificationsSent += r.value.sent
+          }
+        }
+
+        if (liveMatches.length > 0) {
+          console.log(
+            `[MatchSync] ${updatedToLive} match(es) went LIVE → push notifications sent to ${notificationsSent} device(s)`
+          )
+        }
+      } catch (pushError) {
+        // Don't let push notification failures break the sync
+        console.error('[MatchSync] Push notification error (non-fatal):', pushError)
+      }
+    }
   }
 
   // Update live → ended
@@ -75,5 +140,5 @@ export async function syncMatchStatuses(): Promise<{
     updatedToEnded = result.count
   }
 
-  return { updatedToLive, updatedToEnded }
+  return { updatedToLive, updatedToEnded, notificationsSent }
 }

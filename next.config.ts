@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
+  // Vercel handles the build output automatically — no need for 'standalone'.
+  // output: 'standalone' is only needed for Docker / Node.js self-hosting.
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -9,8 +10,6 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ['0.0.0.0', 'localhost', '127.0.0.1', '*.space-z.ai', 'preview-chat-*.space-z.ai', '21.0.21.161'],
   // Next.js 16+ default request body limit is 10MB. Our /api/data/import
   // route accepts backup files up to 100MB, so raise the limit here.
-  // Without this, large imports get silently truncated to 10MB → JSON
-  // parse fails → 400 "Invalid JSON" error.
   experimental: {
     serverActions: {
       bodySizeLimit: '200mb',
@@ -32,7 +31,7 @@ const nextConfig: NextConfig = {
         destination: '/#/admin',
         permanent: false,
       },
-    ]
+    ];
   },
 };
 

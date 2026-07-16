@@ -22,6 +22,7 @@ export type AdminPage =
   | 'matches'
   | 'categories'
   | 'feedback'
+  | 'notifications'
   | 'settings'
   | 'data'
 

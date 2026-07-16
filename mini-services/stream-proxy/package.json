@@ -1,7 +1,0 @@
-{
-  "name": "stream-proxy",
-  "scripts": {
-    "dev": "bun --hot index.ts"
-  },
-  "dependencies": {}
-}

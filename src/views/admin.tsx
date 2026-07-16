@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { useAppStore } from '@/lib/store'
-import { Shield, Eye, EyeOff, LogOut, AlertCircle, Loader2, Tv, BarChart3, Radio, FolderOpen, Settings, Menu, X, Activity, Database, Home, MessageCircle } from 'lucide-react'
+import { Shield, Eye, EyeOff, LogOut, AlertCircle, Loader2, Tv, BarChart3, Radio, FolderOpen, Settings, Menu, X, Activity, Database, Home, MessageCircle, Bell } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -38,6 +38,7 @@ const AdminSettings = lazyWithRetry(() => import('@/views/admin/settings').then(
 const AdminAnalytics = lazyWithRetry(() => import('@/views/admin/analytics').then(m => ({ default: m.AdminAnalytics })))
 const AdminData = lazyWithRetry(() => import('@/views/admin/data').then(m => ({ default: m.AdminData })))
 const AdminFeedback = lazyWithRetry(() => import('@/views/admin/feedback').then(m => ({ default: m.AdminFeedback })))
+const AdminNotifications = lazyWithRetry(() => import('@/views/admin/notifications').then(m => ({ default: m.AdminNotifications })))
 
 // Bottom nav items (mobile) — icons only, no labels
 const bottomNavItems = [
@@ -45,6 +46,7 @@ const bottomNavItems = [
   { id: 'analytics' as const, label: 'Stats', icon: Activity },
   { id: 'channels' as const, label: 'Channels', icon: Tv },
   { id: 'matches' as const, label: 'Matches', icon: Radio },
+  { id: 'notifications' as const, label: 'Notify', icon: Bell },
   { id: 'settings' as const, label: 'Settings', icon: Settings },
 ]
 
@@ -56,6 +58,7 @@ const sidebarNavItems = [
   { id: 'matches' as const, label: 'Matches', icon: Radio },
   { id: 'categories' as const, label: 'Categories', icon: FolderOpen },
   { id: 'feedback' as const, label: 'Feedback', icon: MessageCircle },
+  { id: 'notifications' as const, label: 'Notifications', icon: Bell },
   { id: 'settings' as const, label: 'Settings', icon: Settings },
   { id: 'data' as const, label: 'Data', icon: Database },
 ]
@@ -288,6 +291,8 @@ export function AdminPage() {
           return <AdminCategories />
         case 'feedback':
           return <AdminFeedback />
+        case 'notifications':
+          return <AdminNotifications />
         case 'settings':
           return <AdminSettings />
         case 'data':
