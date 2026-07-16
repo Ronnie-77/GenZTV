@@ -1,12 +1,13 @@
-// SQLite schema for local development
-// Usage: cp prisma/schema.sqlite.prisma prisma/schema.prisma && bun run db:push
+// PostgreSQL schema for Neon (production)
+// This file is kept as a backup reference.
+// The active schema.prisma is already PostgreSQL.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -93,15 +94,15 @@ model AppSetting {
   featuredChannelId         String  @default("")
   heroBannerText            String  @default("")
   defaultQuality            String  @default("auto")
-  bannerAdScript            String  @default("")
-  socialBarAdScript         String  @default("")
-  customAdScripts           String  @default("[]")
+  bannerAdScript            String?
+  socialBarAdScript         String?
+  customAdScripts           String?
   adsEnabled                Boolean @default(true)
   homeAdsEnabled            Boolean @default(true)
   videoAdsEnabled           Boolean @default(true)
   apkUrl                    String  @default("")
   ga4MeasurementId          String  @default("")
-  firebaseConfig            String  @default("{}")
+  firebaseConfig            String?
   securityEnabled           Boolean @default(true)
   redirectAdUrl             String  @default("")
   redirectAdEnabled         Boolean @default(false)
@@ -116,7 +117,7 @@ model Feedback {
   category  String   @default("other")
   email     String   @default("")
   subject   String   @default("")
-  message   String
+  message   String?
   page      String   @default("")
   userAgent String   @default("")
   device    String   @default("")
@@ -153,11 +154,11 @@ model DailyStat {
   totalViews     Int      @default(0)
   uniqueVisitors Int      @default(0)
   peakVisitors   Int      @default(0)
-  topPages       String   @default("{}")
-  topChannels    String   @default("{}")
-  topCountries   String   @default("{}")
-  topDevices     String   @default("{}")
-  topBrowsers    String   @default("{}")
+  topPages       String?
+  topChannels    String?
+  topCountries   String?
+  topDevices     String?
+  topBrowsers    String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
